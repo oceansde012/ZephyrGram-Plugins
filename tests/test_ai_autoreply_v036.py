@@ -10,7 +10,7 @@ import unittest
 
 from test_ai_autoreply import Base, CLIENT, DID, mod
 
-ACTIONS = ("mark_read", "set_typing", "get_recent_stickers", "send_sticker", "send_request")
+ACTIONS = ("mark_read", "set_typing", "get_recent_stickers", "send_sticker", "send_request", "get_message_media")
 
 
 class FixedRng(object):
@@ -576,86 +576,177 @@ class TestTlActions(LiveBase):
 
 
 class TestStickers(LiveBase):
-    STK = [{"id": 11, "emoji": u"😂", "set_title": "a"}, {"id": 12, "emoji": u"👍", "set_title": "b"},
-           {"id": 13, "emoji": u"❤️", "set_title": "c"}]
+    """The sticker is chosen by a short ai_complete 'picker' call from the chat context, never at random."""
+    STK = [{"id": 11, "emoji": u"😂", "set_title": "A"}, {"id": 12, "emoji": u"👍", "set_title": "B"},
+           {"id": 13, "emoji": u"❤️", "set_title": "C"}]
 
     def setUp(self):
         super(TestStickers, self).setUp()
         self.stk_sent = []
+        self.picker = []                                          # raw answers the fake picker returns, in order
+        self.picker_calls = []
         CLIENT.get_recent_stickers = lambda limit=30, account=None: list(self.STK)[:limit]
         CLIENT.send_sticker = lambda did, sid, account=None, reply_to=None: self.stk_sent.append(sid) or True
 
-    def test_choose_prefers_emoji_and_avoids_repeats(self):
-        r = random.Random(1)
-        self.assertEqual(mod.choose_sticker(r, self.STK, [], {u"👍"})["id"], 12)
-        self.assertEqual(mod.choose_sticker(r, self.STK, [12], {u"👍"})["id"] in (11, 13), True)
-        picks = set(mod.choose_sticker(r, self.STK, [11, 12], ())["id"] for _ in range(20))
-        self.assertEqual(picks, {13})
-        self.assertIsNone(mod.choose_sticker(r, [], []))
+        def ai(messages, **kw):
+            if "STICKER CANDIDATES" in str(messages[-1].get("content")):
+                self.picker_calls.append(messages[-1]["content"])
+                r = self.picker.pop(0) if self.picker else '{"use_sticker": false}'
+                if isinstance(r, Exception):
+                    raise r
+                return r
+            return "ну норм, дивись що вийде"
 
-    def test_sticker_after_a_short_emotional_message(self):
-        self.enable()
+        CLIENT.ai_result = ai
         self.p.settings["sticker_pct"] = "100"
-        self.p._rng = random.Random(4)
+
+    def cand(self, batch=((1, 7, u"ахах круто"),), parts=(u"ха ну",), hist=None):
+        c = self.p._chats[self.key()]
+        return self.p._maybe_sticker(c, DID, 0, list(batch), list(parts), False, key=self.key(), hist=hist)
+
+    def test_parser(self):
+        f = mod.parse_sticker_decision
+        self.assertEqual(f('{"use_sticker": true, "index": 2, "reason_emoji": "👍", "mode": "instead"}'),
+                         {"use": True, "index": 2, "emoji": u"👍", "mode": "instead"})
+        self.assertEqual(f('Sure!\n```json\n{"use_sticker": false}\n```')["use"], False)
+        self.assertEqual(f('use_sticker: true, index: 3')["index"], 3)
+        self.assertEqual(f('{"use_sticker": "true", "index": "1", "mode": "weird"}')["mode"], "after")
+        self.assertIsNone(f("blah blah"))
+        self.assertIsNone(f("{broken"))
+        self.assertIsNone(f(""))
+
+    def test_fitting_sticker_is_sent_after_text_and_context_is_in_the_prompt(self):
+        self.enable()
+        self.hist((False, 60, u"бачив фільм?"), (True, 50, u"так, дуже смішний"))
+        self.picker.append('{"use_sticker": true, "index": 1, "reason_emoji": "😂", "mode": "after"}')
         self.incoming(text=u"ахах круто")
+        CLIENT.history.append({"id": 2100, "from_id": 7, "out": False, "date": int(self.clock[0]), "text": u"ахах круто",
+                               "is_service": False})
         self.fire_timers()
-        self.assertEqual(len(self.stk_sent), 1)
-        self.assertIn("sticker_sent", self.p.decisions_text())
-        self.assertIn(self.stk_sent[0], (11, 12, 13))
+        self.assertEqual(self.stk_sent, [11])
+        self.assertEqual(len(CLIENT.sent), 1)                     # text first, then the sticker
+        prompt = self.picker_calls[0]
+        for needle in (u"бачив фільм?", u"ахах круто", u"ну норм", u"1: 😂 (A)", u"3: ❤️ (C)"):
+            self.assertIn(needle, prompt)
+        txt = self.p.decisions_text()
+        self.assertIn("sticker_decided_yes", txt)
+        self.assertIn("sticker_sent", txt)
+        self.assertIn(u"😂", u" ".join(r[1] for r in self.p.decision_rows()))
 
-    def test_laugh_picks_matching_emoji(self):
+    def test_unfitting_means_no_sticker(self):
         self.enable()
-        self.p.settings["sticker_pct"] = "100"
-        c = self.p._chats[self.key()]
-        got = self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False)
-        self.assertEqual(got["id"], 11)
+        self.picker.append('{"use_sticker": false, "index": 0}')
+        self.assertIsNone(self.cand())
+        self.assertIn("sticker_decided_no", self.p.decisions_text())
+        self.assertEqual(self.stk_sent, [])
 
-    def test_no_sticker_for_questions_groups_or_when_off(self):
+    def test_garbage_falls_back_to_matching_emoji_only(self):
         self.enable()
-        self.p.settings["sticker_pct"] = "100"
+        self.picker.append("hmm I think maybe")
+        self.assertEqual(self.cand(parts=(u"ха ну 😂",))["id"], 11)       # emoji of the reply matches a candidate
+        self.picker.append("###")
+        self.assertIsNone(self.cand(parts=(u"ну ок",)))                   # no emoji match: better no sticker
+        self.assertIn("sticker_skipped_no_match", self.p.decisions_text())
+        self.picker.append(RuntimeError("down"))
+        self.assertIsNone(self.cand(parts=(u"ну ок",)))
+        self.assertIn("sticker_skipped_ai_error", self.p.decisions_text())
+
+    def test_bad_index_is_skipped(self):
+        self.enable()
+        self.picker.append('{"use_sticker": true, "index": 99, "mode": "after"}')
+        self.assertIsNone(self.cand())
+        self.assertIn("sticker_skipped_bad_index", self.p.decisions_text())
+
+    def test_no_repeat_of_sticker_or_set_in_a_row(self):
+        self.enable()
+        key = self.key()
+        self.p._state(key).last_sticker = (11, "A")
+        self.picker.append('{"use_sticker": true, "index": 1}')
+        got = self.cand()
+        self.assertEqual(got["id"], 12)                           # candidate 1 is now the first fresh one
+        self.assertNotIn(u"(A)", self.picker_calls[-1])
+        self.p._sticker_hist.extend([12, 13])
+        self.assertIsNone(self.cand())                            # everything is a repeat
+        self.assertIn("sticker_skipped_repeat", self.p.decisions_text())
+        self.assertEqual(len(self.picker_calls), 1)               # no AI call when nothing is fresh
+
+    def test_sending_remembers_id_and_set(self):
+        self.enable()
+        st = self.p._state(self.key())
+        self.p._send_sticker(self.key(), st, DID, 0, {"id": 12, "set": "B"}, None)
+        self.assertEqual(st.last_sticker, (12, "B"))
+
+    def test_no_picker_call_for_questions_groups_off_or_zero_chance(self):
+        self.enable()
         c = self.p._chats[self.key()]
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах а ти де?")], [u"ну"], False))
-        self.assertIsNone(self.p._maybe_sticker(dict(c, type="group"), DID, 0, [(1, 7, u"ахах")], [u"ну"], False))
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"розкажи як минув день у тебе на роботі сьогодні детально")], [u"ну"], False))
+        self.assertIsNone(self.cand(batch=((1, 7, u"ахах а ти де?"),)))
+        self.assertIsNone(self.p._maybe_sticker(dict(c, type="group"), DID, 0, [(1, 7, u"ахах")], [u"ну"], False, key=self.key()))
         self.p.settings["stickers"] = False
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False))
+        self.assertIsNone(self.cand())
         self.p.settings["stickers"] = True
         self.p.settings["sticker_pct"] = "0"
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False))
+        self.assertIsNone(self.cand())
+        self.assertEqual(self.picker_calls, [])
 
-    def test_probability_default_is_small(self):
+    def test_probability_means_chance_to_ask_the_picker(self):
         self.enable()
-        c = self.p._chats[self.key()]
-        n = 0
+        self.p.settings["sticker_pct"] = "12"
         for i in range(400):
             self.p._rng = random.Random(i)
-            if self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False):
-                n += 1
-        self.assertTrue(20 < n < 90, n)                           # ~12 %
+            self.cand()
+        n = len(self.picker_calls)
+        self.assertTrue(20 < n < 90, n)
 
     def test_old_app_without_sticker_api_is_silent(self):
         self.enable()
         del CLIENT.get_recent_stickers
-        self.p.settings["sticker_pct"] = "100"
-        c = self.p._chats[self.key()]
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False))
+        self.assertIsNone(self.cand())
+        CLIENT.get_recent_stickers = lambda limit=30, account=None: []
+        self.assertIsNone(self.cand())
+        self.assertIn("sticker_skipped_no_candidates", self.p.decisions_text())
         CLIENT.get_recent_stickers = lambda limit=30, account=None: (_ for _ in ()).throw(RuntimeError("x"))
-        self.assertIsNone(self.p._maybe_sticker(c, DID, 0, [(1, 7, u"ахах")], [u"ну"], False))
+        self.assertIsNone(self.cand())
+        self.assertEqual(self.picker_calls, [])
 
-    def test_sticker_instead_of_text_and_own_sticker_is_not_owner_activity(self):
+    def test_instead_mode_only_for_tiny_replies(self):
         self.enable()
-        self.p.settings["sticker_pct"] = "100"
-        self.p._rng = FixedRng(rnd=0.1)                           # chosen, and 'instead' (< 0.5)
-        key = self.key()
-        self.incoming(text=u"ок")
-        self.p._rng = FixedRng(rnd=0.1)
+        self.picker.append('{"use_sticker": true, "index": 1, "mode": "instead"}')
+        self.assertTrue(self.cand(parts=(u"ага",))["instead"])
+        self.picker.append('{"use_sticker": true, "index": 2, "mode": "instead"}')
+        self.assertFalse(self.cand(parts=(u"ну це дуже довга відповідь про все на світі, справді довга",))["instead"])
+
+    def test_instead_sends_only_the_sticker_and_own_sticker_is_not_owner_activity(self):
+        self.enable()
+        self.picker.append('{"use_sticker": true, "index": 1, "mode": "instead"}')
+        base = CLIENT.ai_result
+        CLIENT.ai_result = lambda m, **kw: u"ага" if "STICKER" not in str(m[-1].get("content")) else base(m)
+        self.incoming(text=u"ахах круто")
         self.fire_timers()
         self.assertEqual(self.stk_sent, [11])
         self.assertEqual(CLIENT.sent, [])
-        st = self.p._state(key)
+        st = self.p._state(self.key())
         before = st.owner_ts
         self.p.handle_incoming(0, self.msg(text=u"", out=True))   # the sticker coming back as an outgoing event
         self.assertEqual(st.owner_ts, before)
+
+    def test_media_description_reaches_the_picker_only_when_enabled(self):
+        self.enable()
+        CLIENT.get_message_media = lambda did, mid, account=None: {"kind": "sticker", "emoji": u"😭", "set_title": "Sad"}
+        hist = [{"id": 5, "out": False, "text": "", "has_media": True}]
+        self.picker.append('{"use_sticker": false}')
+        self.cand(hist=hist)
+        self.assertNotIn("Incoming media", self.picker_calls[-1])
+        self.p.settings["see_media"] = True
+        self.picker.append('{"use_sticker": false}')
+        self.cand(hist=hist)
+        self.assertIn(u"[media: sticker, 😭, Sad]", self.picker_calls[-1])
+
+    def test_skip_reasons_are_localized(self):
+        for lang in (1, 2, 3):
+            self.p.settings["ui_lang"] = lang
+            for code in ("sticker_decided_yes", "sticker_decided_no", "sticker_skipped_no_match", "sticker_skipped_repeat"):
+                self.assertNotEqual(self.p.rt(code), code.replace("_", " "))
+            self.assertNotIn("%s", self.p.rt("sticker_skipped_ai_error"))
 
 
 class TestLanguage(LiveBase):
@@ -727,8 +818,8 @@ class TestLanguage(LiveBase):
 
 class TestMeta(unittest.TestCase):
     def test_header(self):
-        self.assertEqual(mod.__version__, "0.3.6")
-        self.assertEqual(mod.__version_code__, 9)
+        self.assertEqual(mod.__version__, "0.3.7")
+        self.assertEqual(mod.__version_code__, 10)
         self.assertIn("network.requests", mod.__permissions__)
         self.assertEqual(len(mod.PRESET_NAMES), len(mod.PRESETS))
 

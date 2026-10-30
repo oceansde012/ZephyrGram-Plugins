@@ -420,7 +420,7 @@ silent after the owner wrote in the chat; empty = preset, Balanced 45), `chat_ho
 Balanced 20), `ui_lang` (int: `0` auto, `1` uk, `2` ru, `3` en).
 
 **`decisions`** (string, JSON array, at most 60 since 0.3.6 (20 before), oldest first, no message text):
-`{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}`.
+`{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}` (0.3.7: plus an optional `"x"`, a short extra such as an emoji).
 `o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`
 (reason `incoming_seen`: a message from the other person reached the plugin; consecutive ones of a chat are
 collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, `admin_status`, `admin_list`,
@@ -483,14 +483,97 @@ try/except: when Java access or a helper is missing the plugin silently works wi
 is skipped and logged as `read_blocked_by_ghost` (once an hour per chat; turn off "do not read" in ghost mode to get
 read marks), typing is skipped silently.
 
-**Stickers** need `client.get_recent_stickers(limit, account)` and `client.send_sticker(dialog_id, sticker_id,
-account, reply_to)` (section 6; missing = no stickers). With probability `sticker_pct` per reply, and only after short
-(<= 20 characters), emotional or acknowledgement messages in private chats (never for questions), the plugin sends a
-random one of the first 20 recent stickers (`sticker_recent` off: first 60), not one of the last 6 used, preferring an
-`emoji` that occurs in the reply/incoming text (laughter and thanks map to a few emoji); either after the text or, for
-acknowledgements and tiny replies, instead of it (`sticker_sent`).
+**Stickers (0.3.7: chosen by context).** They need `client.get_recent_stickers(limit, account)` and
+`client.send_sticker(dialog_id, sticker_id, account, reply_to)` (section 6; missing = no stickers). `sticker_pct`
+(12) is the chance per reply (private chats, never for questions) to ask a separate `client.ai_complete` call, the
+"picker": system prompt = decide with strict JSON `{"use_sticker": bool, "index": N, "reason_emoji": "...", "mode":
+"instead"|"after"}`, use a sticker only when it naturally fits and never for serious/conflict/informational messages;
+user content = the last chat messages, the incoming message(s), the finished reply and the candidates numbered from
+1 (`3: <emoji> (<set_title>)`, first 25 recent stickers, not the last id/set used in the chat). The answer is parsed
+leniently (JSON found inside text); on garbage or an AI error only a sticker whose emoji appears in the reply is used,
+otherwise none. `instead` is honoured only when the text reply is <= 30 characters. If the app provides
+`client.get_message_media(dialog_id, message_id, account=None) -> dict` (keys `kind`, `emoji`, `set_title`,
+`description`, all optional) and the setting `see_media` is on, the description of the newest incoming media is added to
+the picker prompt. Log reasons: `sticker_decided_yes` (record field `x` = the emoji), `sticker_decided_no`,
+`sticker_skipped_<why>`, `sticker_sent`.
 
 **Language.** `reply_lang = 3` (default): the language of the messages being answered decides (distinctive letters
 ы э ъ ё / і ї є ґ and everyday words), then the last 2-3 incoming messages, then the owner's own messages, then
 Ukrainian; the prompt says to answer in the language the other person wrote in. Storage additions: `scan_marks`
 (JSON object chat key -> highest handled message id).
+
+## 12. Media for vision (0.1.5): `get_message_media`, `ai_complete(images=)`
+
+```
+client.get_message_media(dialog_id, message_id, account=None, max_side=768, timeout_s=20) -> dict | None   # chat.read
+client.ai_complete(messages, system=None, model=None, temperature=None, timeout=60, images=None) -> str    # ai.complete
+```
+
+**`get_message_media`** is blocking: call it from `client.run_in_bg` only. It reads the message from the local
+database, never throws into Python on failure (returns `None` when the message or its media is not found, or on any
+error); only a missing `chat.read` permission raises `PermissionError`. `max_side` is clamped to 128..1280,
+`timeout_s` to 1..60 (the budget for downloads). Result:
+
+| key | meaning |
+| --- | --- |
+| `type` | `photo`, `video`, `gif`, `sticker`, `animated_sticker` (tgs/webm), `voice`, `audio`, `document`, `other` |
+| `caption` | message text (str) |
+| `emoji`, `set_title` | stickers: emoji and set title (title only if the set is cached), else `""` |
+| `mime`, `duration` (s, 0 if n/a), `width`, `height` | document/photo metadata |
+| `image_b64` | JPEG, longest side <= `max_side`, quality ~75, base64 **without** `data:` prefix, <= 400 KB; `None` if no image |
+| `image_kind` | `photo` (real image), `thumb` (server thumbnail / stripped preview), `frame` (middle frame of an already downloaded video/gif < 20 MB), `sticker` (static webp on white), `None` |
+
+Rules: photos download the smallest size >= `max_side` (and <= 1280) if not cached, falling back to the stripped
+preview (`thumb`). Videos/gifs are never downloaded: a middle frame is taken only from a file that is already local
+(< 20 MB), otherwise the cached/small thumbnail is used. Static stickers are downloaded (tiny); animated stickers
+return only `emoji` + `set_title`. Secret chats return metadata without an image. Downloading does not mark the chat
+as read and sends no read receipts (ghost mode is untouched).
+
+**`ai_complete(images=[b64, ...])`**: optional list of base64 JPEG strings (a `data:image/jpeg;base64,` prefix is
+tolerated), at most 4 and ~1.6 MB of base64 in total (else `ValueError`). The images are attached to the LAST `user`
+message, whose `content` becomes `[{"type":"text","text":...}, {"type":"image_url","image_url":{"url":"data:image/jpeg;base64,..."}}]`
+(OpenAI vision format; the configured model/server must support it). Without `images` the behaviour is unchanged.
+
+```python
+def work():
+    m = client.get_message_media(dialog_id, msg_id)
+    imgs = [m["image_b64"]] if m and m["image_b64"] else []
+    hint = m and m["type"] in ("sticker", "animated_sticker") and (m["emoji"] + " " + m["set_title"])
+    return client.ai_complete([{"role": "user", "content": "What is in this picture? " + (hint or "")}], images=imgs)
+client.run_in_bg(work)
+```
+
+## 13. Voice messages: `get_voice`, `ai_transcribe` (0.1.5)
+
+```
+client.get_voice(dialog_id, message_id, account=None, timeout_s=30, max_seconds=300) -> dict | None   # chat.read
+client.ai_transcribe(audio_b64, mime='audio/ogg', language=None) -> str                                # ai.complete
+```
+
+Both are blocking: worker thread only (`client.run_in_bg`).
+
+**`get_voice`** returns `None` when the message is not found or on an internal failure. Otherwise a dict:
+
+* voice / audio: `{type: 'voice'|'audio', is_voice: bool, duration: int (s), mime, size: int (bytes), audio_b64}`;
+  `audio_b64` is the original file (normally OGG/Opus), base64 without a `data:` prefix.
+* limits: more than 2.5 MB or longer than `max_seconds` gives `{'error': 'too_big'}` / `{'error': 'too_long'}`;
+  a download not finished within `timeout_s` (1..120) gives `{'error': 'download_failed'}`. Other errors:
+  `not_audio` (no voice/audio in the message), `secret` (secret chat, never fetched).
+* round video ("circle"): no audio is extracted; the result has the `get_message_media` shape with
+  `type: 'round_video'`, `is_voice: false` and a frame/thumb in `image_b64`.
+
+The file is downloaded through the normal file loader; this does not mark the message as read or listened and sends
+no read receipts. Telegram's own Premium transcription is not used.
+
+**`ai_transcribe`** sends a multipart POST (`file`, `response_format=json`, optional `language`) to
+`{server}/v1/audio/transcriptions` with the user's AI token (same server, HTML detection, retries and error mapping
+as `ai_complete`; the token is never exposed). Audio is limited to ~3 MB. Returns the transcript (JSON field `text`)
+or raises `AiError` (`.code` as in `ai_complete`; an empty transcript is an error); `PermissionError` without `ai.complete`.
+
+```python
+def work():
+    v = client.get_voice(dialog_id, msg_id)
+    if v and v.get("audio_b64"):
+        return client.ai_transcribe(v["audio_b64"], v["mime"] or "audio/ogg")
+client.run_in_bg(work)
+```

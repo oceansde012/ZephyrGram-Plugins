@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.6"
-__version_code__ = 9
+__version__ = "0.3.7"
+__version_code__ = 10
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -552,6 +552,64 @@ def sticker_emojis(text):
     return set(ch for ch in EMOJI_RE.findall(str(text or "")) if ch not in u"\ufe0f\u200d")
 
 
+STICKER_SYSTEM = (
+    "You decide whether a chat reply should be accompanied by a sticker. Answer with STRICT JSON only, no other text: "
+    '{"use_sticker": true|false, "index": N, "reason_emoji": "emoji", "mode": "instead"|"after"}. '
+    "index is the number of the chosen candidate. Use a sticker only when one of the candidates naturally fits the "
+    "mood and the situation (laughter, thanks, surprise, sympathy, greeting, agreement or refusal). If none fits, "
+    "answer use_sticker=false: no sticker is better than a wrong one. NEVER use a sticker when the incoming message "
+    "is serious, a conflict, bad news, informational/practical or a question. mode 'instead' replaces the text reply "
+    "(only for a tiny reply), 'after' sends the sticker after the text.")
+
+
+def parse_sticker_decision(raw):
+    """Dict {'use': bool, 'index': int|None, 'emoji': str, 'mode': str} from model output that may contain garbage;
+    None when nothing usable is found."""
+    text = str(raw or "")
+    data = None
+    m = re.search(r"\{.*\}", text, re.S)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        mu = re.search(r'"?use_sticker"?\s*[:=]\s*"?(true|false)', text, re.I)
+        if not mu:
+            return None
+        data = {"use_sticker": mu.group(1).lower() == "true"}
+        mi = re.search(r'"?index"?\s*[:=]\s*"?(-?\d+)', text)
+        if mi:
+            data["index"] = int(mi.group(1))
+        me = re.search(r'"?mode"?\s*[:=]\s*"?(instead|after)', text, re.I)
+        if me:
+            data["mode"] = me.group(1).lower()
+    use = data.get("use_sticker")
+    if isinstance(use, str):
+        use = use.strip().lower() == "true"
+    if not isinstance(use, bool):
+        return None
+    idx = data.get("index")
+    try:
+        idx = int(idx) if idx is not None and not isinstance(idx, bool) else None
+    except (TypeError, ValueError):
+        idx = None
+    mode = str(data.get("mode") or "after").lower()
+    return {"use": use, "index": idx, "emoji": str(data.get("reason_emoji") or ""),
+            "mode": mode if mode in ("instead", "after") else "after"}
+
+
+def emoji_match_sticker(stickers, want_emoji):
+    """Fallback: first sticker whose emoji equals one of want_emoji; None when no emoji matches (never random)."""
+    want = set(want_emoji or ())
+    if not want:
+        return None
+    for s in stickers:
+        if isinstance(s, dict) and s.get("id") and sticker_emojis(s.get("emoji")) & want:
+            return s
+    return None
+
+
 def choose_sticker(rng, stickers, recent_ids, want_emoji=()):
     """One sticker dict from the list: not one of the last recent_ids when possible, with an emoji matching
     want_emoji when possible, else random. None for an empty list."""
@@ -984,10 +1042,14 @@ S = {
                     "Перед ответом (через 1-6 с после получения в живой беседе; в холодной — перед началом набора). Только личные чаты. Блокируется ghost-режимом «не читать»."),
     "read_always": ("Read even when the bot does not reply", "Читати, навіть коли бот не відповідає", "Читать, даже когда бот не отвечает"),
     "stickers": ("Stickers", "Стікери", "Стикеры"),
-    "stickers_s": ("Now and then the bot sends one of your recent stickers (only after short emotional/acknowledgement messages, never to questions).",
-                   "Інколи бот надсилає один з ваших недавніх стікерів (лише після коротких емоційних/підтверджувальних повідомлень, ніколи на питання).",
-                   "Иногда бот отправляет один из ваших недавних стикеров (только после коротких эмоциональных/подтверждающих сообщений, никогда на вопросы)."),
-    "sticker_pct": ("Sticker chance, % per reply", "Ймовірність стікера, % на відповідь", "Вероятность стикера, % на ответ"),
+    "stickers_s": ("Now and then the bot asks the AI whether a sticker from your recent ones fits the moment and sends it only if one does (never for questions or serious messages).",
+                   "Інколи бот питає ШІ, чи пасує до моменту стікер з ваших недавніх, і надсилає його, лише якщо пасує (ніколи на питання чи серйозні повідомлення).",
+                   "Иногда бот спрашивает ИИ, подходит ли к моменту стикер из ваших недавних, и отправляет его, только если подходит (никогда на вопросы или серьёзные сообщения)."),
+    "sticker_pct": ("Chance to ask the sticker picker, % per reply", "Шанс запитати вирішувача стікерів, % на відповідь", "Шанс спросить выбирателя стикеров, % на ответ"),
+    "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
+    "see_media_s": ("If the app supports it, the sticker picker gets a description of the incoming sticker/photo/GIF. Off by default.",
+                    "Якщо застосунок це підтримує, вирішувач стікерів отримує опис вхідного стікера/фото/GIF. Типово вимкнено.",
+                    "Если приложение это поддерживает, выбиратель стикеров получает описание входящего стикера/фото/GIF. По умолчанию выключено."),
     "sticker_recent": ("Only from recent stickers", "Лише з недавніх", "Только из недавних"),
     "lat_warm_min": ("Warm talk: reply after, min (s)", "Жвава розмова: відповідь через, мін (с)", "Живая беседа: ответ через, мин (с)"),
     "lat_warm_max": ("Warm talk: reply after, max (s)", "Жвава розмова: відповідь через, макс (с)", "Живая беседа: ответ через, макс (с)"),
@@ -1040,6 +1102,16 @@ R = {
                               "не вдалося позначити прочитаним: ghost-режим блокує прочитання (вимкніть «не читати» в ghost-режимі)",
                               "не удалось пометить прочитанным: ghost-режим блокирует прочтение (выключите «не читать» в ghost-режиме)"),
     "sticker_sent": ("sent a sticker", "надіслано стікер", "отправлен стикер"),
+    "sticker_decided_yes": ("the sticker picker chose a sticker", "вирішувач стікерів обрав стікер",
+                            "выбиратель стикеров выбрал стикер"),
+    "sticker_decided_no": ("the sticker picker decided: no sticker fits", "вирішувач стікерів вирішив: жоден стікер не пасує",
+                           "выбиратель стикеров решил: ни один стикер не подходит"),
+    "sticker_skipped": ("no sticker: %s", "без стікера: %s", "без стикера: %s"),
+    "sticker_why_no_candidates": ("no recent stickers", "немає недавніх стікерів", "нет недавних стикеров"),
+    "sticker_why_repeat": ("only repeats of the last sticker/set were left", "лишились лише повтори останнього стікера/набору", "остались только повторы последнего стикера/набора"),
+    "sticker_why_no_match": ("nothing matched the mood", "нічого не підійшло за настроєм", "ничего не подошло по настроению"),
+    "sticker_why_ai_error": ("the picker AI call failed", "виклик ШІ-вирішувача не вдався", "вызов ИИ-выбирателя не удался"),
+    "sticker_why_bad_index": ("the picker named a sticker that does not exist", "вирішувач назвав неіснуючий стікер", "выбиратель назвал несуществующий стикер"),
     "outgoing": ("it is your own message", "це ваше власне повідомлення", "это ваше собственное сообщение"),
     "master_off": ("the master switch is off", "головний перемикач вимкнено", "главный переключатель выключен"),
     "sender_is_bot": ("the sender is a bot", "відправник — бот", "отправитель — бот"),
@@ -1193,6 +1265,11 @@ def reason_text(lang, code):
     """Plain-language explanation of a stored reason code (unknown codes are shown as they are)."""
     code = str(code or "")
     row = R.get(code)
+    ms = re.match(r"^sticker_skipped_(\w+)$", code)
+    if row is None and ms:
+        base = R["sticker_skipped"]
+        why = reason_text(lang, "sticker_why_" + ms.group(1))
+        return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % why
     mw = re.match(r"^latency_wait_(\d+)$", code)
     if row is None and mw:
         base = R["latency_wait"]
@@ -1273,6 +1350,7 @@ class ChatState(object):
         self.read_upto = 0                 # highest message id already marked as read
         self.ghost_note_ts = 0.0
         self.abort = ""                    # reason when a delivery was stopped while waiting
+        self.last_sticker = (0, "")        # (id, set title) of the last sticker sent in this chat
 
 
 class Plugin(BasePlugin):
@@ -1418,8 +1496,8 @@ class Plugin(BasePlugin):
             data = []
         self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=60)
 
-    def _decide(self, key, outcome, reason, ring=True):
-        """Record why a message was answered or skipped. Never raises."""
+    def _decide(self, key, outcome, reason, ring=True, x=None):
+        """Record why a message was answered or skipped. Never raises. x = short extra text (for example an emoji)."""
         try:
             reason = re.sub(r"\W+", "_", str(reason).lower()).strip("_") or "unknown"
             self.log("decision %s %s %s" % (outcome, key, reason))
@@ -1428,7 +1506,10 @@ class Plugin(BasePlugin):
                     if (outcome == "seen" and self._decisions and self._decisions[-1].get("o") == "seen"
                             and self._decisions[-1].get("chat") == key):
                         self._decisions.pop()          # a run of received messages is one entry (newest time)
-                    self._decisions.append({"t": int(self._now()), "chat": key, "o": outcome, "r": reason})
+                    rec = {"t": int(self._now()), "chat": key, "o": outcome, "r": reason}
+                    if x:
+                        rec["x"] = str(x)[:12]
+                    self._decisions.append(rec)
                     self.set_setting("decisions", json.dumps(list(self._decisions)))
         except Exception:
             pass
@@ -2340,7 +2421,7 @@ class Plugin(BasePlugin):
             else:
                 if live:
                     parts = self._maybe_split2(parts)
-                sticker = self._maybe_sticker(c, did, account, batch, parts, ack_hint)
+                sticker = self._maybe_sticker(c, did, account, batch, parts, ack_hint, key=key, hist=hist)
                 if sticker and sticker.get("instead"):
                     parts = []
                 timing = self._make_timing(key, st, kind, arrival, batch, parts, cold_read) if live else None
@@ -2525,40 +2606,101 @@ class Plugin(BasePlugin):
             return False
 
     # ---- stickers
-    def _maybe_sticker(self, c, did, account, batch, parts, ack_hint):
-        """{'id', 'instead': bool} or None. Only after short emotional/acknowledgement messages, never for
-        questions, never in groups; needs get_recent_stickers/send_sticker in the app."""
+    def _media_notes(self, did, account, hist):
+        """Descriptions of the newest incoming media (stickers/photos/GIFs) via client.get_message_media, when
+        the app has it and 'See media' is on. Never raises."""
+        out = []
+        try:
+            fn = getattr(client, "get_message_media", None)
+            if fn is None or not self.get_setting("see_media", False):
+                return out
+            for h in [h for h in (hist or []) if not h.get("out") and h.get("has_media")][-2:]:
+                info = fn(did, h.get("id"), account=account)
+                if isinstance(info, dict):
+                    bits = [str(info.get(k)) for k in ("kind", "emoji", "set_title", "description") if info.get(k)]
+                    if bits:
+                        out.append(u"[media: %s]" % u", ".join(bits))
+        except Exception as e:
+            self._tl_warn("media", e)
+        return out
+
+    def _sticker_prompt(self, cands, texts, parts, hist, media):
+        lines = []
+        for h in list(hist or [])[-6:]:
+            t = str(h.get("text") or "").strip()
+            if t:
+                lines.append(u"- %s: %s" % (u"me" if h.get("out") else u"them", t[:160]))
+        body = u"Recent chat:\n%s\n" % (u"\n".join(lines) or u"- (none)")
+        if media:
+            body += u"Incoming media: %s\n" % u" ".join(media)
+        body += u"Incoming now: %s\nMy text reply: %s\n\nSTICKER CANDIDATES:\n" % (
+            u" / ".join(t[:200] for t in texts) or u"(no text)", u" / ".join(parts) or u"(none yet)")
+        for num, s in cands:
+            body += u"%d: %s (%s)\n" % (num, s.get("emoji") or u"?", s.get("set_title") or u"-")
+        return body
+
+    def _maybe_sticker(self, c, did, account, batch, parts, ack_hint, key=None, hist=None):
+        """{'id', 'set', 'emoji', 'instead'} or None. With probability sticker_pct a short ai_complete 'picker' call
+        decides from the chat context whether one of the recent stickers fits (strict JSON); fallback when the
+        output is garbage: a sticker whose emoji matches the reply's emotion, else none. Never in groups, never for
+        questions. Needs get_recent_stickers/send_sticker in the app."""
+        def skip(why):
+            if key:
+                self._decide(key, "info", "sticker_skipped_" + why)
+            return None
         try:
             if (not self.get_setting("stickers", True) or c.get("type") == "group"
                     or not hasattr(client, "get_recent_stickers") or not hasattr(client, "send_sticker")):
                 return None
             pct = self._float("sticker_pct", 12.0, 0.0, 100.0)
-            if pct <= 0:
-                return None
             texts = [b[2] or "" for b in batch]
-            if any(has_request(t) for t in texts):
-                return None
-            allack = all(is_ack(t) or is_emoji_only(t) or LAUGH_RE.match(t.strip().lower()) for t in texts)
-            short = all(len(t) <= 20 for t in texts) and len(texts) <= 2
-            if not (ack_hint or allack or short or any(sticker_emojis(t) for t in texts)):
+            if pct <= 0 or any(has_request(t) for t in texts):
                 return None
             if self._rng.random() * 100.0 >= pct:
                 return None
-            lim = 20 if self.get_setting("sticker_recent", True) else 60
-            lst = list(client.get_recent_stickers(limit=lim, account=account) or [])[:lim]
-            want = set()
-            for t in texts + list(parts):
-                want |= sticker_emojis(t)
-            low = " ".join(texts).lower()
-            if LAUGH_RE.match(low.strip()) or any(w in low for w in (u"хаха", u"лол", u"ахах", "lol", "haha")):
-                want |= set(u"😂😁😄🤣😆")
-            if any(w in low for w in (u"дяк", u"спас", "thank")):
-                want |= set(u"❤🙏👍😊")
-            s = choose_sticker(self._rng, lst, self._sticker_hist, want)
-            if not s:
-                return None
-            instead = bool(allack or sum(len(x) for x in parts) <= 8) and self._rng.random() < 0.5
-            return {"id": int(s["id"]), "instead": instead}
+            lim = 25 if self.get_setting("sticker_recent", True) else 60
+            lst = [s for s in (client.get_recent_stickers(limit=lim, account=account) or [])[:lim]
+                   if isinstance(s, dict) and s.get("id")]
+            if not lst:
+                return skip("no_candidates")
+            st = self._state(key) if key else None
+            last_id, last_set = st.last_sticker if st else (0, "")
+            fresh = [s for s in lst if s["id"] != last_id and s["id"] not in self._sticker_hist
+                     and not (last_set and s.get("set_title") == last_set)]
+            if not fresh:
+                return skip("repeat")
+            cands = list(enumerate(fresh, 1))
+            media = self._media_notes(did, account, hist)
+            picked, mode, err = None, "after", False
+            try:
+                raw = client.ai_complete([{"role": "user", "content": self._sticker_prompt(cands, texts, parts, hist, media)}],
+                                         system=STICKER_SYSTEM, temperature=0.2, timeout=20)
+                dec = parse_sticker_decision(raw)
+            except Exception as e:
+                self.log("sticker picker failed: %s" % e)
+                dec = None
+                err = True
+            if dec is not None:
+                if not dec["use"]:
+                    if key:
+                        self._decide(key, "info", "sticker_decided_no")
+                    return None
+                picked = dict(cands).get(dec["index"])
+                mode = dec["mode"]
+                if picked is None:
+                    return skip("bad_index")
+            else:                                   # garbage or no answer: only an emoji that matches the reply
+                want = set()
+                for t in parts:
+                    want |= sticker_emojis(t)
+                picked = emoji_match_sticker(fresh, want)
+                if picked is None:
+                    return skip("ai_error" if err else "no_match")
+            instead = (mode == "instead" and sum(len(x) for x in parts) <= 30)
+            if key:
+                self._decide(key, "info", "sticker_decided_yes", x=picked.get("emoji") or "")
+            return {"id": int(picked["id"]), "set": picked.get("set_title") or "",
+                    "emoji": picked.get("emoji") or "", "instead": instead}
         except Exception as e:
             self._tl_warn("stickers", e)
             return None
@@ -2572,6 +2714,7 @@ class Plugin(BasePlugin):
             st.last_send_ts = self._now()
         if ok:
             self._sticker_hist.append(sticker["id"])
+            st.last_sticker = (sticker["id"], sticker.get("set") or "")
             self._decide(key, "info", "sticker_sent")
         return bool(ok)
 
@@ -3005,7 +3148,7 @@ class Plugin(BasePlugin):
         if outcome in ("sent", "draft") and code == "ok":
             return label
         if outcome in ("seen", "cmd", "info"):
-            return self.rt(code)
+            return self.rt(code) + ((" " + str(r["x"])) if r.get("x") else "")
         return "%s: %s" % (label, self.rt(code))
 
     def _stamp(self, ts, full=False):
@@ -3625,6 +3768,7 @@ class Plugin(BasePlugin):
             Switch(key="stickers", text=t("stickers"), default=True, subtext=t("stickers_s")),
             Input(key="sticker_pct", text=t("sticker_pct"), default="12"),
             Switch(key="sticker_recent", text=t("sticker_recent"), default=True),
+            Switch(key="see_media", text=t("see_media"), default=False, subtext=t("see_media_s")),
         ] + [Input(key=k, text=t(k), default="", subtext=t("until_touch")) for k in (
             "lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
             "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap", "split2_pct", "split_gap_min",
