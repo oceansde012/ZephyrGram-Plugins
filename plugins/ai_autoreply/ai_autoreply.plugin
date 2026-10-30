@@ -1,22 +1,24 @@
 __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
-__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
+__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.1"
-__version_code__ = 4
+__version__ = "0.3.2"
+__version_code__ = 5
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
 
 import difflib
 import json
+import locale
+import os
 import random
 import re
 import threading
 import time
 from collections import deque
 
-from zephyr import BasePlugin, MenuItem, MenuType
+from zephyr import BasePlugin, HookResult, HookStrategy, MenuItem, MenuType
 from zephyr import client
 from zephyr.ui import Header, Switch, Input, Selector, Text, Divider
 try:
@@ -427,6 +429,433 @@ def parse_quiet_hours(raw):
     return a, b
 
 
+# ---------------------------------------------------------------------- localization (en / uk / ru)
+LANGS = ("en", "uk", "ru")
+LANG_NAMES = ["Auto / Авто", "Українська", "Русский", "English"]
+
+
+def detect_ui_lang():
+    """Language of the phone as seen from Python (zephyr.client has no app-locale API and java.raw is not
+    requested). Only uk/ru are trusted; anything else (including 'C') gives None."""
+    cand = [os.environ.get(k) for k in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG")]
+    try:
+        cand.append(locale.getlocale()[0])
+    except Exception:
+        pass
+    for v in cand:
+        code = str(v or "").lower()[:2]
+        if code in ("uk", "ru"):
+            return code
+    return None
+
+
+# key: (English, Ukrainian, Russian). A missing translation falls back to English.
+S = {
+    # menu and bulletins
+    "menu_off": ("AI auto-reply: OFF (tap to enable)", "ШІ-автовідповідач: ВИМК (натисніть, щоб увімкнути)",
+                 "ИИ-автоответчик: ВЫКЛ (нажмите, чтобы включить)"),
+    "menu_on": ("AI auto-reply: ON (tap to disable)", "ШІ-автовідповідач: УВІМК (натисніть, щоб вимкнути)",
+                "ИИ-автоответчик: ВКЛ (нажмите, чтобы выключить)"),
+    "bl_na": ("AI auto-reply: not available here (%s)", "ШІ-автовідповідач: тут недоступно (%s)",
+              "ИИ-автоответчик: здесь недоступен (%s)"),
+    "bl_on": ("AI auto-reply: ON for %s", "ШІ-автовідповідач: увімкнено для %s", "ИИ-автоответчик: включён для %s"),
+    "bl_off": ("AI auto-reply: OFF", "ШІ-автовідповідач: вимкнено", "ИИ-автоответчик: выключен"),
+    "bl_cannot": ("AI auto-reply: could not enable this chat", "ШІ-автовідповідач: не вдалося увімкнути цей чат",
+                  "ИИ-автоответчик: не удалось включить этот чат"),
+    "bl_removed": ("AI auto-reply: removed %s", "ШІ-автовідповідач: видалено %s", "ИИ-автоответчик: удалён %s"),
+    "bl_errors_off": ("AI auto-reply disabled in %s after repeated errors (retries in 30 min)",
+                      "ШІ-автовідповідач вимкнено в %s через повторні помилки (спробує знову за 30 хв)",
+                      "ИИ-автоответчик отключён в %s из-за повторных ошибок (повтор через 30 мин)"),
+    "bl_test_running": ("Style test is already running", "Тест стилю вже виконується", "Тест стиля уже выполняется"),
+    "bl_test_failed": ("Style test failed: %s", "Тест стилю не вдався: %s", "Тест стиля не удался: %s"),
+    "bl_test_na": ("Style test: not available here (%s)", "Тест стилю: тут недоступно (%s)",
+                   "Тест стиля: здесь недоступно (%s)"),
+    "bl_test_noinc": ("Style test: no incoming messages in this chat",
+                      "Тест стилю: у цьому чаті немає вхідних повідомлень",
+                      "Тест стиля: в этом чате нет входящих сообщений"),
+    "bl_test_nothing": ("Style test: nothing to test (last message in this chat is yours)",
+                        "Тест стилю: нічого тестувати (останнє повідомлення в чаті — ваше)",
+                        "Тест стиля: нечего тестировать (последнее сообщение в чате ваше)"),
+    "test_no_reply": ("(no reply: %s)", "(без відповіді: %s)", "(без ответа: %s)"),
+    "test_result": ("Style test for %s (%d own messages learned, nothing was sent)\n%s",
+                    "Тест стилю для %s (вивчено ваших повідомлень: %d, нічого не надіслано)\n%s",
+                    "Тест стиля для %s (изучено ваших сообщений: %d, ничего не отправлено)\n%s"),
+    "bl_copied": ("Log copied (%d)", "Журнал скопійовано (%d)", "Журнал скопирован (%d)"),
+    "bl_cleared": ("Log cleared", "Журнал очищено", "Журнал очищен"),
+    "bl_log_empty": ("Log is empty", "Журнал порожній", "Журнал пуст"),
+    "bl_cmd_busy": ("The previous .ai command is still running", "Попередня команда .ai ще виконується",
+                    "Предыдущая команда .ai ещё выполняется"),
+    "bl_cmd_master": ("Command ignored: master switch is off", "Команду не виконано: головний перемикач вимкнено",
+                      "Команда не выполнена: главный переключатель выключен"),
+    "bl_cmd_na": ("Command not available here (%s)", "Команда тут недоступна (%s)", "Команда здесь недоступна (%s)"),
+    "bl_cmd_failed": ("Command failed: the AI gave no message (%s)", "Команда не вдалась: ШІ не дав повідомлення (%s)",
+                      "Команда не удалась: ИИ не дал сообщения (%s)"),
+    "bl_cmd_draft": ("Draft is ready in the input field (reopen the chat if you do not see it)",
+                     "Чернетка готова в полі вводу (перевідкрийте чат, якщо не бачите)",
+                     "Черновик готов в поле ввода (переоткройте чат, если не видите)"),
+    # decision log
+    "log_none": ("No decisions yet.", "Рішень ще немає.", "Решений пока нет."),
+    "log_copy": ("Copy log (last 20)", "Копіювати журнал (останні 20)", "Копировать журнал (последние 20)"),
+    "log_clear": ("Clear log", "Очистити журнал", "Очистить журнал"),
+    "o_sent": ("sent", "надіслано", "отправлено"),
+    "o_draft": ("draft written", "чернетку записано", "черновик записан"),
+    "o_skip": ("skipped", "пропущено", "пропущено"),
+    "o_error": ("error", "помилка", "ошибка"),
+    "o_disabled": ("chat switched off", "чат вимкнено", "чат отключён"),
+    "o_resume": ("resumed", "відновлено", "возобновлено"),
+    "o_test": ("test", "тест", "тест"),
+    # settings
+    "h_title": ("AI auto-reply", "ШІ-автовідповідач", "ИИ-автоответчик"),
+    "master": ("Master switch", "Головний перемикач", "Главный переключатель"),
+    "master_s": ("Off = never answers anywhere", "Вимк. = ніде не відповідає", "Выкл. = нигде не отвечает"),
+    "lang": ("Interface language", "Мова інтерфейсу", "Язык интерфейса"),
+    "lang_s": ("Auto uses the phone language when the plugin can see it (Ukrainian or Russian), otherwise "
+               "Ukrainian. Menu item texts change after the plugin is reloaded.",
+               "Авто бере мову телефона, якщо плагін її бачить (українська або російська), інакше українську. "
+               "Тексти пунктів меню змінюються після перезавантаження плагіна.",
+               "Авто берёт язык телефона, если плагин его видит (украинский или русский), иначе украинский. "
+               "Тексты пунктов меню меняются после перезагрузки плагина."),
+    "preset": ("Preset", "Пресет", "Пресет"),
+    "preset_s": ("Balanced: waits ~5 s and answers a batch once, 20 s between replies, max 12 replies/hour "
+                 "per chat, skips plain 'ok/thanks', stays silent while you are writing yourself. Chatty: "
+                 "answers more often. Quiet: rarely. Fields below with a value override the preset; empty = preset.",
+                 "Збалансований: чекає ~5 с і відповідає на пачку одним разом, 20 с між відповідями, до 12 "
+                 "відповідей на годину в чаті, пропускає прості «ок/дякую», мовчить, поки ви пишете самі. "
+                 "Балакучий: відповідає частіше. Тихий: рідко. Поля нижче зі значенням мають пріоритет над "
+                 "пресетом; порожньо = пресет.",
+                 "Сбалансированный: ждёт ~5 с и отвечает на пачку один раз, 20 с между ответами, до 12 ответов "
+                 "в час в чате, пропускает простые «ок/спасибо», молчит, пока вы пишете сами. Разговорчивый: "
+                 "отвечает чаще. Тихий: редко. Поля ниже со значением приоритетнее пресета; пусто = пресет."),
+    "h_decisions": ("Recent decisions", "Останні рішення", "Последние решения"),
+    "decisions_note": ("Newest first: time, chat and what happened. No message text is stored.",
+                       "Спочатку найновіші: час, чат і що сталося. Текст повідомлень не зберігається.",
+                       "Сначала новые: время, чат и что произошло. Текст сообщений не хранится."),
+    "h_add": ("Add chat", "Додати чат", "Добавить чат"),
+    "add_pick": ("Choose from my chats", "Вибрати з моїх чатів", "Выбрать из моих чатов"),
+    "add_pick_s": ("Opens your chat list.", "Відкриває список ваших чатів.", "Открывает список ваших чатов."),
+    "add_user": ("Add by @username or t.me link", "Додати за @username або посиланням t.me",
+                 "Добавить по @username или ссылке t.me"),
+    "add_user_s": ("Public usernames only. Secret chats, channels and bots are refused.",
+                   "Лише публічні імена. Секретні чати, канали й боти не підтримуються.",
+                   "Только публичные имена. Секретные чаты, каналы и боты не поддерживаются."),
+    "add_old": ("Add a chat with the 'AI auto-reply' item in the chat header menu.",
+                "Додайте чат пунктом «ШІ-автовідповідач» у меню заголовка чату.",
+                "Добавьте чат пунктом «ИИ-автоответчик» в меню заголовка чата."),
+    "h_modes": ("Modes", "Режими", "Режимы"),
+    "modes_help": (
+        "Auto: the AI answers every message from the other person.\n"
+        "Draft: the AI writes the reply into your input field; you send it.\n"
+        "Friend mode: you stay silent. The OTHER person can ask the AI by starting a message with the "
+        "trigger (default \".ai \"), e.g. \".ai tell me a joke\", and the AI answers in the chat. Messages "
+        "without the trigger and your own messages are ignored.",
+        "Авто: ШІ відповідає на кожне повідомлення співрозмовника.\n"
+        "Чернетка: ШІ пише відповідь у ваше поле вводу, надсилаєте ви.\n"
+        "Режим друга: ви мовчите. СПІВРОЗМОВНИК може звернутися до ШІ, почавши повідомлення з тригера "
+        "(типово «.ai »), наприклад «.ai розкажи жарт», і ШІ відповідає в чаті. Повідомлення без тригера та "
+        "ваші власні ігноруються.",
+        "Авто: ИИ отвечает на каждое сообщение собеседника.\n"
+        "Черновик: ИИ пишет ответ в ваше поле ввода, отправляете вы.\n"
+        "Режим друга: вы молчите. СОБЕСЕДНИК может обратиться к ИИ, начав сообщение с триггера "
+        "(по умолчанию «.ai »), например «.ai расскажи шутку», и ИИ отвечает в чате. Сообщения без триггера "
+        "и ваши собственные игнорируются."),
+    "mode_auto": ("Auto (answer right away)", "Авто (відповідати одразу)", "Авто (отвечать сразу)"),
+    "mode_draft": ("Draft (put reply into the input field)", "Чернетка (відповідь у поле вводу)",
+                   "Черновик (ответ в поле ввода)"),
+    "mode_cmd": ("Friend mode (the other person triggers with .ai)", "Режим друга (співрозмовник кличе через .ai)",
+                 "Режим друга (собеседник зовёт через .ai)"),
+    "preset_0": ("Balanced (default)", "Збалансований (типовий)", "Сбалансированный (по умолчанию)"),
+    "preset_1": ("Chatty", "Балакучий", "Разговорчивый"),
+    "preset_2": ("Quiet", "Тихий", "Тихий"),
+    "tone_0": ("Neutral", "Нейтральний", "Нейтральный"),
+    "tone_1": ("Friendly", "Дружній", "Дружелюбный"),
+    "tone_2": ("Toxic (sarcastic banter)", "Токсичний (саркастичні підколки)", "Токсичный (саркастичные подколки)"),
+    # owner command
+    "h_cmd": ("Bot writes first (your command)", "Бот пише першим (ваша команда)",
+              "Бот пишет первым (ваша команда)"),
+    "cmd_note": (
+        "Type the command in a chat and the plugin does NOT send it: it starts the conversation for you "
+        "in your style.\n.ai - continues the recent conversation (last day), or opens with a short phrase "
+        "if there is nothing fresh.\n.ai <topic or instruction> - writes the first message about it; it "
+        "invents no facts.\n.ai ? or .ai draft - puts the result into the input field instead of sending. "
+        "Works in chats you added (and in any private chat if enabled below). Ignores cooldown and hourly "
+        "limits, but every use is written to the decision log.",
+        "Введіть команду в чаті — плагін її НЕ надсилає, а сам починає розмову за вас у вашому стилі.\n"
+        ".ai — продовжує недавню розмову (за останню добу) або, якщо свіжого контексту нема, починає "
+        "короткою фразою.\n.ai <тема або інструкція> — пише перше повідомлення на цю тему, нічого не "
+        "вигадуючи.\n.ai ? або .ai draft — кладе результат у поле вводу замість надсилання. Працює в "
+        "доданих чатах (і в будь-якому приватному, якщо ввімкнено нижче). Ігнорує кулдаун і ліміт на годину, "
+        "але кожне використання пишеться в журнал рішень.",
+        "Введите команду в чате — плагин её НЕ отправляет, а сам начинает разговор за вас в вашем стиле.\n"
+        ".ai — продолжает недавний разговор (за последние сутки) или, если свежего контекста нет, начинает "
+        "короткой фразой.\n.ai <тема или инструкция> — пишет первое сообщение на эту тему, ничего не "
+        "выдумывая.\n.ai ? или .ai draft — кладёт результат в поле ввода вместо отправки. Работает в "
+        "добавленных чатах (и в любом личном, если включено ниже). Игнорирует кулдаун и лимит в час, но "
+        "каждое использование пишется в журнал решений."),
+    "cmd_on": ("Enable the command", "Увімкнути команду", "Включить команду"),
+    "cmd_on_s": ("Off = the text is sent as a normal message.", "Вимк. = текст надсилається як звичайне повідомлення.",
+                 "Выкл. = текст отправляется как обычное сообщение."),
+    "cmd_triggers": ("Command words (comma separated)", "Слова команди (через кому)",
+                     "Слова команды (через запятую)"),
+    "cmd_triggers_s": ("Default: .ai, .аі. Latin and Cyrillic look-alike letters are treated the same.",
+                       "Типово: .ai, .аі. Латинські й кириличні схожі літери вважаються однаковими.",
+                       "По умолчанию: .ai, .аі. Латинские и кириллические похожие буквы считаются одинаковыми."),
+    "cmd_mode": ("The command", "Команда", "Команда"),
+    "cmd_mode_0": ("Sends the message", "Надсилає повідомлення", "Отправляет сообщение"),
+    "cmd_mode_1": ("Puts it into the draft", "Кладе в чернетку", "Кладёт в черновик"),
+    "cmd_any": ("Allow the command in any private chat", "Дозволити команду в будь-якому приватному чаті",
+                "Разрешить команду в любом личном чате"),
+    "cmd_any_s": ("Off = only in chats added to the plugin. Secret chats and bots are never used.",
+                  "Вимк. = лише в чатах, доданих у плагін. Секретні чати й боти не використовуються.",
+                  "Выкл. = только в чатах, добавленных в плагин. Секретные чаты и боты не используются."),
+    "cmd_openers": ("Opening phrases (one per line)", "Фрази-відкривачки (по одній у рядку)",
+                    "Фразы-открывашки (по одной в строке)"),
+    "cmd_openers_s": ("Used when there is no fresh context. Empty = built-in list (ну що там, як ти, "
+                      "чим займаєшся...). With Humanize on the model rephrases it in your style.",
+                      "Використовуються, коли свіжого контексту нема. Порожньо = вбудований список (ну що там, "
+                      "як ти, чим займаєшся...). Із Humanize модель перефразує у вашому стилі.",
+                      "Используются, когда свежего контекста нет. Пусто = встроенный список (ну что там, как ты, "
+                      "чем занимаешься...). С Humanize модель перефразирует в вашем стиле."),
+    # humanize block
+    "h_humanize": ("Humanize", "Людяність (Humanize)", "Очеловечивание (Humanize)"),
+    "humanize": ("Humanize replies", "Людяні відповіді", "Человечные ответы"),
+    "humanize_s": ("Answer like you: casual, short, no assistant phrases, no markdown. Off = the old plain behavior.",
+                   "Відповідати як ви: невимушено, коротко, без фраз асистента й markdown. Вимк. = старий простий режим.",
+                   "Отвечать как вы: непринуждённо, коротко, без фраз ассистента и markdown. Выкл. = старый простой режим."),
+    "learn": ("Learn my style", "Вчити мій стиль", "Учить мой стиль"),
+    "learn_s": ("Your last outgoing messages (no commands, links or long texts) are sent as examples to your own "
+                "AI server configured in ZephyrGram - nowhere else. If this chat has few of them, a few other "
+                "chats you added are used too.",
+                "Ваші останні вихідні повідомлення (без команд, посилань і довгих текстів) надсилаються як "
+                "приклади лише на ваш власний ШІ-сервер із налаштувань ZephyrGram. Якщо в цьому чаті їх мало, "
+                "беруться ще з кількох доданих чатів.",
+                "Ваши последние исходящие сообщения (без команд, ссылок и длинных текстов) отправляются как "
+                "примеры только на ваш собственный ИИ-сервер из настроек ZephyrGram. Если в этом чате их мало, "
+                "берутся ещё из нескольких добавленных чатов."),
+    "learn_n": ("Style examples (5-50)", "Прикладів стилю (5-50)", "Примеров стиля (5-50)"),
+    "relearn": ("Re-learn style every (minutes)", "Оновлювати стиль кожні (хв)", "Обновлять стиль каждые (мин)"),
+    "tone": ("Tone", "Тон", "Тон"),
+    "tone_s": ("Your own prompt below is added on top.", "Ваш власний промпт нижче додається зверху.",
+               "Ваш собственный промпт ниже добавляется сверху."),
+    "split": ("Split long replies", "Ділити довгі відповіді", "Делить длинные ответы"),
+    "split_s": ("Only replies longer than ~120 characters, into at most 2 messages.",
+                "Лише відповіді довші за ~120 символів, максимум на 2 повідомлення.",
+                "Только ответы длиннее ~120 символов, максимум на 2 сообщения."),
+    "typing": ("Typing delay", "Затримка набору", "Задержка набора"),
+    "typing_s": ("Short pause (0.4-2.5 s in total) before sending.", "Коротка пауза (0,4-2,5 с загалом) перед надсиланням.",
+                 "Короткая пауза (0,4-2,5 с всего) перед отправкой."),
+    "typing_cap": ("Typing delay cap (s, advanced)", "Ліміт затримки набору (с, додатково)",
+                   "Предел задержки набора (с, дополнительно)"),
+    "typing_cap_s": ("Empty = 2.5. Total pause for one reply.", "Порожньо = 2,5. Загальна пауза на одну відповідь.",
+                     "Пусто = 2,5. Общая пауза на один ответ."),
+    "banned": ("Extra banned words (comma separated)", "Додаткові заборонені слова (через кому)",
+               "Дополнительные запрещённые слова (через запятую)"),
+    "banned_s": ("Built-in list (звісно, безумовно, розумію, дійсно...) is always on; a reply with them is "
+                 "regenerated once, then sent anyway.",
+                 "Вбудований список (звісно, безумовно, розумію, дійсно...) завжди діє; відповідь із ними "
+                 "генерується ще раз, далі все одно надсилається.",
+                 "Встроенный список (звісно, безумовно, розумію, дійсно...) всегда действует; ответ с ними "
+                 "генерируется ещё раз, затем всё равно отправляется."),
+    "skip_emoji": ("Skip emoji-only messages", "Пропускати повідомлення лише з емодзі", "Пропускать сообщения только из эмодзи"),
+    "max_reply": ("Max reply length (characters)", "Макс. довжина відповіді (символів)", "Макс. длина ответа (символов)"),
+    "temperature": ("Temperature (0-2)", "Температура (0-2)", "Температура (0-2)"),
+    "test_pick": ("Test style: choose a chat", "Тест стилю: вибрати чат", "Тест стиля: выбрать чат"),
+    "test_pick_s": ("Writes 5 sample replies to the last 5 incoming messages. Nothing is sent; the result is shown below.",
+                    "Пише 5 пробних відповідей на останні 5 вхідних. Нічого не надсилається; результат нижче.",
+                    "Пишет 5 пробных ответов на последние 5 входящих. Ничего не отправляется; результат ниже."),
+    "h_test_result": ("Last style test", "Останній тест стилю", "Последний тест стиля"),
+    "default_prompt": ("Default system prompt", "Системний промпт за замовчуванням", "Системный промпт по умолчанию"),
+    "default_prompt_s": ("Extra instructions on top of the humanize rules. Empty = nothing extra (with Humanize off: built-in prompt)",
+                         "Додаткові інструкції поверх правил Humanize. Порожньо = нічого додаткового (з вимкненим Humanize: вбудований промпт)",
+                         "Дополнительные инструкции поверх правил Humanize. Пусто = ничего дополнительного (при выключенном Humanize: встроенный промпт)"),
+    "context_n": ("Context size (messages)", "Розмір контексту (повідомлень)", "Размер контекста (сообщений)"),
+    "model": ("Model (empty = app default)", "Модель (порожньо = типова в застосунку)", "Модель (пусто = по умолчанию в приложении)"),
+    "disclosure": ("Disclose AI in first reply", "Позначати ШІ в першій відповіді", "Помечать ИИ в первом ответе"),
+    "disclosure_text": ("Disclosure prefix", "Префікс-позначка", "Префикс-пометка"),
+    "trigger": ("Command trigger (Friend mode)", "Тригер команди (режим друга)", "Триггер команды (режим друга)"),
+    "h_limits": ("Limits", "Ліміти", "Лимиты"),
+    "debounce": ("Wait after last message (s)", "Очікування після останнього повідомлення (с)", "Ожидание после последнего сообщения (с)"),
+    "debounce_s": ("Empty = preset (Balanced 4-6 s). Several messages in a row get one answer.",
+                   "Порожньо = пресет (збалансований 4-6 с). Кілька повідомлень поспіль отримують одну відповідь.",
+                   "Пусто = пресет (сбалансированный 4-6 с). Несколько сообщений подряд получают один ответ."),
+    "cooldown": ("Min seconds between replies in a chat", "Мін. секунд між відповідями в чаті", "Мин. секунд между ответами в чате"),
+    "cooldown_s": ("Empty = preset (Balanced 20).", "Порожньо = пресет (збалансований 20).", "Пусто = пресет (сбалансированный 20)."),
+    "chat_hourly": ("Max replies per hour per chat", "Макс. відповідей на годину в чаті", "Макс. ответов в час в чате"),
+    "chat_hourly_s": ("Empty = preset (Balanced 12). At the limit one polite line is sent, then silence.",
+                      "Порожньо = пресет (збалансований 12). На ліміті надсилається один ввічливий рядок, далі тиша.",
+                      "Пусто = пресет (сбалансированный 12). На лимите отправляется одна вежливая строка, дальше тишина."),
+    "polite_stop": ("Polite stop at the hourly limit", "Ввічливо зупинитись на годинному ліміті", "Вежливо остановиться на часовом лимите"),
+    "owner_active": ("Silent after you wrote in the chat (s)", "Мовчати після того, як ви писали в чаті (с)", "Молчать после того, как вы писали в чате (с)"),
+    "owner_active_s": ("Empty = preset (Balanced 120). 0 = off.", "Порожньо = пресет (збалансований 120). 0 = вимк.", "Пусто = пресет (сбалансированный 120). 0 = выкл."),
+    "quiet": ("Quiet hours (HH:MM-HH:MM)", "Тихі години (ГГ:ХХ-ГГ:ХХ)", "Тихие часы (ЧЧ:ММ-ЧЧ:ММ)"),
+    "quiet_s": ("Example 23:00-08:00. Empty = always allowed.", "Приклад 23:00-08:00. Порожньо = завжди дозволено.", "Пример 23:00-08:00. Пусто = всегда разрешено."),
+    "skip_ack": ("Ignore plain 'ok / thanks / lol'", "Ігнорувати прості «ок / дякую / лол»", "Игнорировать простые «ок / спасибо / лол»"),
+    "until_touch": ("Until you touch it the preset decides.", "Поки ви не змінили, вирішує пресет.", "Пока вы не изменили, решает пресет."),
+    "group_q": ("Groups: only questions and requests", "Групи: лише питання й прохання", "Группы: только вопросы и просьбы"),
+    "daily_cap": ("Daily cap per chat", "Денний ліміт на чат", "Дневной лимит на чат"),
+    "hourly_cap": ("Hourly cap (all chats)", "Годинний ліміт (усі чати)", "Часовой лимит (все чаты)"),
+    "h_chats": ("Chats", "Чати", "Чаты"),
+    "paused": ("paused", "пауза", "пауза"),
+    "chat_mode": ("Mode", "Режим", "Режим"),
+    "chat_prompt": ("System prompt for this chat", "Системний промпт для цього чату", "Системный промпт для этого чата"),
+    "chat_prompt_s": ("Empty = default prompt", "Порожньо = промпт за замовчуванням", "Пусто = промпт по умолчанию"),
+    "chat_enabled": ("Enabled", "Увімкнено", "Включено"),
+    "chat_test": ("Test style in this chat (nothing is sent)", "Тест стилю в цьому чаті (нічого не надсилається)", "Тест стиля в этом чате (ничего не отправляется)"),
+    "chat_remove": ("Remove chat", "Видалити чат", "Удалить чат"),
+    "no_chats": ("No chats yet.", "Чатів ще немає.", "Чатов пока нет."),
+}
+
+# reason code (as stored in the decision log) -> (English, Ukrainian, Russian) plain-language explanation
+R = {
+    "ok": ("reply sent", "відповідь надіслано", "ответ отправлен"),
+    "ok_fallback": ("sent the best variant (the model kept using banned words or AI-like phrases)",
+                    "надіслано найкращий варіант (модель кілька разів використала заборонені слова чи ШІ-фрази)",
+                    "отправлен лучший вариант (модель несколько раз использовала запрещённые слова или ИИ-фразы)"),
+    "polite_stop": ("hourly limit reached: sent one polite stop line",
+                    "ліміт на годину вичерпано: надіслано один ввічливий рядок-зупинку",
+                    "лимит в час исчерпан: отправлена одна вежливая строка-остановка"),
+    "outgoing": ("it is your own message", "це ваше власне повідомлення", "это ваше собственное сообщение"),
+    "master_off": ("the master switch is off", "головний перемикач вимкнено", "главный переключатель выключен"),
+    "sender_is_bot": ("the sender is a bot", "відправник — бот", "отправитель — бот"),
+    "no_text_service_message": ("no text (service message, sticker or media without caption)",
+                                "немає тексту (службове повідомлення, стікер чи медіа без підпису)",
+                                "нет текста (служебное сообщение, стикер или медиа без подписи)"),
+    "duplicate": ("the same message was already seen", "це повідомлення вже обробляли", "это сообщение уже обрабатывали"),
+    "too_old": ("the message is too old (offline catch-up)", "повідомлення надто старе (догнали після офлайну)",
+                "сообщение слишком старое (догнали после офлайна)"),
+    "looks_like_an_auto_reply": ("it looks like an auto-reply from another bot",
+                                 "схоже на автовідповідь іншого бота", "похоже на автоответ другого бота"),
+    "repeated_identical_text": ("the other side keeps sending the same text (possible loop)",
+                                "співрозмовник шле той самий текст (можлива петля)",
+                                "собеседник шлёт один и тот же текст (возможна петля)"),
+    "reply_burst_possible_loop": ("too many of our replies in a short time (possible loop with another bot)",
+                                  "забагато наших відповідей за короткий час (можлива петля з іншим ботом)",
+                                  "слишком много наших ответов за короткое время (возможна петля с другим ботом)"),
+    "no_command_prefix": ("Friend mode: the message does not start with the trigger",
+                          "режим друга: повідомлення не починається з тригера",
+                          "режим друга: сообщение не начинается с триггера"),
+    "disabled": ("the chat or the plugin is switched off", "чат або плагін вимкнено", "чат или плагин выключен"),
+    "disabled_meanwhile": ("switched off while the AI was writing", "вимкнено, поки ШІ писав",
+                           "выключено, пока ИИ писал"),
+    "already_answered": ("these messages were already answered", "на ці повідомлення вже відповіли",
+                         "на эти сообщения уже ответили"),
+    "quiet_hours": ("quiet hours", "тихі години", "тихие часы"),
+    "emoji_only": ("only emoji in the message", "у повідомленні лише емодзі", "в сообщении только эмодзи"),
+    "acknowledgement": ("plain acknowledgement (ok / thanks / lol), nothing to answer",
+                        "проста реакція (ок / дякую / лол), відповідати нічого",
+                        "простая реакция (ок / спасибо / лол), отвечать нечего"),
+    "group_no_question": ("group chat: no question or request to you", "група: немає питання чи прохання до вас",
+                          "группа: нет вопроса или просьбы к вам"),
+    "owner_active": ("you wrote in this chat a moment ago, so the bot stays silent",
+                     "ви щойно самі писали в цьому чаті, тому бот мовчить",
+                     "вы только что сами писали в этом чате, поэтому бот молчит"),
+    "hourly_cap_reached": ("the hourly cap for all chats is reached", "вичерпано годинний ліміт для всіх чатів",
+                           "исчерпан часовой лимит для всех чатов"),
+    "daily_cap_reached": ("the daily cap for this chat is reached", "вичерпано денний ліміт для цього чату",
+                          "исчерпан дневной лимит для этого чата"),
+    "chat_hourly_cap": ("the other person writes faster than the per-chat hourly limit allows",
+                        "співрозмовник пише швидше, ніж дозволяє годинний ліміт відповідей у чаті",
+                        "собеседник пишет быстрее, чем позволяет часовой лимит ответов в чате"),
+    "info_failed": ("could not read chat info", "не вдалося прочитати дані чату", "не удалось прочитать данные чата"),
+    "context_failed": ("could not read the chat history", "не вдалося прочитати історію чату",
+                       "не удалось прочитать историю чата"),
+    "empty_context_last_message_is_not_from_them": ("the last message in the chat is not from them",
+                                                    "останнє повідомлення в чаті не від співрозмовника",
+                                                    "последнее сообщение в чате не от собеседника"),
+    "ai_failed": ("the AI server failed or is not configured", "ШІ-сервер не відповів або не налаштований",
+                  "ИИ-сервер не ответил или не настроен"),
+    "empty_reply": ("the AI returned an empty reply", "ШІ повернув порожню відповідь", "ИИ вернул пустой ответ"),
+    "empty": ("the AI returned an empty reply", "ШІ повернув порожню відповідь", "ИИ вернул пустой ответ"),
+    "duplicate_reply": ("the reply was identical to our previous one", "відповідь збігається з попередньою нашою",
+                        "ответ совпадает с нашим предыдущим"),
+    "no_reply": ("no usable reply", "немає придатної відповіді", "нет пригодного ответа"),
+    "send_failed": ("sending failed", "не вдалося надіслати", "не удалось отправить"),
+    "secret_chat": ("secret chats are never used", "секретні чати не використовуються", "секретные чаты не используются"),
+    "channel": ("channels are never used", "канали не використовуються", "каналы не используются"),
+    "bot": ("bots are never used", "боти не використовуються", "боты не используются"),
+    "unknown_chat": ("unknown chat", "невідомий чат", "неизвестный чат"),
+    "unsupported_chat_type": ("unsupported chat type", "непідтримуваний тип чату", "неподдерживаемый тип чата"),
+    "auto_disabled_after_errors": ("switched off after repeated errors (retries in 30 minutes)",
+                                   "вимкнено через повторні помилки (спробує знову за 30 хвилин)",
+                                   "отключено из-за повторных ошибок (повтор через 30 минут)"),
+    "auto_resumed_after_errors": ("switched on again after the pause", "знову ввімкнено після паузи",
+                                  "снова включено после паузы"),
+    "schedule_failed_fallback_timer": ("timer fallback was used", "використано запасний таймер", "использован запасной таймер"),
+    "tick_exception": ("internal error in the timer", "внутрішня помилка таймера", "внутренняя ошибка таймера"),
+    "handle_incoming_exception": ("internal error on an incoming message", "внутрішня помилка на вхідному повідомленні",
+                                  "внутренняя ошибка на входящем сообщении"),
+    "process_exception": ("internal error while answering", "внутрішня помилка під час відповіді",
+                          "внутренняя ошибка при ответе"),
+    "style_test_done": ("style test finished, nothing was sent", "тест стилю завершено, нічого не надіслано",
+                        "тест стиля завершён, ничего не отправлено"),
+    "owner_command": ("your .ai command: conversation continued", "ваша команда .ai: розмову продовжено",
+                      "ваша команда .ai: разговор продолжен"),
+    "owner_command_topic": ("your .ai command: first message on your topic", "ваша команда .ai: перше повідомлення за вашою темою",
+                            "ваша команда .ai: первое сообщение по вашей теме"),
+    "owner_command_opener": ("your .ai command: no fresh context, opening phrase used",
+                             "ваша команда .ai: свіжого контексту нема, використано фразу-відкривачку",
+                             "ваша команда .ai: свежего контекста нет, использована фраза-открывашка"),
+    "owner_command_ai_failed": ("your .ai command: the AI gave no message", "ваша команда .ai: ШІ не дав повідомлення",
+                                "ваша команда .ai: ИИ не дал сообщения"),
+    "owner_command_busy": ("your .ai command ignored: the previous one is still running",
+                           "вашу команду .ai проігноровано: попередня ще виконується",
+                           "вашу команду .ai проигнорировали: предыдущая ещё выполняется"),
+    "owner_command_send_failed": ("your .ai command: sending failed", "ваша команда .ai: не вдалося надіслати",
+                                  "ваша команда .ai: не удалось отправить"),
+    "owner_command_not_allowed": ("your .ai command ignored: not allowed in this chat",
+                                  "вашу команду .ai проігноровано: у цьому чаті не дозволено",
+                                  "вашу команду .ai проигнорировали: в этом чате не разрешено"),
+}
+
+
+def note(text):
+    """Non-interactive multi-line explanation row. zephyr.ui.Divider renders its text as a plain grey
+    block (UItem.asShadow): not clickable, wraps to the full text, unlike Text which is a one-line button."""
+    d = Divider()
+    d.text = str(text)
+    return d
+
+
+def tr(lang, key):
+    row = S.get(key)
+    if row is None:
+        return key
+    i = LANGS.index(lang) if lang in LANGS else 0
+    return row[i] or row[0]
+
+
+def reason_text(lang, code):
+    """Plain-language explanation of a stored reason code (unknown codes are shown as they are)."""
+    code = str(code or "")
+    row = R.get(code)
+    if row is None:
+        for prefix in ("ok_fallback", "process_exception"):
+            if code.startswith(prefix):
+                row = R[prefix]
+                break
+    if row is None:
+        return code.replace("_", " ")
+    return row[LANGS.index(lang) if lang in LANGS else 0] or row[0]
+
+
+# ---------------------------------------------------------------------- "bot writes first" command
+FOLD_MAP = {ord(a): b for a, b in zip(u"аіїоеср", u"aiioecp")}
+
+
+def fold_cmd(text):
+    """Lower case + Cyrillic look-alikes folded to Latin, so '.аі' == '.ai'."""
+    return str(text or "").lower().translate(FOLD_MAP)
+
+
+DEFAULT_TRIGGERS = u".ai, .аі"
+DEFAULT_OPENERS = [u"ну що там", u"як ти", u"чим займаєшся", u"ти як взагалі", u"що нового", u"є хвилинка?"]
+DRAFT_WORDS = ("?", "draft", u"чернетка", u"черновик")
+CMD_RULES = (
+    "The owner typed a command: YOU write the next message in this chat on their behalf, in their own voice. "
+    "Output only the text of that one message, nothing else. Never invent facts, plans, names or events that "
+    "are not in the conversation or in the owner's instruction. Do not mention the instruction, do not say you "
+    "are an AI. A line in square brackets at the end is the owner's private instruction to you, not something "
+    "the other person said; never quote it.")
+
 class ChatState(object):
     """In-memory runtime state of one allowlisted chat."""
 
@@ -465,12 +894,15 @@ class Plugin(BasePlugin):
         self._load_bot_texts()
         self._load_chats()
         self.add_on_new_message_hook(priority=0)
+        self.add_on_send_message_hook(priority=10)
+        self._cmd_busy = set()
+        self._titles = {}
         self.add_menu_item(MenuItem(
-            menu_type=MenuType.CHAT_ACTION, text="AI auto-reply: OFF (tap to enable)",
+            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_off"),
             on_click=self.on_enable_click, priority=0,
             condition=self.cond_show_off, key="ai_autoreply_off"))
         self.add_menu_item(MenuItem(
-            menu_type=MenuType.CHAT_ACTION, text="AI auto-reply: ON (tap to disable)",
+            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_on"),
             on_click=self.on_disable_click, priority=0,
             condition=self.cond_show_on, key="ai_autoreply_on"))
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
@@ -705,7 +1137,7 @@ class Plugin(BasePlugin):
                 info = client.get_dialog_info(did)
                 reason = self.check_info(info)
                 if reason:
-                    client.bulletin("AI auto-reply: not available here (%s)" % reason)
+                    client.bulletin(self.t("bl_na", self.rt(reason)))
                     return
                 with self._lock:
                     c = self._chats.get(key) or {}
@@ -714,10 +1146,10 @@ class Plugin(BasePlugin):
                               "fails": 0})
                     self._chats[key] = c
                     self._save_chats()
-                client.bulletin("AI auto-reply: ON for %s" % c["title"])
+                client.bulletin(self.t("bl_on", c["title"]))
             except Exception as e:
                 self.error(e)
-                client.bulletin("AI auto-reply: could not enable this chat")
+                client.bulletin(self.t("bl_cannot"))
         client.run_in_bg(work)
 
     def on_disable_click(self, ctx):
@@ -726,7 +1158,7 @@ class Plugin(BasePlugin):
             if key in self._chats:
                 self._chats[key]["enabled"] = False
                 self._save_chats()
-        client.bulletin("AI auto-reply: OFF")
+        client.bulletin(self.t("bl_off"))
 
     @staticmethod
     def check_info(info):
@@ -963,8 +1395,7 @@ class Plugin(BasePlugin):
                 c["auto_off_ts"] = self._now()
                 self.log("auto-disabled %s after %d failures" % (key, c["fails"]))
                 self._decide(key, "disabled", "auto_disabled_after_errors")
-                client.bulletin("AI auto-reply disabled in %s after repeated errors (retries in 30 min)"
-                                % c.get("title", key))
+                client.bulletin(self.t("bl_errors_off", c.get("title", key)))
             self._save_chats()
 
     # ------------------------------------------------------------------ processing
@@ -1258,21 +1689,24 @@ class Plugin(BasePlugin):
             self._profiles[key] = (now, n, prof)
         return prof
 
-    def generate(self, key, account, did, messages, c, st, split=True):
+    def generate(self, key, account, did, messages, c, st, split=True, extra_system="", lang_text=None):
         """Returns (parts, why). Normal success: (parts, ''). Best-effort fallback after the retry:
         (parts, 'fallback'). Empty parts only for: 'empty' (no text at all) or 'duplicate reply'
         (identical to our previous reply). st is the ChatState used for de-duplication (None = off)."""
         model = str(self.get_setting("model", "") or "").strip()
         if not self._humanize():
-            kwargs = {"system": self._chat_prompt(key), "timeout": 60}
+            kwargs = {"system": self._chat_prompt(key) + ("\n\n" + extra_system if extra_system else ""),
+                      "timeout": 60}
             if model:
                 kwargs["model"] = model
             reply = self.clean_reply(client.ai_complete(messages, **kwargs))
             return ([reply] if reply else []), "empty"
         profile = self.get_profile(key, account, did)
         last_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
+        if lang_text is not None:
+            last_in = str(lang_text)
         lang = detect_lang(last_in)
-        system = self.build_system(key, profile) + (
+        system = self.build_system(key, profile) + ("\n\n" + extra_system if extra_system else "") + (
             "\n\nThe message you answer is in %s: reply in %s only." % (lang, lang))
         temp = self._float("temperature", 0.95, 0.0, 2.0)
         limit = self._int("max_reply", 300, 40, MAX_REPLY_CHARS)
@@ -1394,7 +1828,7 @@ class Plugin(BasePlugin):
 
     def start_style_test(self, account, did, title=""):
         if self._testing and self._now() - self._testing_ts < 180:
-            client.bulletin("Style test is already running")
+            client.bulletin(self.t("bl_test_running"))
             return False
         self._testing = True
         self._testing_ts = self._now()
@@ -1404,7 +1838,7 @@ class Plugin(BasePlugin):
                 self.run_style_test(account, did, title)
             except Exception as e:
                 self.error(e)
-                client.bulletin("Style test failed: %s" % e)
+                client.bulletin(self.t("bl_test_failed", e))
             finally:
                 self._testing = False
         client.run_in_bg(work)
@@ -1415,7 +1849,7 @@ class Plugin(BasePlugin):
         info = client.get_dialog_info(did)
         reason = self.check_info(info)
         if reason:
-            client.bulletin("Style test: not available here (%s)" % reason)
+            client.bulletin(self.t("bl_test_na", self.rt(reason)))
             return []
         key = self.chat_key(account, did)
         c = {"type": info.get("type")}
@@ -1423,7 +1857,7 @@ class Plugin(BasePlugin):
         hist = self._load_history(key, account, did, 60)
         idx = [i for i, h in enumerate(hist) if not h.get("out") and not h.get("is_bot")][-5:]
         if not idx:
-            client.bulletin("Style test: no incoming messages in this chat")
+            client.bulletin(self.t("bl_test_noinc"))
             return []
         profile = self.get_profile(key, account, did)
         lines = []
@@ -1432,113 +1866,364 @@ class Plugin(BasePlugin):
             if not msgs or msgs[-1]["role"] != "user":
                 continue
             parts, why = self.generate(key, account, did, msgs, c, None, split=True)
-            shown = " || ".join(parts) if parts else "(no reply: %s)" % why
+            shown = " || ".join(parts) if parts else self.t("test_no_reply", self.rt(why))
             lines.append("%d) %s\n   -> %s" % (len(lines) + 1, str(hist[i]["text"]).strip()[:120], shown))
         if not lines:
-            client.bulletin("Style test: nothing to test (last message in this chat is yours)")
+            client.bulletin(self.t("bl_test_nothing"))
             return []
         learned = len((profile or {}).get("examples") or [])
-        text = "Style test for %s (%d own messages learned, nothing was sent)\n%s" % (
-            info.get("title") or title or did, learned, "\n".join(lines))
+        text = self.t("test_result", info.get("title") or title or did, learned, "\n".join(lines))
         self.set_setting("style_test_result", text)
         self._decide(self.chat_key(account, did), "test", "style_test_done")
         client.bulletin(text[:900])
         return lines
 
+    # ------------------------------------------------------------------ localization helpers
+    def lang(self):
+        try:
+            i = int(self.get_setting("ui_lang", 0))
+        except (TypeError, ValueError):
+            i = 0
+        if i in (1, 2, 3):
+            return ("", "uk", "ru", "en")[i]
+        return detect_ui_lang() or "uk"
+
+    def t(self, key, *args):
+        text = tr(self.lang(), key)
+        if args:
+            try:
+                return text % args
+            except (TypeError, ValueError):
+                return text
+        return text
+
+    def rt(self, reason):
+        """Localized plain-language text of a reason (raw reason string or stored code)."""
+        code = re.sub(r"\W+", "_", str(reason).lower()).strip("_")
+        return reason_text(self.lang(), code)
+
+    # ------------------------------------------------------------------ decision log view
+    def _chat_title(self, key):
+        """Chat title for the log: plugin list, cache, get_dialog_info; the id when nothing is known."""
+        key = str(key)
+        c = self._chats.get(key)
+        if c and c.get("title"):
+            return str(c["title"])
+        if key in self._titles:
+            return self._titles[key]
+        try:
+            acc, did = key.split(":", 1)
+            info = client.get_dialog_info(int(did), account=int(acc))
+            title = str((info or {}).get("title") or "").strip()
+        except Exception:
+            title = ""
+        if title:
+            self._titles[key] = title
+            return title
+        return key.split(":", 1)[-1]
+
+    def decision_sentence(self, r):
+        outcome, code = str(r.get("o") or ""), str(r.get("r") or "")
+        label = self.t("o_" + outcome) if ("o_" + outcome) in S else outcome
+        if outcome in ("sent", "draft") and code == "ok":
+            return label
+        return "%s: %s" % (label, self.rt(code))
+
+    def _stamp(self, ts, full=False):
+        try:
+            lt = time.localtime(float(ts))
+            same_day = time.strftime("%Y-%m-%d", lt) == time.strftime("%Y-%m-%d", time.localtime(self._now()))
+            return time.strftime("%H:%M:%S" if same_day and not full else "%d.%m %H:%M:%S", lt)
+        except Exception:
+            return "?"
+
+    def decision_rows(self):
+        """[(title, sentence, record)] newest first, at most 20. Title like '21:45:30 · Cherish'."""
+        rows = list(getattr(self, "_decisions", []))[-20:][::-1]
+        return [("%s · %s" % (self._stamp(r.get("t", 0)), self._chat_title(r.get("chat"))),
+                 self.decision_sentence(r), r) for r in rows]
+
+    def log_for_clipboard(self):
+        rows = list(getattr(self, "_decisions", []))[-20:][::-1]
+        out = []
+        for r in rows:
+            out.append("%s · %s — %s [%s/%s]" % (self._stamp(r.get("t", 0), True), self._chat_title(r.get("chat")),
+                                                  self.decision_sentence(r), r.get("o"), r.get("r")))
+        return "\n".join(out)
+
+    def copy_log(self):
+        text = self.log_for_clipboard()
+        if not text:
+            client.bulletin(self.t("bl_log_empty"))
+            return False
+        client.copy_to_clipboard(text)
+        client.bulletin(self.t("bl_copied", len(text.splitlines())))
+        return True
+
+    def clear_log(self):
+        with self._lock:
+            self._decisions.clear()
+            self.set_setting("decisions", "[]")
+        client.bulletin(self.t("bl_cleared"))
+
+    # ------------------------------------------------------------------ "bot writes first" owner command
+    def _cmd_triggers(self):
+        raw = str(self.get_setting("cmd_triggers", "") or "").strip() or DEFAULT_TRIGGERS
+        found = {fold_cmd(x.strip()) for x in re.split(r"[,;\n]", raw) if x.strip()}
+        return sorted(found, key=len, reverse=True) or [".ai"]
+
+    def parse_command(self, text):
+        """-> (to_draft, topic) when the text is exactly the owner's command, else None."""
+        t = str(text or "").strip()
+        low = fold_cmd(t)
+        for trig in self._cmd_triggers():
+            if low == trig or (low.startswith(trig) and (low[len(trig)].isspace() or low[len(trig)] == "?")):
+                rest = t[len(trig):].strip()
+                draft = False
+                head = rest.split(None, 1)
+                if head and head[0].lower() in DRAFT_WORDS:
+                    draft, rest = True, (head[1] if len(head) > 1 else "")
+                elif rest.startswith("?"):
+                    draft, rest = True, rest[1:].strip()
+                return draft, rest[:500].strip()
+        return None
+
+    @staticmethod
+    def _has_media(params):
+        for a in ("photo", "document", "location", "poll", "game", "invoice", "user", "todo",
+                  "mediaWebPage", "retryMessageObject", "sendAnimationData"):
+            if getattr(params, a, None) is not None:
+                return True
+        return bool(getattr(params, "path", None))
+
+    def _private_ok(self, did):
+        try:
+            info = client.get_dialog_info(did)
+        except Exception:
+            return False
+        return isinstance(info, dict) and info.get("type") == "user" and self.check_info(info) is None
+
+    def on_send_message_hook(self, account, params):
+        """Intercepts the owner's own '.ai' command: cancelled (never sent), the work runs in a worker."""
+        try:
+            text = getattr(params, "message", None)
+            if not isinstance(text, str) or not self.get_setting("cmd_enable", True):
+                return None
+            cmd = self.parse_command(text)
+            if cmd is None or self._has_media(params):
+                return None
+            did = int(getattr(params, "peer", 0) or 0)
+            if not did:
+                return None
+            key = self.chat_key(account, did)
+            if not (self.is_enabled(key) or (self.get_setting("cmd_any_private", False) and did > 0
+                                             and self._private_ok(did))):
+                return None                      # not a chat of the plugin: an ordinary message
+            draft, topic = cmd
+            if not self.get_setting("master", True):
+                self._decide(key, "skip", "master_off")
+                client.bulletin(self.t("bl_cmd_master"))
+                return HookResult(strategy=HookStrategy.CANCEL)
+            with self._lock:
+                busy = key in self._cmd_busy
+                self._cmd_busy.add(key)
+            if busy:
+                self._decide(key, "skip", "owner_command_busy")
+                client.bulletin(self.t("bl_cmd_busy"))
+                return HookResult(strategy=HookStrategy.CANCEL)
+            try:
+                client.run_in_bg(lambda: self.run_command(int(account), did, key, draft, topic))
+            except Exception as e:
+                self._cmd_busy.discard(key)
+                self.log("command could not start: %s" % e)
+                client.bulletin(self.t("bl_cmd_failed", e))
+            return HookResult(strategy=HookStrategy.CANCEL)
+        except Exception as e:
+            self.error(e)
+            return None
+
+    def run_command(self, account, did, key, draft, topic):
+        try:
+            self._run_command(account, did, key, draft, topic)
+        except Exception as e:
+            self.error(e)
+            self._decide(key, "error", "owner_command_ai_failed")
+            client.bulletin(self.t("bl_cmd_failed", e))
+        finally:
+            self._cmd_busy.discard(key)
+
+    def _openers(self):
+        raw = str(self.get_setting("cmd_openers", "") or "")
+        items = [x.strip() for x in re.split(r"[\n;]", raw) if x.strip()]
+        return items or list(DEFAULT_OPENERS)
+
+    def _run_command(self, account, did, key, draft, topic):
+        try:
+            info = client.get_dialog_info(did)
+        except Exception:
+            info = None
+        reason = self.check_info(info) if info is not None else None
+        if reason:
+            self._decide(key, "skip", "owner_command_not_allowed")
+            client.bulletin(self.t("bl_cmd_na", self.rt(reason)))
+            return
+        c = dict(self._chats.get(key) or {"type": (info or {}).get("type") or "user"})
+        st = self._state(key)
+        to_draft = bool(draft) or self._int("cmd_mode", 0, 0, 1) == 1
+        now = self._now()
+        hist = [h for h in self._load_history(key, account, did, 15)
+                if h.get("date") is None or now - float(h.get("date") or 0) <= 86400]
+        msgs = self._hist_messages(c, hist)
+        if hist and not msgs:                    # only the owner's own messages are fresh
+            msgs = [{"role": "assistant" if h.get("out") else "user", "content": str(h["text"]).strip()}
+                    for h in hist]
+        lang_text = str(hist[-1]["text"]) if hist else topic
+        opener = ""
+        if topic:
+            kind = "owner_command_topic"
+            instr = ("Write the next message from me to the other person about this: %s. If it continues the "
+                     "conversation above make it fit naturally, otherwise it is a first message. Use only facts "
+                     "from the conversation or from this instruction." % topic)
+        elif hist:
+            kind = "owner_command"
+            instr = ("Continue the conversation naturally as me. If the other person's last message is still "
+                     "unanswered, answer it. Otherwise gently bring up something relevant from the conversation "
+                     "or ask a short follow-up. One short message.")
+        else:
+            kind = "owner_command_opener"
+            opener = self._rng.choice(self._openers())
+            instr = ("There is no recent conversation. Open one with a short casual message that means: '%s'. "
+                     "Say it in my own style; add no facts and no extra questions." % opener)
+        parts, why = [], ""
+        if opener and not self._humanize():
+            parts = [opener]
+        else:
+            msgs = msgs + [{"role": "user", "content": "[private instruction from me, not from them: %s]" % instr}]
+            try:
+                parts, why = self.generate(key, account, did, msgs, c, st, split=not to_draft,
+                                           extra_system=CMD_RULES, lang_text=lang_text)
+            except Exception as e:
+                self.log("command generation failed in %s: %s" % (key, e))
+                parts, why = [], "ai failed"
+            if not parts and opener:
+                parts = [opener]
+        if not parts:
+            self._decide(key, "error", "owner_command_ai_failed")
+            client.bulletin(self.t("bl_cmd_failed", self.rt(why or "ai failed")))
+            return
+        for p in parts:
+            self._remember_bot_text(p)
+        if to_draft:
+            client.set_draft(did, "\n".join(parts))
+            self._decide(key, "draft", kind)
+            client.bulletin(self.t("bl_cmd_draft"))
+            return
+        cap = self._pnum("typing_cap", 0, 15)
+        st.sending = True
+        try:
+            for i, part in enumerate(parts):
+                if self.get_setting("typing_delay", True):
+                    d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
+                    if d > 0:
+                        time.sleep(d)
+                self.send(did, part, None)
+        except Exception as e:
+            self.log("command send failed in %s: %s" % (key, e))
+            self._decide(key, "error", "owner_command_send_failed")
+            client.bulletin(self.t("bl_cmd_failed", e))
+            return
+        finally:
+            st.sending = False
+        with self._lock:
+            st.recent.append(norm_text(" ".join(parts)))
+        self._decide(key, "sent", kind)
+
     # ------------------------------------------------------------------ settings
     def create_settings(self):
         self._load_chats()
+        t = self.t
         items = [
-            Header(text="AI auto-reply"),
-            Switch(key="master", text="Master switch", default=True,
-                   subtext="Off = never answers anywhere"),
-            Selector(key="preset", text="Preset", items=list(PRESET_NAMES), default=0,
-                     subtext="Balanced: waits ~5 s and answers a batch once, 20 s between replies, "
-                             "max 12 replies/hour per chat, skips plain 'ok/thanks', stays silent "
-                             "while you are writing yourself. Chatty: answers more often. Quiet: "
-                             "rarely. Fields below with a value override the preset; empty = preset."),
-            Header(text="Recent decisions"),
-            Text(text=self.decisions_text(),
-                 subtext="Last 20: time, chat, sent/skip and the reason. No message text is stored."),
-            Header(text="Add chat"),
+            Header(text=t("h_title")),
+            Switch(key="master", text=t("master"), default=True, subtext=t("master_s")),
+            Selector(key="ui_lang", text=t("lang"), items=list(LANG_NAMES), default=0, subtext=t("lang_s")),
+            Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(3)], default=0,
+                     subtext=t("preset_s")),
+            Header(text=t("h_decisions")),
         ]
-        if DialogPicker is not None:
-            items.append(DialogPicker(key="add_pick", text="Choose from my chats",
-                                      on_pick=self.on_chat_added,
-                                      subtext="Opens your chat list."))
-            items.append(UsernameInput(key="add_username", text="Add by @username or t.me link",
-                                       on_resolved=self.on_chat_added,
-                                       subtext="Public usernames only. Secret chats, channels and bots are refused."))
+        rows = self.decision_rows()
+        if rows:
+            for title, sentence, _r in rows:
+                items.append(Header(text=title))
+                items.append(note(sentence))
+            items.append(Text(text=t("log_copy"), key="log_copy", on_click=self.copy_log))
+            items.append(Text(text=t("log_clear"), key="log_clear", on_click=self.clear_log))
         else:
-            items.append(Text(text="Add a chat with the 'AI auto-reply' item in the chat header menu."))
-        items.append(Text(text="Modes", subtext=MODES_HELP))
+            items.append(note(t("log_none")))
+        items.append(note(t("decisions_note")))
+        items.append(Header(text=t("h_add")))
+        if DialogPicker is not None:
+            items.append(DialogPicker(key="add_pick", text=t("add_pick"), on_pick=self.on_chat_added,
+                                      subtext=t("add_pick_s")))
+            items.append(UsernameInput(key="add_username", text=t("add_user"), on_resolved=self.on_chat_added,
+                                       subtext=t("add_user_s")))
+        else:
+            items.append(note(t("add_old")))
+        items.append(Header(text=t("h_modes")))
+        items.append(note(t("modes_help")))
         items += [
+            Header(text=t("h_cmd")),
+            note(t("cmd_note")),
+            Switch(key="cmd_enable", text=t("cmd_on"), default=True, subtext=t("cmd_on_s")),
+            Input(key="cmd_triggers", text=t("cmd_triggers"), default=DEFAULT_TRIGGERS, subtext=t("cmd_triggers_s")),
+            Selector(key="cmd_mode", text=t("cmd_mode"), items=[t("cmd_mode_0"), t("cmd_mode_1")], default=0),
+            Switch(key="cmd_any_private", text=t("cmd_any"), default=False, subtext=t("cmd_any_s")),
+            Input(key="cmd_openers", text=t("cmd_openers"), default="", multiline=True, subtext=t("cmd_openers_s")),
             Divider(),
-            Header(text="Humanize"),
-            Switch(key="humanize", text="Humanize replies", default=True,
-                   subtext="Answer like you: casual, short, no assistant phrases, no markdown. "
-                           "Off = the old plain behavior."),
-            Switch(key="learn_style", text="Learn my style", default=True,
-                   subtext="Your last outgoing messages (no commands, links or long texts) are sent "
-                           "as examples to your own AI server configured in ZephyrGram - nowhere else. "
-                           "If this chat has few of them, a few other chats you added are used too."),
-            Input(key="learn_n", text="Style examples (5-50)", default="40"),
-            Input(key="style_cache_min", text="Re-learn style every (minutes)", default="30"),
-            Selector(key="tone", text="Tone", items=list(TONES), default=0,
-                     subtext="Your own prompt below is added on top."),
-            Switch(key="split_msgs", text="Split long replies", default=True,
-                   subtext="Only replies longer than ~120 characters, into at most 2 messages."),
-            Switch(key="typing_delay", text="Typing delay", default=True,
-                   subtext="Short pause (0.4-2.5 s in total) before sending."),
-            Input(key="typing_cap", text="Typing delay cap (s, advanced)", default="",
-                  subtext="Empty = 2.5. Total pause for one reply."),
-            Input(key="banned_words", text="Extra banned words (comma separated)", default="",
-                  multiline=True,
-                  subtext="Built-in list (звісно, безумовно, розумію, дійсно...) is always on; a reply "
-                          "with them is regenerated once, then sent anyway."),
-            Switch(key="skip_emoji", text="Skip emoji-only messages", default=True),
-            Input(key="max_reply", text="Max reply length (characters)", default="300"),
-            Input(key="temperature", text="Temperature (0-2)", default="0.95"),
+            Header(text=t("h_humanize")),
+            Switch(key="humanize", text=t("humanize"), default=True, subtext=t("humanize_s")),
+            Switch(key="learn_style", text=t("learn"), default=True, subtext=t("learn_s")),
+            Input(key="learn_n", text=t("learn_n"), default="40"),
+            Input(key="style_cache_min", text=t("relearn"), default="30"),
+            Selector(key="tone", text=t("tone"), items=[t("tone_%d" % i) for i in range(3)], default=0,
+                     subtext=t("tone_s")),
+            Switch(key="split_msgs", text=t("split"), default=True, subtext=t("split_s")),
+            Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
+            Input(key="typing_cap", text=t("typing_cap"), default="", subtext=t("typing_cap_s")),
+            Input(key="banned_words", text=t("banned"), default="", multiline=True, subtext=t("banned_s")),
+            Switch(key="skip_emoji", text=t("skip_emoji"), default=True),
+            Input(key="max_reply", text=t("max_reply"), default="300"),
+            Input(key="temperature", text=t("temperature"), default="0.95"),
         ]
         if DialogPicker is not None:
-            items.append(DialogPicker(key="test_pick", text="Test style: choose a chat",
-                                      on_pick=self.on_test_style,
-                                      subtext="Writes 5 sample replies to the last 5 incoming messages. "
-                                              "Nothing is sent; the result is shown below."))
+            items.append(DialogPicker(key="test_pick", text=t("test_pick"), on_pick=self.on_test_style,
+                                      subtext=t("test_pick_s")))
         last = str(self.get_setting("style_test_result", "") or "")
         if last:
-            items.append(Text(text=last))
+            items.append(Header(text=t("h_test_result")))
+            items.append(note(last))
         items += [
             Divider(),
-            Input(key="default_prompt", text="Default system prompt", default="", multiline=True,
-                  subtext="Extra instructions on top of the humanize rules. Empty = nothing extra "
-                          "(with Humanize off: built-in prompt)"),
-            Input(key="context_n", text="Context size (messages)", default="10"),
-            Input(key="model", text="Model (empty = app default)", default=""),
-            Switch(key="disclosure", text="Disclose AI in first reply", default=True),
-            Input(key="disclosure_text", text="Disclosure prefix", default=ROBOT + " "),
-            Input(key="trigger", text="Command trigger (Friend mode)", default=".ai "),
+            Input(key="default_prompt", text=t("default_prompt"), default="", multiline=True,
+                  subtext=t("default_prompt_s")),
+            Input(key="context_n", text=t("context_n"), default="10"),
+            Input(key="model", text=t("model"), default=""),
+            Switch(key="disclosure", text=t("disclosure"), default=True),
+            Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
+            Input(key="trigger", text=t("trigger"), default=".ai "),
             Divider(),
-            Header(text="Limits"),
-            Input(key="debounce", text="Wait after last message (s)", default="",
-                  subtext="Empty = preset (Balanced 4-6 s). Several messages in a row get one answer."),
-            Input(key="cooldown", text="Min seconds between replies in a chat", default="",
-                  subtext="Empty = preset (Balanced 20)."),
-            Input(key="chat_hourly", text="Max replies per hour per chat", default="",
-                  subtext="Empty = preset (Balanced 12). At the limit one polite line is sent, then silence."),
-            Switch(key="polite_stop", text="Polite stop at the hourly limit", default=True),
-            Input(key="owner_active", text="Silent after you wrote in the chat (s)", default="",
-                  subtext="Empty = preset (Balanced 120). 0 = off."),
-            Input(key="quiet_hours", text="Quiet hours (HH:MM-HH:MM)", default="",
-                  subtext="Example 23:00-08:00. Empty = always allowed."),
-            Switch(key="skip_ack", text="Ignore plain 'ok / thanks / lol'", default=True,
-                   subtext="Until you touch it the preset decides."),
-            Switch(key="group_need_question", text="Groups: only questions and requests", default=True,
-                   subtext="Until you touch it the preset decides."),
-            Input(key="daily_cap", text="Daily cap per chat", default="50"),
-            Input(key="hourly_cap", text="Hourly cap (all chats)", default="30"),
+            Header(text=t("h_limits")),
+            Input(key="debounce", text=t("debounce"), default="", subtext=t("debounce_s")),
+            Input(key="cooldown", text=t("cooldown"), default="", subtext=t("cooldown_s")),
+            Input(key="chat_hourly", text=t("chat_hourly"), default="", subtext=t("chat_hourly_s")),
+            Switch(key="polite_stop", text=t("polite_stop"), default=True),
+            Input(key="owner_active", text=t("owner_active"), default="", subtext=t("owner_active_s")),
+            Input(key="quiet_hours", text=t("quiet"), default="", subtext=t("quiet_s")),
+            Switch(key="skip_ack", text=t("skip_ack"), default=True, subtext=t("until_touch")),
+            Switch(key="group_need_question", text=t("group_q"), default=True, subtext=t("until_touch")),
+            Input(key="daily_cap", text=t("daily_cap"), default="50"),
+            Input(key="hourly_cap", text=t("hourly_cap"), default="30"),
             Divider(),
-            Header(text="Chats"),
+            Header(text=t("h_chats")),
         ]
         shown = 0
         for key, c in sorted(self._chats.items()):
@@ -1546,18 +2231,17 @@ class Plugin(BasePlugin):
             sk = self._sk(key)
             title = str(c.get("title") or key)
             self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
-            items.append(Header(text=title if c.get("enabled") else title + " (paused)"))
-            items.append(Selector(key="mode_" + sk, text="Mode", items=list(MODE_NAMES),
-                                  default=MODE_AUTO))
-            items.append(Input(key="prompt_" + sk, text="System prompt for this chat", default="",
-                               multiline=True, subtext="Empty = default prompt"))
-            items.append(Switch(key="keep_" + sk, text="Enabled", default=bool(c.get("enabled")),
+            items.append(Header(text=title if c.get("enabled") else "%s (%s)" % (title, t("paused"))))
+            items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
+                                  items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO))
+            items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
+                               subtext=t("chat_prompt_s")))
+            items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
                                 on_change=self._keep_cb(key)))
-            items.append(Text(text="Test style in this chat (nothing is sent)", key="test_" + sk,
-                              on_click=self._test_cb(key)))
-            items.append(Text(text="Remove chat", key="remove_" + sk, on_click=self._remove_cb(key)))
+            items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
+            items.append(Text(text=t("chat_remove"), key="remove_" + sk, on_click=self._remove_cb(key)))
         if not shown:
-            items.append(Text(text="No chats yet."))
+            items.append(note(t("no_chats")))
         return items
 
     def on_chat_added(self, dialog_id, title):
@@ -1579,7 +2263,7 @@ class Plugin(BasePlugin):
             if info is not None:
                 reason = self.check_info(info)
                 if reason:
-                    client.bulletin("AI auto-reply: not available here (%s)" % reason)
+                    client.bulletin(self.t("bl_na", self.rt(reason)))
                     return
                 kind = info.get("type")
                 name = str(info.get("title") or title or did)
@@ -1592,7 +2276,7 @@ class Plugin(BasePlugin):
                           "title": name, "type": kind, "fails": 0})
                 self._chats[key] = c
                 self._save_chats()
-            client.bulletin("AI auto-reply: ON for %s" % name)
+            client.bulletin(self.t("bl_on", name))
         except Exception as e:
             self.error(e)
 
@@ -1608,7 +2292,7 @@ class Plugin(BasePlugin):
             self.set_setting("prompt_" + sk, None)
             self.set_setting("keep_" + sk, None)
             if c:
-                client.bulletin("AI auto-reply: removed %s" % (c.get("title") or key))
+                client.bulletin(self.t("bl_removed", c.get("title") or key))
         return cb
 
     def _test_cb(self, key):

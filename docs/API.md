@@ -173,6 +173,13 @@ Values are stored per plugin; read them with `self.get_setting(key, default)`.
 `UsernameInput` callback the settings screen calls `create_settings()` again, so changes you
 made (added/removed rows) show up.
 
+**How rows render (host `ZephyrPluginSettingsActivity`).** `Header` is a one-line, non-clickable
+title. `Text` is a clickable one-line button (`UItem.asButton`): longer text is cut and a tap only
+runs `on_click`. `subtext` of any item and the text of a `Divider` are drawn as a grey, multi-line,
+non-clickable block (`UItem.asShadow`). So for long explanations use a `Divider` whose `text`
+attribute you set (`d = Divider(); d.text = "..."`; the constructor takes no argument) and for a
+readable list use `Header(title)` + such a block per entry; never put long text into `Text`.
+
 **`DialogPicker`** is a button that opens Telegram's own chat picker (the same screen used by
 Forward/Share, over the user's chat list). When the user chooses a chat, `on_pick(dialog_id, title)`
 runs on the UI thread (so use `client.run_in_bg` for blocking calls). The picker needs no permission.
@@ -327,3 +334,18 @@ class Plugin(BasePlugin):
 ```
 
 See `templates/hello.plugin` and `plugins/` for complete, working samples.
+
+## 9. Core change requests
+
+Proposals only, not implemented. `ai_autoreply` 0.3.2 works around the first two.
+
+1. `Divider(text="")` and `Text(text, on_click=None, clickable=True, multiline=False)`: a constructor
+   argument for the text of a `Divider` (today it is a class attribute that has to be assigned on an
+   instance) and a way to mark a `Text` row as non-clickable and multi-line (`clickable=False` would map
+   to a non-interactive `UItem`, `multiline=True` to unlimited lines). Java: `PluginSettingsModel.Item`
+   already has `multiline`; `ZephyrPluginSettingsActivity.fillItems` would use it for `TYPE_TEXT`.
+2. `client.app_locale() -> str`: language code of the app UI, e.g. `"uk"`, from
+   `LocaleController.getInstance().getCurrentLocale().getLanguage()`. Without it a plugin cannot follow
+   the app language (Python `locale`/`LANG` is not the app locale and `java.raw` is a heavy permission), so
+   `ai_autoreply` has an `Interface language` setting (Auto = phone language if visible, else Ukrainian).
+3. `Header(text, multiline=False)`: long section titles are cut to one line.

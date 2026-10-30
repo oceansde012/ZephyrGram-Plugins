@@ -42,8 +42,18 @@ def install_fake_zephyr():
         def add_on_new_message_hook(self, priority=0):
             pass
 
+        def add_on_send_message_hook(self, priority=0):
+            self.send_hook_registered = True
+
         def add_menu_item(self, item):
             self.menu = getattr(self, "menu", []) + [item]
+
+    class HookStrategy:
+        DEFAULT, CANCEL, MODIFY, MODIFY_FINAL = 0, 1, 2, 3
+
+    class HookResult(object):
+        def __init__(self, strategy=0, **kw):
+            self.strategy = strategy
 
     class MenuType:
         CHAT_ACTION = "CHAT_ACTION"
@@ -90,9 +100,12 @@ def install_fake_zephyr():
     cl.get_dialog_info = lambda did, account=None: dict(cl.info)
     cl.send_text = lambda did, text, reply_to=None: cl.sent.append((did, text, reply_to))
     cl.set_draft = lambda did, text: cl.drafts.append((did, text))
+    cl.clipboard = []
+    cl.copy_to_clipboard = lambda text: cl.clipboard.append(text)
     cl.message_to_dict = lambda mo: dict(mo)
     cl.current_account = lambda: 0
 
+    z.HookResult, z.HookStrategy = HookResult, HookStrategy
     z.BasePlugin, z.MenuItem, z.MenuType, z.client, z.ui = BasePlugin, MenuItem, MenuType, cl, ui
     sys.modules["zephyr"], sys.modules["zephyr.ui"], sys.modules["zephyr.client"] = z, ui, cl
     return cl
@@ -114,6 +127,7 @@ class Base(unittest.TestCase):
         c.sent[:] = []
         c.drafts[:] = []
         c.bulletins[:] = []
+        c.clipboard[:] = []
         c.ai_calls[:] = []
         c.history[:] = []
         c.ai_result = lambda messages, **kw: "hello back"
@@ -122,6 +136,7 @@ class Base(unittest.TestCase):
         self.clock = [1000000.0]
         self.p = mod.Plugin()
         self.p._now = lambda: self.clock[0]
+        self.p.settings["ui_lang"] = 3            # English: the older tests assert English texts
         self.p.on_plugin_load()
         self.p.settings["debounce"] = "3"
         self.p._rng.seed(1)
