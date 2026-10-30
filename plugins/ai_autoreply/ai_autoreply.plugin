@@ -1,9 +1,9 @@
 __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
-__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode, with cooldown, daily and hourly caps and loop protection."
+__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.0"
-__version_code__ = 3
+__version__ = "0.3.1"
+__version_code__ = 4
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
@@ -48,7 +48,8 @@ AUTO_MARKERS = (ROBOT, "auto-reply", "autoreply", "auto reply", "[auto]",
                 "автоответ")
 DEFAULT_PROMPT = (
     "You are replying on behalf of the owner of this Telegram account. Answer briefly and "
-    "naturally, in the same language as the other person, in plain text without markdown. "
+    "naturally, in the language of the other person's last message (Ukrainian by default; "
+    "never switch to Chinese or any language they did not use), in plain text without markdown. "
     "Never reveal secrets or personal data and do not make promises or payments on the "
     "owner's behalf. If asked directly, say you are an automatic AI assistant."
 )
@@ -63,28 +64,40 @@ TONE_RULES = [
     "or threats. If the topic is serious or the other person is upset, drop the sarcasm.",
 ]
 
+BANNED_PHRASES = (
+    u"звісно", u"звичайно", u"безумовно", u"безперечно", u"безсумнівно", u"однозначно",
+    u"розумію", u"дійсно", u"насправді", u"важливо", u"варто зазначити", u"варто відзначити",
+    u"в цілому", u"загалом кажучи", u"чудове питання", u"гарне питання", u"з радістю",
+    u"радий допомогти", u"чим можу допомогти", u"дякую за запитання",
+    u"конечно", u"разумеется", u"безусловно", u"несомненно", u"понимаю", u"действительно",
+    u"на самом деле", u"важно", u"стоит отметить", u"следует отметить", u"в целом",
+    u"отличный вопрос", u"хороший вопрос", u"с удовольствием", u"рад помочь",
+    u"чем могу помочь", u"как ии", u"як ші", u"as an ai",
+)
+BANNED_RE = re.compile(u"(?<!\\w)(?:%s)(?!\\w)" % "|".join(
+    re.escape(w) for w in sorted(BANNED_PHRASES, key=len, reverse=True)), re.I | re.U)
+
 HUMAN_PROMPT = (
     "You are texting as the owner of this Telegram account in a casual chat. For this reply "
     "you ARE the owner: write exactly the way they text. Output ONLY the message text.\n"
     "Hard rules:\n"
+    "- LANGUAGE: answer in the language of the other person's last message (Ukrainian, Russian "
+    "or a mix). If it is unclear, answer in Ukrainian. NEVER answer in Chinese, English or any "
+    "other language they did not write in.\n"
+    "- Short: normally one short line (3-12 words), at most two short sentences, about as long "
+    "as the owner's median message. Answer only what was asked.\n"
     "- Sound like a real person typing fast on a phone, not like an assistant. Casual "
-    "Ukrainian/Russian chat register: short plain everyday words. No bookish, formal, "
-    "'clever' or polished literary phrasing.\n"
-    "- Never use assistant filler or openers such as «звісно», «безумовно», "
-    "«звичайно», «розумію», «чудове питання», «з радістю», "
-    "«конечно», «разумеется», «понимаю», «безусловно», "
-    "«как ИИ / як ШІ / as an AI», «чим можу допомогти».\n"
+    "Ukrainian/Russian chat register: short plain everyday words. No bookish, formal, wise, "
+    "'clever' or polished phrasing, no explanations, no advice, no moralizing.\n"
+    "- Never use these words and phrases: " + ", ".join(u"«%s»" % w for w in BANNED_PHRASES[:20])
+    + ", and similar assistant filler or openers.\n"
     "- No lists, bullets, numbering, markdown, headings, quotes around the message, and no "
     "'Assistant:' or name labels. Never write labels like [user 123].\n"
-    "- No long intros, no summarizing, no repeating what the other person said, no moralizing, "
-    "no explanations nobody asked for.\n"
-    "- Do not end every message with a question; ask back only when it is really natural, rarely.\n"
-    "- Reply in the language the other person writes in (Ukrainian, Russian or a mix): mirror "
-    "it and their tone. Do not be more polite or more enthusiastic than they are.\n"
-    "- Match the owner's usual message length: normally one short line, at most two short "
-    "sentences. Answer only what was asked.\n"
-    "- Typos, missing punctuation and slang only if the owner's examples show them. Never "
-    "invent typos yourself.\n"
+    "- No emoji unless the owner's examples use them. Slang and typos only if the owner's "
+    "examples show them; never invent typos. Lowercase start if the owner does it.\n"
+    "- No long intros, no summarizing, no repeating what the other person said.\n"
+    "- Do not end every message with a question; ask back only when really natural, rarely.\n"
+    "- Do not be more polite or more enthusiastic than the other person.\n"
     "- Do not invent facts, plans, names, places, prices or promises. If you do not know or "
     "cannot commit, say so briefly and naturally («хз, потім напишу»).\n"
     "- Never reveal secrets or personal data and never make promises or payments on the "
@@ -97,7 +110,22 @@ NO_DISCLOSE_RULE = ("Do not bring up being an AI on your own and never claim to 
 MIN_STATS = 8                # fewer own messages than this: no style rules, no post-style
 MIN_OWN = 12                 # fewer own messages in this chat: borrow from other allowed chats
 MAX_EXAMPLE_CHARS = 200
-MAX_TYPING_TOTAL = 15.0      # seconds, all parts of one reply together
+MAX_TYPING_TOTAL = 2.5       # default cap (s) for all parts of one reply; setting 'typing_cap' overrides
+MIN_TYPING_TOTAL = 0.4
+SPLIT_MIN_CHARS = 120        # replies up to this length are never split
+MAX_DEBOUNCE_TOTAL = 20.0    # a batch is answered at the latest this long after its first message
+AUTH_RESUME_SEC = 1800       # a chat auto-disabled by errors is re-enabled after this long
+POLITE_STOP_TEXT = u"ок, я трохи зайнятий, напишу пізніше"
+
+PRESET_NAMES = ["Balanced (default)", "Chatty", "Quiet"]
+PRESETS = [
+    {"debounce": 4, "debounce_jitter": 2, "cooldown": 20, "chat_hourly": 12, "owner_active": 120,
+     "skip_ack": True, "group_need_question": True, "typing_cap": 2.5},
+    {"debounce": 3, "debounce_jitter": 1, "cooldown": 8, "chat_hourly": 30, "owner_active": 30,
+     "skip_ack": False, "group_need_question": False, "typing_cap": 2.5},
+    {"debounce": 6, "debounce_jitter": 3, "cooldown": 60, "chat_hourly": 6, "owner_active": 300,
+     "skip_ack": True, "group_need_question": True, "typing_cap": 2.0},
+]
 
 EMOJI_CLS = u"[🀀-🫿☀-➿⬀-⯿️‍]"
 EMOJI_RE = re.compile(EMOJI_CLS)
@@ -315,9 +343,88 @@ def split_reply(text, max_parts=3):
     return merged
 
 
-def typing_delay_s(text, jitter=1.0):
-    """Seconds to 'type' one message: proportional to its length, with jitter."""
-    return min(6.0, 0.8 + len(text) * 0.07) * jitter
+def typing_delay_s(text, jitter=1.0, cap=MAX_TYPING_TOTAL):
+    """Seconds to 'type' one message: 0.3 s + 25 ms per character, with jitter, capped."""
+    cap = max(0.0, float(cap))
+    return max(0.0, min(cap, (0.3 + 0.025 * len(str(text or ""))) * jitter))
+
+
+ACK_WORDS = frozenset(u"""ок окей окі оке ok okay k дякую дяка дякс дякуй спасибо спасибі спс сенк thx
+thanks ty ага угу ясно зрозуміло зрозумів понятно понял добре гуд норм нормально ладно ладн
+лол ржу круто класс клас збс""".split())
+LAUGH_RE = re.compile(u"^(?:ха|ах|хе|хі|ых|ах)+х?$")
+QUESTION_WORDS = frozenset(u"""що шо чо что як как де где коли когда чому почему чи хто кто скільки сколько
+навіщо зачем який яка які який какой какая какие можеш можешь можна можно підкажи підкажіть
+скажи скажіть розкажи допоможи помоги поможешь покажи дай зроби сделай пліз плиз please how what
+why when where who can could help""".split())
+CJK_RE = re.compile(u"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+RU_HINT_RE = re.compile(u"\\b(?:привет|что|как|это|нет|пока|спасибо|почему|когда|тебя|меня|есть|буду|"
+                        u"ладно|ничего|сейчас|потом|давай|можешь|хорошо)\\b", re.I | re.U)
+
+
+def _words(text):
+    t = re.sub(r"(.)\1{2,}", r"\1", str(text or "").lower())
+    return [w for w in WORD_RE.findall(t) if any(ch.isalpha() for ch in w)]
+
+
+def is_ack(text):
+    """Pure acknowledgement ('ок', 'дякую', 'ага', 'лол', '👍 ок'): nothing to answer."""
+    t = str(text or "")
+    if "?" in t:
+        return False
+    words = _words(t)
+    if not words or len(words) > 3:
+        return False
+    return all(w in ACK_WORDS or LAUGH_RE.match(w) for w in words)
+
+
+def has_request(text):
+    """Question or request (used in group-ish chats)."""
+    t = str(text or "")
+    if "?" in t:
+        return True
+    return any(w in QUESTION_WORDS for w in _words(t))
+
+
+def detect_lang(text):
+    """'Ukrainian' / 'Russian' / 'English' of the incoming text; Ukrainian when unsure."""
+    t = str(text or "")
+    if UK_RE.search(t):
+        return "Ukrainian"
+    if RU_RE.search(t) or RU_HINT_RE.search(t):
+        return "Russian"
+    lat = len(re.findall(r"[A-Za-z]", t))
+    cyr = len(re.findall(u"[\u0400-\u04ff]", t))
+    if lat >= 6 and lat > cyr:
+        return "English"
+    return "Ukrainian"
+
+
+def banned_hits(text, extra=()):
+    """Banned assistant words/phrases found in the reply (lowercase, unique, in order)."""
+    t = str(text or "")
+    hits = []
+    for m in BANNED_RE.finditer(t):
+        w = m.group(0).lower()
+        if w not in hits:
+            hits.append(w)
+    low = t.lower()
+    for w in extra:
+        if w and w in low and w not in hits:
+            hits.append(w)
+    return hits
+
+
+def parse_quiet_hours(raw):
+    """'23:00-08:00' -> (start_min, end_min) or None."""
+    m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*[-\u2013]\s*(\d{1,2}):(\d{2})\s*$", str(raw or ""))
+    if not m:
+        return None
+    a = int(m.group(1)) * 60 + int(m.group(2))
+    b = int(m.group(3)) * 60 + int(m.group(4))
+    if a == b or a > 1439 or b > 1439:
+        return None
+    return a, b
 
 
 class ChatState(object):
@@ -336,6 +443,12 @@ class ChatState(object):
         self.info = None
         self.info_ts = 0.0
         self.recent = deque(maxlen=5)      # normalized texts of our last replies (de-duplication)
+        self.first_ts = 0.0                # time of the first message of the pending batch
+        self.owner_ts = 0.0                # last time the owner wrote in this chat
+        self.answered = deque(maxlen=60)   # message ids we already replied to
+        self.sent_h = deque(maxlen=200)    # timestamps of our sent replies (per-chat hourly cap)
+        self.sending = False
+        self.polite_ts = 0.0
 
 
 class Plugin(BasePlugin):
@@ -347,6 +460,8 @@ class Plugin(BasePlugin):
         self._profiles = {}                # chat key -> (ts, n, {"examples": [...], "style": {...}})
         self._rng = random.Random()
         self._testing = False
+        self._testing_ts = 0.0
+        self._load_decisions()
         self._load_bot_texts()
         self._load_chats()
         self.add_on_new_message_hook(priority=0)
@@ -358,7 +473,8 @@ class Plugin(BasePlugin):
             menu_type=MenuType.CHAT_ACTION, text="AI auto-reply: ON (tap to disable)",
             on_click=self.on_disable_click, priority=0,
             condition=self.cond_show_on, key="ai_autoreply_on"))
-        self.log("loaded %s v%s, %d chats" % (self.name, self.version, len(self._chats)))
+        self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
+                                                          PRESET_NAMES[self._preset_index()]))
 
     def on_plugin_unload(self):
         self.log("unloaded")
@@ -383,6 +499,95 @@ class Plugin(BasePlugin):
 
     def _humanize(self):
         return bool(self.get_setting("humanize", True))
+
+    # ---- presets: an empty setting means "use the preset value"
+    def _preset_index(self):
+        try:
+            i = int(self.get_setting("preset", 0))
+        except (TypeError, ValueError):
+            i = 0
+        return i if 0 <= i < len(PRESETS) else 0
+
+    def _preset(self):
+        return PRESETS[self._preset_index()]
+
+    def _explicit(self, key):
+        raw = self.get_setting(key, "")
+        return None if raw is None or str(raw).strip() == "" else raw
+
+    def _pnum(self, key, lo, hi):
+        """Number from the setting, or from the preset when the setting is empty/invalid."""
+        raw = self._explicit(key)
+        if raw is not None:
+            try:
+                return max(lo, min(hi, float(str(raw).strip().replace(",", "."))))
+            except (TypeError, ValueError):
+                pass
+        return max(lo, min(hi, float(self._preset()[key])))
+
+    def _pbool(self, key):
+        raw = self.get_setting(key, None)
+        return bool(self._preset()[key]) if raw is None or raw == "" else bool(raw)
+
+    def _debounce(self, jitter=False):
+        base = self._pnum("debounce", 0, 60)
+        if jitter and self._explicit("debounce") is None:
+            base += self._rng.uniform(0, float(self._preset().get("debounce_jitter", 0)))
+        return base
+
+    # ---- decision log (no message text: only outcome, reason, chat id, time)
+    def _load_decisions(self):
+        try:
+            data = json.loads(self.get_setting("decisions", "[]") or "[]")
+        except (ValueError, TypeError):
+            data = []
+        self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=20)
+
+    def _decide(self, key, outcome, reason, ring=True):
+        """Record why a message was answered or skipped. Never raises."""
+        try:
+            reason = re.sub(r"\W+", "_", str(reason).lower()).strip("_") or "unknown"
+            self.log("decision %s %s %s" % (outcome, key, reason))
+            if ring:
+                with self._lock:
+                    self._decisions.append({"t": int(self._now()), "chat": key, "o": outcome, "r": reason})
+                    self.set_setting("decisions", json.dumps(list(self._decisions)))
+        except Exception:
+            pass
+        return reason
+
+    def decisions_text(self):
+        rows = list(getattr(self, "_decisions", []))[-20:]
+        if not rows:
+            return "No decisions yet."
+        out = []
+        for r in reversed(rows):
+            try:
+                ts = time.strftime("%d.%m %H:%M:%S", time.localtime(float(r.get("t", 0))))
+            except Exception:
+                ts = "?"
+            out.append("%s  chat %s  %s: %s" % (ts, r.get("chat"), r.get("o"), r.get("r")))
+        return "\n".join(out)
+
+    def _is_bot_text(self, text):
+        low = str(text or "").lower()
+        if norm_text(text)[:160] in self._bot_texts:
+            return True
+        prefix = str(self.get_setting("disclosure_text", ROBOT + " ") or "").strip().lower()
+        return any(mk in low for mk in AUTO_MARKERS) or bool(prefix and low.startswith(prefix))
+
+    def _in_quiet_hours(self):
+        q = parse_quiet_hours(self.get_setting("quiet_hours", ""))
+        if not q:
+            return False
+        lt = time.localtime(self._now())
+        cur = lt.tm_hour * 60 + lt.tm_min
+        a, b = q
+        return (a <= cur < b) if a < b else (cur >= a or cur < b)
+
+    def _banned_extra(self):
+        raw = str(self.get_setting("banned_words", "") or "")
+        return [w.strip().lower() for w in re.split(r"[,\n;]", raw) if w.strip()]
 
     def _load_bot_texts(self):
         try:
@@ -545,30 +750,59 @@ class Plugin(BasePlugin):
             self.handle_incoming(account, message_object)
         except Exception as e:
             self.error(e)
+            self._decide("?", "error", "handle_incoming_exception")
+
+    def _maybe_resume(self, key):
+        """A chat disabled by repeated errors comes back after AUTH_RESUME_SEC (never stay silent forever)."""
+        c = self._chats.get(key)
+        if c and not c.get("enabled") and c.get("auto_off_ts"):
+            if self._now() - float(c.get("auto_off_ts") or 0) >= AUTH_RESUME_SEC:
+                with self._lock:
+                    c["enabled"] = True
+                    c["fails"] = 0
+                    c.pop("auto_off_ts", None)
+                    self._save_chats()
+                self._decide(key, "resume", "auto_resumed_after_errors")
+
+    def _note_owner(self, key, m):
+        """Our own outgoing message: remember that the owner is active (plugin's own texts excluded)."""
+        st = self._state(key)
+        text = str(m.get("text") or "")
+        if st.sending or (text.strip() and self._is_bot_text(text)):
+            return
+        st.owner_ts = self._now()
 
     def handle_incoming(self, account, mo):
-        if not self.get_setting("master", True):
-            return None
         m = self._to_dict(mo)
         did = self._dialog_id_of(mo, m)
         if not did:
             return None
         key = self.chat_key(account, did)
+        self._maybe_resume(key)
         if not self.is_enabled(key):
+            return None
+        if m.get("out"):
+            self._note_owner(key, m)
+            self._decide(key, "skip", "outgoing", ring=False)
+            return "outgoing"
+        if not self.get_setting("master", True):
+            self._decide(key, "skip", "master_off")
             return None
         reason = self.accept_message(key, m)
         if reason:
-            self.log("skip %s msg %s: %s" % (key, m.get("id"), reason))
+            self._decide(key, "skip", reason, ring=reason not in ("duplicate", "sender is bot"))
             return reason
         st = self._state(key)
         with self._lock:
+            if not st.pending:
+                st.first_ts = self._now()
             st.pending.append((m.get("id"), m.get("from_id"), self._strip_trigger(key, m["text"])))
             st.last_ts = self._now()
             need_timer = not st.timer
             if need_timer:
                 st.timer = True
         if need_timer:
-            self._schedule(key, self._int("debounce", 3, 0, 60))
+            self._schedule(key, self._debounce(jitter=True))
         return None
 
     def _trigger(self):
@@ -602,11 +836,12 @@ class Plugin(BasePlugin):
                 st.seen.append(mid)
                 st.seen_set.add(mid)
         date = m.get("date")
-        try:
-            if date is None or self._now() - float(date) > MAX_AGE_SEC:
-                return "too old"
-        except (TypeError, ValueError):
-            return "bad date"
+        if date is not None:                # a missing/unparsable date is accepted, never a silent drop
+            try:
+                if self._now() - float(date) > MAX_AGE_SEC:
+                    return "too old"
+            except (TypeError, ValueError):
+                pass
         low = text.lower()
         prefix = str(self.get_setting("disclosure_text", ROBOT + " ") or "").strip().lower()
         if any(mk in low for mk in AUTO_MARKERS) or (prefix and low.startswith(prefix)):
@@ -625,21 +860,29 @@ class Plugin(BasePlugin):
 
     # ------------------------------------------------------------------ scheduling
     def _schedule(self, key, delay_s):
-        client.run_on_ui(lambda: client.run_in_bg(lambda: self.tick(key)),
-                         delay_ms=int(max(0.0, delay_s) * 1000))
+        try:
+            client.run_on_ui(lambda: client.run_in_bg(lambda: self.tick(key)),
+                             delay_ms=int(max(0.0, delay_s) * 1000))
+        except Exception as e:                # never leave the timer flag stuck: fall back to a thread timer
+            self.error(e)
+            self._decide(key, "error", "schedule_failed_fallback_timer")
+            t = threading.Timer(max(0.0, delay_s), lambda: self.tick(key))
+            t.daemon = True
+            t.start()
 
     def tick(self, key):
         """Debounce timer fired (runs in a background worker)."""
+        st = self._state(key)
         try:
-            st = self._state(key)
             now = self._now()
-            deb = self._int("debounce", 3, 0, 60)
+            deb = self._debounce()
             batch = None
             with self._lock:
                 if not st.pending:
                     st.timer = False
                     return
-                wait = max(st.last_ts + deb - now, st.cooldown_until - now)
+                due = min(st.last_ts + deb, st.first_ts + MAX_DEBOUNCE_TOTAL)
+                wait = max(due - now, st.cooldown_until - now)
                 if wait > 0:
                     pass                    # timer stays set, re-armed below
                 elif st.inflight:
@@ -660,10 +903,14 @@ class Plugin(BasePlugin):
                     again = bool(st.pending) and not st.timer
                     if again:
                         st.timer = True
+                        st.first_ts = self._now()
                 if again:
-                    self._schedule(key, self._int("debounce", 3, 0, 60))
+                    self._schedule(key, self._debounce(jitter=True))
         except Exception as e:
             self.error(e)
+            self._decide(key, "error", "tick_exception")
+            with self._lock:
+                st.timer = False
 
     # ------------------------------------------------------------------ caps
     def _day(self):
@@ -690,6 +937,13 @@ class Plugin(BasePlugin):
                 return "daily cap reached"
         return None
 
+    def chat_hourly_ok(self, st):
+        now = self._now()
+        with self._lock:
+            while st.sent_h and now - st.sent_h[0] > 3600:
+                st.sent_h.popleft()
+            return len(st.sent_h) < int(self._pnum("chat_hourly", 1, 1000))
+
     def count_use(self, key):
         with self._lock:
             self._hourly.append(self._now())
@@ -706,8 +960,10 @@ class Plugin(BasePlugin):
             c["fails"] = int(c.get("fails", 0)) + 1
             if c["fails"] >= MAX_FAILURES:
                 c["enabled"] = False
+                c["auto_off_ts"] = self._now()
                 self.log("auto-disabled %s after %d failures" % (key, c["fails"]))
-                client.bulletin("AI auto-reply disabled in %s after repeated errors"
+                self._decide(key, "disabled", "auto_disabled_after_errors")
+                client.bulletin("AI auto-reply disabled in %s after repeated errors (retries in 30 min)"
                                 % c.get("title", key))
             self._save_chats()
 
@@ -721,53 +977,122 @@ class Plugin(BasePlugin):
         return st.info
 
     def process(self, key, batch):
+        """Never raises: every outcome is logged as a decision."""
+        try:
+            return self._process(key, batch)
+        except Exception as e:
+            self.error(e)
+            self._decide(key, "error", "process_exception_%s" % type(e).__name__)
+            try:
+                self._fail(key, e)
+            except Exception:
+                pass
+            return "error"
+
+    def _skip(self, key, reason):
+        self._decide(key, "skip", reason)
+        return reason
+
+    def _owner_active_in(self, hist, window):
+        """Newest owner (non-plugin) message in the history younger than window seconds?"""
+        now = self._now()
+        for h in hist:
+            if not h.get("out") or h.get("is_service"):
+                continue
+            t = str(h.get("text") or "")
+            if t.strip() and self._is_bot_text(t):
+                continue
+            try:
+                if now - float(h.get("date") or 0) < window:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        return False
+
+    def _polite_stop(self, key, c, st, did, batch):
+        """Hourly cap reached: one short polite line per hour, then silence."""
+        if not self.get_setting("polite_stop", True) or self._now() - st.polite_ts < 3600:
+            return False
+        text = str(self.get_setting("polite_text", "") or "").strip() or POLITE_STOP_TEXT
+        try:
+            st.sending = True
+            self.send(did, text, None)
+            self._remember_bot_text(text)
+        finally:
+            st.sending = False
+        st.polite_ts = self._now()
+        self._decide(key, "sent", "polite_stop")
+        return True
+
+    def _process(self, key, batch):
         c = self._chats.get(key)
         if not c or not c.get("enabled") or not self.get_setting("master", True):
-            return "disabled"
+            return self._skip(key, "disabled")
         st = self._state(key)
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
+        mode = self._chat_mode(key)
+        auto = mode == MODE_AUTO
         humanize = self._humanize()
-        if (humanize and self.get_setting("skip_emoji", True) and batch
+        batch = [b for b in batch if b[0] is None or b[0] not in st.answered]
+        if not batch:
+            return self._skip(key, "already answered")
+        if auto and self._in_quiet_hours():
+            return self._skip(key, "quiet hours")
+        if (humanize and self.get_setting("skip_emoji", True)
                 and all(is_emoji_only(t) for _, _, t in batch)):
-            self.log("skip %s: emoji/sticker only" % key)
-            return "emoji only"
+            return self._skip(key, "emoji only")
+        if auto and self._pbool("skip_ack") and all(is_ack(t) for _, _, t in batch):
+            return self._skip(key, "acknowledgement")
+        if (auto and c.get("type") == "group" and self._pbool("group_need_question")
+                and not any(has_request(t) for _, _, t in batch)):
+            return self._skip(key, "group no question")
+        window = self._pnum("owner_active", 0, 3600)
+        if auto and window and self._now() - st.owner_ts < window:
+            return self._skip(key, "owner active")
         reason = self.caps_ok(key)
         if reason:
-            self.log("skip %s: %s" % (key, reason))
-            return reason
+            return self._skip(key, reason)
+        if mode != MODE_DRAFT and not self.chat_hourly_ok(st):
+            if auto:
+                try:
+                    self._polite_stop(key, c, st, did, batch)
+                except Exception as e:
+                    self.error(e)
+            return self._skip(key, "chat hourly cap")
         try:
             reason = self.check_info(self._info(key, did))
         except Exception as e:
             self._fail(key, e)
-            return "info failed"
+            return self._skip(key, "info failed")
         if reason:
-            self.log("skip %s: %s" % (key, reason))
-            return reason
-        mode = self._chat_mode(key)
+            return self._skip(key, reason)
         try:
-            messages = self.build_messages(key, account, did, batch)
+            hist = self._load_history(key, account, did, self._int("context_n", 10, 1, 40))
+            if auto and window and self._owner_active_in(hist, window):
+                st.owner_ts = self._now()
+                return self._skip(key, "owner active")
+            messages = self.build_messages(key, account, did, batch, hist)
         except Exception as e:
             self._fail(key, e)
-            return "context failed"
+            return self._skip(key, "context failed")
         if not messages:
-            return "empty context"
+            return self._skip(key, "empty context (last message is not from them)")
         self.count_use(key)
         try:
             parts, why = self.generate(key, account, did, messages, c, st,
                                        split=(mode != MODE_DRAFT))
         except Exception as e:
             self._fail(key, e)
-            return "ai failed"
+            return self._skip(key, "ai failed")
         if not parts:
             if why == "empty":
                 self._fail(key, "empty AI reply")
-                return "empty reply"
-            self.log("skip %s: %s" % (key, why))
-            return why
+                return self._skip(key, "empty reply")
+            return self._skip(key, why or "no reply")
         # state may have changed during the (slow) AI call
         c = self._chats.get(key)
         if not c or not c.get("enabled") or not self.get_setting("master", True):
-            return "disabled meanwhile"
+            return self._skip(key, "disabled meanwhile")
         try:
             if mode == MODE_DRAFT:
                 client.set_draft(did, "\n".join(parts))
@@ -776,31 +1101,39 @@ class Plugin(BasePlugin):
                 self.deliver(key, c, st, did, parts, batch, humanize)
         except Exception as e:
             self._fail(key, e)
-            return "send failed"
+            return self._skip(key, "send failed")
         with self._lock:
-            st.cooldown_until = self._now() + self._int("cooldown", 20, 0, 3600)
+            for b in batch:
+                if b[0] is not None:
+                    st.answered.append(b[0])
+            st.cooldown_until = self._now() + self._pnum("cooldown", 0, 3600)
             c["fails"] = 0
             self._save_chats()
+        self._decide(key, "draft" if mode == MODE_DRAFT else "sent",
+                     "ok_fallback_" + why if why else "ok")
         return "ok"
 
     def deliver(self, key, c, st, did, parts, batch, humanize):
-        """Send the parts one by one with a typing delay; raises on send failure."""
+        """Send the parts one by one with a short typing delay; raises on send failure."""
         parts = list(parts)
         bodies = list(parts)
         if self.get_setting("disclosure", True) and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
         reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
-        budget = MAX_TYPING_TOTAL
+        cap = self._pnum("typing_cap", 0, 15)
+        budget = cap
         sent = []
+        st.sending = True
         try:
             for i, part in enumerate(parts):
-                if humanize:
-                    if self.get_setting("typing_delay", True):
-                        d = max(0.0, min(budget, typing_delay_s(part, self._rng.uniform(0.8, 1.3))))
-                        budget -= d
+                if self.get_setting("typing_delay", True):
+                    d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
+                    if i == 0:
+                        d = max(d, min(MIN_TYPING_TOTAL, cap))
+                    d = max(0.0, min(budget, d))
+                    budget -= d
+                    if d > 0:
                         time.sleep(d)
-                else:
-                    time.sleep(min(4.0, 0.6 + len(part) / 80.0))   # legacy typing delay
                 if i:
                     cur = self._chats.get(key)
                     if not cur or not cur.get("enabled") or not self.get_setting("master", True):
@@ -811,9 +1144,12 @@ class Plugin(BasePlugin):
                 with self._lock:
                     c["disclosed"] = True
         finally:
+            st.sending = False
             if sent:
                 with self._lock:
-                    st.replies.append(self._now())
+                    now = self._now()
+                    st.replies.append(now)
+                    st.sent_h.append(now)
                     st.recent.append(norm_text(" ".join(sent)))
 
     def send(self, did, text, reply_to):
@@ -857,7 +1193,7 @@ class Plugin(BasePlugin):
         if rules:
             parts.append("How the owner writes (measured on their last %d messages):\n- %s"
                          % (style.get("n", 0), "\n- ".join(rules)))
-        ex = (profile or {}).get("examples") or []
+        ex = ((profile or {}).get("examples") or [])[-24:]
         if ex:
             parts.append("Examples of the owner's real messages. Imitate the voice and rhythm; "
                          "never copy or quote them:\n" + "\n".join("- " + e for e in ex))
@@ -923,8 +1259,9 @@ class Plugin(BasePlugin):
         return prof
 
     def generate(self, key, account, did, messages, c, st, split=True):
-        """Returns (parts, why). parts is [] with why in {'empty','repeat','ai-tell'} if unusable.
-        st is the ChatState used for de-duplication (None = no de-duplication)."""
+        """Returns (parts, why). Normal success: (parts, ''). Best-effort fallback after the retry:
+        (parts, 'fallback'). Empty parts only for: 'empty' (no text at all) or 'duplicate reply'
+        (identical to our previous reply). st is the ChatState used for de-duplication (None = off)."""
         model = str(self.get_setting("model", "") or "").strip()
         if not self._humanize():
             kwargs = {"system": self._chat_prompt(key), "timeout": 60}
@@ -933,42 +1270,77 @@ class Plugin(BasePlugin):
             reply = self.clean_reply(client.ai_complete(messages, **kwargs))
             return ([reply] if reply else []), "empty"
         profile = self.get_profile(key, account, did)
-        system = self.build_system(key, profile)
+        last_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
+        lang = detect_lang(last_in)
+        system = self.build_system(key, profile) + (
+            "\n\nThe message you answer is in %s: reply in %s only." % (lang, lang))
         temp = self._float("temperature", 0.95, 0.0, 2.0)
         limit = self._int("max_reply", 300, 40, MAX_REPLY_CHARS)
         style = (profile or {}).get("style") or {}
-        why = "empty"
+        extra = self._banned_extra()
+        split_min = int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min") else SPLIT_MIN_CHARS
+        cands = []                                  # (parts, problems)
+        problems = []
         for attempt in range(2):
             kwargs = {"system": system, "timeout": 60, "temperature": min(2.0, temp + 0.1 * attempt)}
             if model:
                 kwargs["model"] = model
             if attempt:
                 kwargs["system"] = system + (
-                    "\n\nYour previous attempt was rejected: it repeated an earlier reply or sounded "
-                    "like an AI assistant. Write a clearly different, shorter, more casual message.")
+                    "\n\nYour previous attempt was rejected (%s). Write a clearly different, shorter, "
+                    "more casual message in %s, plain everyday words, without any of the banned words "
+                    "and phrases." % (", ".join(problems) or "too formal", lang))
             reply = clean_humanized(client.ai_complete(messages, **kwargs), limit)
             if not reply:
-                return [], "empty"
-            raw = split_reply(reply) if (split and self.get_setting("split_msgs", True)) else [reply]
+                problems = ["empty"]
+                continue
+            if split and self.get_setting("split_msgs", True) and len(reply) > split_min:
+                raw = split_reply(reply, 2)
+            else:
+                raw = [reply]
             parts = [p for p in (apply_style(p, style) for p in raw) if p]
             if not parts:
-                return [], "empty"
-            why = self.reply_problem(" ".join(parts), st)
-            if not why:
+                problems = ["empty"]
+                continue
+            problems = self.reply_problems(" ".join(parts), st, last_in, extra)
+            cands.append((parts, problems))
+            if not problems:
                 return parts, ""
-        return [], why
+        if not cands:
+            return [], "empty"
+        usable = [cd for cd in cands if not any(p == "repeat" for p in cd[1])]
+        if not usable:
+            return [], "duplicate reply"
+        # best available: no AI-tell / wrong language first, then fewest banned hits
+        usable.sort(key=lambda cd: (any(p in ("ai-tell", "wrong-lang") for p in cd[1]), len(cd[1])))
+        return usable[0][0], "fallback"
 
-    def reply_problem(self, text, st):
-        """'ai-tell' / 'repeat' if the reply must not be used, else ''."""
+    def reply_problems(self, text, st, last_in="", extra=()):
+        """List of problems: 'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat' (same as our last reply)."""
+        out = []
         tell = STRONG_TELL_RE if self.get_setting("disclosure", True) else AI_TELL_RE
         if tell.search(text):
-            return "ai-tell"
+            out.append("ai-tell")
+        hits = banned_hits(text, extra)
+        if hits:
+            out.append("banned:" + ",".join(hits[:4]))
+        if CJK_RE.search(text) and not CJK_RE.search(last_in or ""):
+            out.append("wrong-lang")
+        else:
+            letters = [ch for ch in text if ch.isalpha()]
+            if (len(letters) >= 8 and re.search(u"[Ѐ-ӿ]", last_in or "")
+                    and sum(1 for ch in letters if ch.isascii()) > 0.7 * len(letters)):
+                out.append("wrong-lang")
         n = norm_text(text)
-        if st is not None and len(n) >= 12:
-            for prev in st.recent:
-                if prev == n or difflib.SequenceMatcher(None, prev, n).ratio() >= 0.85:
-                    return "repeat"
-        return ""
+        if st is not None and len(n) >= 12 and st.recent:
+            prev = st.recent[-1]
+            if prev == n or difflib.SequenceMatcher(None, prev, n).ratio() >= 0.95:
+                out.append("repeat")
+        return out
+
+    def reply_problem(self, text, st):
+        p = self.reply_problems(text, st)
+        return p[0] if p else ""
 
     def _hist_messages(self, c, hist):
         group = c.get("type") == "group"
@@ -992,9 +1364,10 @@ class Plugin(BasePlugin):
         return sorted((h for h in hist if isinstance(h, dict) and str(h.get("text") or "").strip()),
                       key=lambda h: (h.get("date") or 0, h.get("id") or 0))[-n:]
 
-    def build_messages(self, key, account, did, batch):
+    def build_messages(self, key, account, did, batch, hist=None):
         n = self._int("context_n", 10, 1, 40)
-        hist = self._load_history(key, account, did, n)
+        if hist is None:
+            hist = self._load_history(key, account, did, n)
         c = self._chats.get(key) or {}
         group = c.get("type") == "group"
         out = self._hist_messages(c, hist)
@@ -1020,10 +1393,11 @@ class Plugin(BasePlugin):
             self.error(e)
 
     def start_style_test(self, account, did, title=""):
-        if self._testing:
+        if self._testing and self._now() - self._testing_ts < 180:
             client.bulletin("Style test is already running")
             return False
         self._testing = True
+        self._testing_ts = self._now()
 
         def work():
             try:
@@ -1058,12 +1432,16 @@ class Plugin(BasePlugin):
             if not msgs or msgs[-1]["role"] != "user":
                 continue
             parts, why = self.generate(key, account, did, msgs, c, None, split=True)
-            shown = " || ".join(parts) if parts else "(skipped: %s)" % why
+            shown = " || ".join(parts) if parts else "(no reply: %s)" % why
             lines.append("%d) %s\n   -> %s" % (len(lines) + 1, str(hist[i]["text"]).strip()[:120], shown))
+        if not lines:
+            client.bulletin("Style test: nothing to test (last message in this chat is yours)")
+            return []
         learned = len((profile or {}).get("examples") or [])
         text = "Style test for %s (%d own messages learned, nothing was sent)\n%s" % (
             info.get("title") or title or did, learned, "\n".join(lines))
         self.set_setting("style_test_result", text)
+        self._decide(self.chat_key(account, did), "test", "style_test_done")
         client.bulletin(text[:900])
         return lines
 
@@ -1074,6 +1452,14 @@ class Plugin(BasePlugin):
             Header(text="AI auto-reply"),
             Switch(key="master", text="Master switch", default=True,
                    subtext="Off = never answers anywhere"),
+            Selector(key="preset", text="Preset", items=list(PRESET_NAMES), default=0,
+                     subtext="Balanced: waits ~5 s and answers a batch once, 20 s between replies, "
+                             "max 12 replies/hour per chat, skips plain 'ok/thanks', stays silent "
+                             "while you are writing yourself. Chatty: answers more often. Quiet: "
+                             "rarely. Fields below with a value override the preset; empty = preset."),
+            Header(text="Recent decisions"),
+            Text(text=self.decisions_text(),
+                 subtext="Last 20: time, chat, sent/skip and the reason. No message text is stored."),
             Header(text="Add chat"),
         ]
         if DialogPicker is not None:
@@ -1100,10 +1486,16 @@ class Plugin(BasePlugin):
             Input(key="style_cache_min", text="Re-learn style every (minutes)", default="30"),
             Selector(key="tone", text="Tone", items=list(TONES), default=0,
                      subtext="Your own prompt below is added on top."),
-            Switch(key="split_msgs", text="Split into short messages", default=True,
-                   subtext="1-3 messages at natural breaks."),
+            Switch(key="split_msgs", text="Split long replies", default=True,
+                   subtext="Only replies longer than ~120 characters, into at most 2 messages."),
             Switch(key="typing_delay", text="Typing delay", default=True,
-                   subtext="Pause before each message depending on its length."),
+                   subtext="Short pause (0.4-2.5 s in total) before sending."),
+            Input(key="typing_cap", text="Typing delay cap (s, advanced)", default="",
+                  subtext="Empty = 2.5. Total pause for one reply."),
+            Input(key="banned_words", text="Extra banned words (comma separated)", default="",
+                  multiline=True,
+                  subtext="Built-in list (звісно, безумовно, розумію, дійсно...) is always on; a reply "
+                          "with them is regenerated once, then sent anyway."),
             Switch(key="skip_emoji", text="Skip emoji-only messages", default=True),
             Input(key="max_reply", text="Max reply length (characters)", default="300"),
             Input(key="temperature", text="Temperature (0-2)", default="0.95"),
@@ -1128,8 +1520,21 @@ class Plugin(BasePlugin):
             Input(key="trigger", text="Command trigger (Friend mode)", default=".ai "),
             Divider(),
             Header(text="Limits"),
-            Input(key="debounce", text="Wait after last message (s)", default="3"),
-            Input(key="cooldown", text="Cooldown per chat (s)", default="20"),
+            Input(key="debounce", text="Wait after last message (s)", default="",
+                  subtext="Empty = preset (Balanced 4-6 s). Several messages in a row get one answer."),
+            Input(key="cooldown", text="Min seconds between replies in a chat", default="",
+                  subtext="Empty = preset (Balanced 20)."),
+            Input(key="chat_hourly", text="Max replies per hour per chat", default="",
+                  subtext="Empty = preset (Balanced 12). At the limit one polite line is sent, then silence."),
+            Switch(key="polite_stop", text="Polite stop at the hourly limit", default=True),
+            Input(key="owner_active", text="Silent after you wrote in the chat (s)", default="",
+                  subtext="Empty = preset (Balanced 120). 0 = off."),
+            Input(key="quiet_hours", text="Quiet hours (HH:MM-HH:MM)", default="",
+                  subtext="Example 23:00-08:00. Empty = always allowed."),
+            Switch(key="skip_ack", text="Ignore plain 'ok / thanks / lol'", default=True,
+                   subtext="Until you touch it the preset decides."),
+            Switch(key="group_need_question", text="Groups: only questions and requests", default=True,
+                   subtext="Until you touch it the preset decides."),
             Input(key="daily_cap", text="Daily cap per chat", default="50"),
             Input(key="hourly_cap", text="Hourly cap (all chats)", default="30"),
             Divider(),

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+- Fix: the bot could stay silent. After the retry the best cleaned reply is now sent anyway (banned words, AI-tell, wrong language); a reply is skipped only when it is empty, emoji-only or identical to our previous reply. A message without a date is no longer dropped. A chat auto-disabled by repeated errors resumes after 30 minutes. Scheduler/process exceptions are caught and logged, and a stuck debounce timer can no longer block a chat.
+- Decision log: every sent/skipped decision (reason code, chat id, time; no message text) goes to log.txt and to the 'Recent decisions' item in settings (last 20).
+- Presets (Balanced default / Chatty / Quiet), each field editable (empty = preset): debounce 4-6 s with one answer per batch, 20 s between replies, 12 replies/hour per chat with one polite stop line, plain 'ок/дякую/ага/лол' ignored unless a question follows, silent for 2 minutes after you wrote in the chat, groups only for questions/requests, never answers the same message twice, optional quiet hours.
+- Typing delay 0.3 s + 25 ms/char, 0.4-2.5 s in total (cap setting 'Typing delay cap'); split only replies over ~120 characters, into at most 2 messages.
+- Human text: shorter, stricter prompt; language rule (language of the last message, Ukrainian by default, never Chinese); built-in banned words list (звісно, безумовно, розумію, дійсно, ... and Russian equivalents) plus your own extra words: a reply with them is regenerated once with an explicit instruction, then sent anyway.
+- Test style hardened (no stuck 'already running', clear message when nothing to test).
+
 ## 0.3.0
 - Humanize (new switch, on by default): replies sound like the owner. Strong anti-AI prompt (no assistant filler like "звісно/розумію/як ШІ", no lists/markdown, no intros or summaries, no question back every time, mirror the other person's language, no invented facts). Your own prompt stays as an extra layer; tone presets Neutral / Friendly / Toxic.
 - Learn my style: the last 5-50 own outgoing messages (commands, links, long and plugin-sent texts skipped) go to the prompt as examples, plus measured rules (typical length, lowercase start, final period, emoji, slang/swear words, Ukrainian/Russian mix). Cached per chat (default 30 min); chats with few own messages borrow from other added chats. Examples are sent only to your own AI server.

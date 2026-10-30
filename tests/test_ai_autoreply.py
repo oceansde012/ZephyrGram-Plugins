@@ -453,7 +453,7 @@ class TestPureHelpers(unittest.TestCase):
 
     def test_typing_delay_grows(self):
         self.assertLess(mod.typing_delay_s("ок"), mod.typing_delay_s("x" * 60))
-        self.assertLessEqual(mod.typing_delay_s("x" * 5000), 6.0)
+        self.assertLessEqual(mod.typing_delay_s("x" * 5000, 1.3), 2.5)
 
     def test_emoji_only(self):
         self.assertTrue(mod.is_emoji_only("\U0001F44D"))
@@ -523,7 +523,8 @@ class TestHumanize(Base):
         self.assertTrue(CLIENT.sent[0][1].endswith("ну ща гляну"))
 
     def test_split_and_delays(self):
-        CLIENT.ai_result = lambda m, **kw: "Це перше речення довге. Це друге речення теж."
+        CLIENT.ai_result = lambda m, **kw: ("Це перше речення досить довге, щоб воно точно не влізло в одну "
+                                            "коротку репліку. Це друге речення теж не маленьке, тому його варто відправити окремо.")
         slept = []
         mod.time.sleep = lambda s: slept.append(s)
         self.round("привіт")
@@ -531,7 +532,7 @@ class TestHumanize(Base):
         self.assertTrue(CLIENT.sent[0][1].startswith(mod.ROBOT))
         self.assertFalse(CLIENT.sent[1][1].startswith(mod.ROBOT))
         self.assertEqual(len(slept), 2)
-        self.assertTrue(all(0.5 < x < 9 for x in slept))
+        self.assertTrue(0.4 <= sum(slept) <= 2.5 + 1e-9, slept)
         self.assertEqual(len(self.p._state(self.key()).replies), 1)
 
     def test_split_off_and_delay_off(self):
@@ -578,11 +579,12 @@ class TestHumanize(Base):
         self.round("третє")
         self.assertEqual(CLIENT.sent[-1][1], "зовсім інша відповідь тут")
 
-    def test_ai_tell_rejected(self):
+    def test_ai_tell_sent_anyway_after_retry(self):
         self.p.settings["disclosure"] = False
         CLIENT.ai_result = lambda m, **kw: "Як ШІ я не можу це зробити"
         self.round("привіт")
-        self.assertEqual(CLIENT.sent, [])
+        self.assertEqual(len(CLIENT.ai_calls), 2)
+        self.assertEqual(len(CLIENT.sent), 1)                # never silent
         self.assertTrue(self.p.is_enabled(self.key()))      # not counted as a failure
 
     def test_humanize_off_is_legacy(self):
@@ -598,7 +600,7 @@ class TestHumanize(Base):
         self.assertIn("honestly say", CLIENT.ai_calls[0]["system"])
         self.p.settings["disclosure"] = False
         self.round("інше")
-        self.assertIn("never claim to be a human", CLIENT.ai_calls[1]["system"])
+        self.assertIn("never claim to be a human", CLIENT.ai_calls[-1]["system"])
 
 
 class TestStyleTest(Base):
