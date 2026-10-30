@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.7"
-__version_code__ = 10
+__version__ = "0.3.8"
+__version_code__ = 11
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -1047,6 +1047,10 @@ S = {
                    "Иногда бот спрашивает ИИ, подходит ли к моменту стикер из ваших недавних, и отправляет его, только если подходит (никогда на вопросы или серьёзные сообщения)."),
     "sticker_pct": ("Chance to ask the sticker picker, % per reply", "Шанс запитати вирішувача стікерів, % на відповідь", "Шанс спросить выбирателя стикеров, % на ответ"),
     "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
+    "transcribe_voice": ("Transcribe voice messages", "Розпізнавати голосові", "Распознавать голосовые"),
+    "media_consent": ("This chat only. Sends incoming images/frames to your configured AI server. Off by default.", "Лише цей чат. Надсилає вхідні зображення/кадри вашому ШІ-серверу. Типово вимкнено.", "Только этот чат. Отправляет входящие изображения/кадры вашему ИИ-серверу. По умолчанию выключено."),
+    "voice_consent": ("This chat only. Sends voice audio to your AI server for transcription. Requires server support; a 403 means unavailable. Off by default.", "Лише цей чат. Надсилає аудіо ШІ-серверу для розпізнавання. Потрібна підтримка сервера; 403 означає недоступність. Типово вимкнено.", "Только этот чат. Отправляет аудио ИИ-серверу для распознавания. Нужна поддержка сервера; 403 означает недоступность. По умолчанию выключено."),
+    "media_per_chat": ("Media and voice consent are configured separately inside each chat row above. Both are off by default; the old global switch grants no consent.", "Дозволи на медіа та голосові налаштовуються окремо в рядку кожного чату вище. Обидва типово вимкнені; старий загальний перемикач не є дозволом.", "Разрешения на медиа и голосовые задаются отдельно в строке каждого чата выше. Оба выключены по умолчанию; старый общий переключатель не даёт согласия."),
     "see_media_s": ("If the app supports it, the sticker picker gets a description of the incoming sticker/photo/GIF. Off by default.",
                     "Якщо застосунок це підтримує, вирішувач стікерів отримує опис вхідного стікера/фото/GIF. Типово вимкнено.",
                     "Если приложение это поддерживает, выбиратель стикеров получает описание входящего стикера/фото/GIF. По умолчанию выключено."),
@@ -1079,6 +1083,10 @@ S = {
 
 # reason code (as stored in the decision log) -> (English, Ukrainian, Russian) plain-language explanation
 R = {
+    "media_unavailable": ("incoming media is unavailable", "вхідні медіа недоступні", "входящее медиа недоступно"),
+    "voice_unavailable": ("voice audio could not be downloaded or exceeds limits", "голосове не завантажене або перевищує ліміт", "голосовое не загрузилось или превышает лимит"),
+    "voice_transcribed": ("voice message transcribed", "голосове розпізнано", "голосовое распознано"),
+    "voice_transcription_unavailable": ("voice recognition unavailable on the AI server (including 403); no transcript was used", "розпізнавання голосу недоступне на ШІ-сервері (зокрема 403); текст не використано", "распознавание голоса недоступно на ИИ-сервере (включая 403); текст не использован"),
     "ok": ("reply sent", "відповідь надіслано", "ответ отправлен"),
     "ok_fallback": ("sent the best variant (the model kept using banned words or AI-like phrases)",
                     "надіслано найкращий варіант (модель кілька разів використала заборонені слова чи ШІ-фрази)",
@@ -1358,6 +1366,9 @@ class Plugin(BasePlugin):
     def on_plugin_load(self):
         self._lock = threading.RLock()
         self._states = {}
+        self._config_epoch = 0
+        self._work_context = threading.local()
+        self._media_pending = {}
         self._hourly = deque()             # timestamps of AI calls (global)
         self._profiles = {}                # chat key -> (ts, n, {"examples": [...], "style": {...}})
         self._rng = random.Random()
@@ -1405,6 +1416,7 @@ class Plugin(BasePlugin):
 
     def on_plugin_unload(self):
         self._scan_stop = True
+        self._config_epoch += 1
         self._scan_armed = False
         self.log("unloaded")
 
@@ -1636,6 +1648,7 @@ class Plugin(BasePlugin):
             return
         try:
             with self._lock:
+                self._config_epoch += 1
                 self._load_chats()
                 self._lang_cache.clear()           # rlang_<sk> may have changed
                 if self._open_key not in self._chats:
@@ -1879,6 +1892,7 @@ class Plugin(BasePlugin):
         if not self.get_setting("master", True):
             self._decide(key, "skip", "master_off")
             return None
+        m = self._prepare_media_message(key, m)
         reason = self.accept_message(key, m, max_age=self._max_age())
         if reason:
             self._decide(key, "skip", reason, ring=reason not in ("duplicate", "sender is bot"))
@@ -2164,7 +2178,7 @@ class Plugin(BasePlugin):
         cand = []
         for h in tail:
             mid = h.get("id")
-            if h.get("is_service") or not str(h.get("text") or "").strip():
+            if h.get("is_service") or (not str(h.get("text") or "").strip() and not h.get("has_media")):
                 continue
             try:
                 age = now - float(h.get("date") or 0)
@@ -2252,6 +2266,9 @@ class Plugin(BasePlugin):
 
     def process(self, key, batch):
         """Never raises: every outcome is logged as a decision."""
+        previous = getattr(self._work_context, "task", None)
+        self._work_context.task = (key, self._config_epoch)
+        self._work_context.images = []
         try:
             return self._process(key, batch)
         except Exception as e:
@@ -2262,6 +2279,9 @@ class Plugin(BasePlugin):
             except Exception:
                 pass
             return "error"
+        finally:
+            self._work_context.task = previous
+            self._work_context.images = []
 
     def _skip(self, key, reason):
         self._decide(key, "skip", reason)
@@ -2381,6 +2401,10 @@ class Plugin(BasePlugin):
         except Exception as e:
             self._fail(key, e)
             return self._skip(key, "context failed")
+        messages, images = self._attach_current_media(key, account, did, messages, batch)
+        self._work_context.images = images
+        if not self._task_alive(key, account, did):
+            return self._skip(key, "disabled meanwhile")
         if not messages:
             return self._skip(key, "empty context (last message is not from them)")
         max_id = max([b[0] for b in batch if isinstance(b[0], int)] or [0])
@@ -2405,6 +2429,8 @@ class Plugin(BasePlugin):
         except Exception as e:
             self._fail(key, e)
             return self._skip(key, "ai failed")
+        if not self._task_alive(key, account, did):
+            return self._skip(key, "disabled meanwhile")
         if not parts:
             if why == "empty":
                 self._fail(key, "empty AI reply")
@@ -2412,11 +2438,11 @@ class Plugin(BasePlugin):
             return self._skip(key, why or "no reply")
         # state may have changed during the (slow) AI call
         c = self._chats.get(key)
-        if not c or not c.get("enabled") or not self.get_setting("master", True):
+        if not self._task_alive(key, account, did):
             return self._skip(key, "disabled meanwhile")
         try:
             if mode == MODE_DRAFT:
-                client.set_draft(did, "\n".join(parts))
+                self._set_draft(did, "\n".join(parts), account)
                 st.recent.append(norm_text(" ".join(parts)))
             else:
                 if live:
@@ -2605,6 +2631,116 @@ class Plugin(BasePlugin):
             self._tl_warn("typing", e)
             return False
 
+    # ---- per-chat attachment consent and in-flight cancellation
+    def _media_flag(self, key, name):
+        c = self._chats.get(key)
+        value = self.get_setting(name + "_" + self._sk(key), False)
+        return bool(c and c.get("enabled") and (value is True or str(value).lower() == "true"))
+
+    def _media_consent_changed(self, _value):
+        with self._lock:
+            self._config_epoch += 1
+
+    def _task_alive(self, key, account, did):
+        task = getattr(self._work_context, "task", None)
+        c = self._chats.get(key)
+        return bool(not self._scan_stop and c and c.get("enabled") and self.get_setting("master", True)
+                    and self.chat_key(account, did) == key
+                    and int(c.get("account", 0)) == int(account) and int(c.get("dialog_id", 0)) == int(did)
+                    and (task is None or task == (key, self._config_epoch)))
+
+    def _prepare_media_message(self, key, message):
+        m = dict(message)
+        if m.get("is_service") or m.get("is_secret") or not m.get("has_media"):
+            return m
+        account, did = (int(v) for v in key.split(":"))
+        if int(m.get("dialog_id", did)) != did or int(m.get("account", account)) != account:
+            return dict(m, text="", has_media=False)
+        if not (self._media_flag(key, "see_media") or self._media_flag(key, "transcribe_voice")):
+            return m
+        mid = m.get("id")
+        if isinstance(mid, int) and mid > 0:
+            with self._lock:
+                self._media_pending[(key, mid)] = {"text": str(m.get("text") or ""), "epoch": self._config_epoch}
+                while len(self._media_pending) > 300:
+                    self._media_pending.pop(next(iter(self._media_pending)))
+            if not str(m.get("text") or "").strip():
+                m["text"] = "[incoming attachment]"
+        return m
+
+    def _attach_current_media(self, key, account, did, messages, batch):
+        """Only this batch's incoming IDs are eligible, never another chat or historical media."""
+        notes, images = [], []
+        readable = any(str(text).strip() and text != "[incoming attachment]" for _mid, _fid, text in batch)
+        for mid, _fid, _text in batch[-4:]:
+            pending = self._media_pending.get((key, mid))
+            if not pending or pending["epoch"] != self._config_epoch or not self._task_alive(key, account, did):
+                continue
+            see = self._media_flag(key, "see_media")
+            voice = self._media_flag(key, "transcribe_voice")
+            if see and callable(getattr(client, "get_message_media", None)):
+                try:
+                    info = client.get_message_media(did, mid, account=account) or {}
+                    if not self._task_alive(key, account, did) or not self._media_flag(key, "see_media"):
+                        return [], []
+                    if info.get("type", info.get("kind")) not in ("voice", "audio"):
+                        desc = ", ".join(str(info.get(k))[:120] for k in ("type", "kind", "emoji", "set_title") if info.get(k))
+                        image = info.get("image_b64")
+                        if isinstance(image, str) and 0 < len(image) <= 550000 and len(images) < 2:
+                            images.append(image)
+                            desc += "; image/frame attached"
+                        if desc:
+                            notes.append("[Incoming attachment %s: %s. Do not invent details that are not visible.]" % (mid, desc))
+                            readable = True
+                except Exception:
+                    self._decide(key, "info", "media_unavailable")
+            if voice and callable(getattr(client, "get_voice", None)) and callable(getattr(client, "ai_transcribe", None)):
+                try:
+                    audio = client.get_voice(did, mid, account=account) or {}
+                    if not self._task_alive(key, account, did) or not self._media_flag(key, "transcribe_voice"):
+                        return [], []
+                    if audio.get("audio_b64") and not audio.get("error"):
+                        transcript = client.ai_transcribe(audio["audio_b64"], mime=audio.get("mime") or "audio/ogg")
+                        if not self._task_alive(key, account, did) or not self._media_flag(key, "transcribe_voice"):
+                            return [], []
+                        transcript = str(transcript or "").strip()[:6000]
+                        if transcript:
+                            notes.append("[Voice message %s transcription (may contain errors): %s]" % (mid, transcript))
+                            readable = True
+                            self._decide(key, "info", "voice_transcribed")
+                    elif audio.get("error") not in (None, "not_audio"):
+                        self._decide(key, "info", "voice_unavailable")
+                except Exception:
+                    # 403/unsupported transcription is a feature failure, not a failed chat or an invented transcript.
+                    self._decide(key, "info", "voice_transcription_unavailable")
+        if not readable:
+            return [], []
+        result = [dict(m) for m in messages]
+        for m in result:
+            m["content"] = str(m.get("content") or "").replace("[incoming attachment]", "[attachment]")
+        if notes and result:
+            result[-1]["content"] += "\n" + "\n".join(notes)
+        return result, images
+
+    def _complete_for_chat(self, key, account, did, messages, **kwargs):
+        task = getattr(self._work_context, "task", None)
+        if task is not None and not self._task_alive(key, account, did):
+            return ""
+        images = getattr(self._work_context, "images", []) if task and task[0] == key else []
+        if images:
+            if not self._media_flag(key, "see_media"):
+                return ""
+            kwargs["images"] = list(images)
+        return client.ai_complete(messages, **kwargs)
+
+    def _set_draft(self, did, text, account):
+        try:
+            return client.set_draft(did, text, account=account)
+        except TypeError:
+            if int(client.current_account()) != int(account):
+                raise RuntimeError("Explicit-account drafts are unavailable")
+            return client.set_draft(did, text)
+
     # ---- stickers
     def _media_notes(self, did, account, hist):
         """Descriptions of the newest incoming media (stickers/photos/GIFs) via client.get_message_media, when
@@ -2612,12 +2748,18 @@ class Plugin(BasePlugin):
         out = []
         try:
             fn = getattr(client, "get_message_media", None)
-            if fn is None or not self.get_setting("see_media", False):
+            key = self.chat_key(account, did)
+            if fn is None or not self._media_flag(key, "see_media") or not self._task_alive(key, account, did):
                 return out
-            for h in [h for h in (hist or []) if not h.get("out") and h.get("has_media")][-2:]:
+            for h in [h for h in (hist or []) if not h.get("out") and h.get("has_media")
+                      and not h.get("is_secret") and int(h.get("dialog_id", did)) == int(did)][-2:]:
+                if not self._media_flag(key, "see_media") or not self._task_alive(key, account, did):
+                    return []
                 info = fn(did, h.get("id"), account=account)
                 if isinstance(info, dict):
-                    bits = [str(info.get(k)) for k in ("kind", "emoji", "set_title", "description") if info.get(k)]
+                    if not self._media_flag(key, "see_media") or not self._task_alive(key, account, did):
+                        return []
+                    bits = [str(info.get(k)) for k in ("type", "kind", "emoji", "set_title", "description") if info.get(k)]
                     if bits:
                         out.append(u"[media: %s]" % u", ".join(bits))
         except Exception as e:
@@ -2706,6 +2848,8 @@ class Plugin(BasePlugin):
             return None
 
     def _send_sticker(self, key, st, did, account, sticker, reply_to):
+        if not self._task_alive(key, account, did):
+            return False
         st.sending = True
         try:
             ok = client.send_sticker(did, sticker["id"], account=account, reply_to=reply_to)
@@ -2755,17 +2899,20 @@ class Plugin(BasePlugin):
                     cur = self._chats.get(key)
                     if not cur or not cur.get("enabled") or not self.get_setting("master", True):
                         break
+                if not self._task_alive(key, account, did):
+                    st.abort = "disabled meanwhile"
+                    return False
                 self._remember_bot_text(bodies[i])     # before sending: our own outgoing event must be recognized
                 st.sending = True
                 try:
-                    self.send(did, part, reply_to if i == 0 else None)
+                    self.send(did, part, reply_to if i == 0 else None, account=account)
                 finally:
                     st.sending = timing is None
                 st.last_send_ts = self._now()
                 sent.append(part)
                 with self._lock:
                     c["disclosed"] = True
-            if sticker:
+            if sticker and self._task_alive(key, account, did):
                 if sent and timing is not None:
                     time.sleep(self._rng.uniform(1.0, 3.0))
                 if self._send_sticker(key, st, did, account, sticker, reply_to if not sent else None):
@@ -2783,7 +2930,14 @@ class Plugin(BasePlugin):
                         st.recent.append(norm_text(" ".join(texts)))
         return True
 
-    def send(self, did, text, reply_to):
+    def send(self, did, text, reply_to, account=None):
+        if account is not None:
+            try:
+                return client.send_text(did, text, reply_to=reply_to, account=int(account))
+            except TypeError:
+                # Old apps have no explicit account parameter. Never fall back into a different account.
+                if int(client.current_account()) != int(account):
+                    raise RuntimeError("Explicit-account send is unavailable")
         if reply_to is not None:
             try:
                 return client.send_text(did, text, reply_to=reply_to)
@@ -2905,7 +3059,7 @@ class Plugin(BasePlugin):
                       "timeout": 60}
             if model:
                 kwargs["model"] = model
-            reply = self.clean_reply(client.ai_complete(messages, **kwargs))
+            reply = self.clean_reply(self._complete_for_chat(key, account, did, messages, **kwargs))
             return ([reply] if reply else []), "empty"
         profile = self.get_profile(key, account, did)
         last_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
@@ -2931,7 +3085,7 @@ class Plugin(BasePlugin):
                     "\n\nYour previous attempt was rejected (%s). Write a clearly different, shorter, "
                     "more casual message in %s, plain everyday words, without any of the banned words "
                     "and phrases." % (", ".join(problems) or "too formal", lang))
-            reply = clean_humanized(client.ai_complete(messages, **kwargs), limit)
+            reply = clean_humanized(self._complete_for_chat(key, account, did, messages, **kwargs), limit)
             if not reply:
                 problems = ["empty"]
                 continue
@@ -3693,6 +3847,10 @@ class Plugin(BasePlugin):
                                       items=[t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)], default=0))
                 items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
                                     on_change=self._keep_cb(key)))
+                items.append(Switch(key="see_media_" + sk, text=t("see_media"), default=False,
+                                    subtext=t("media_consent"), on_change=self._media_consent_changed))
+                items.append(Switch(key="transcribe_voice_" + sk, text=t("transcribe_voice"), default=False,
+                                    subtext=t("voice_consent"), on_change=self._media_consent_changed))
                 items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
                                    subtext=t("chat_prompt_s")))
                 items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
@@ -3768,7 +3926,7 @@ class Plugin(BasePlugin):
             Switch(key="stickers", text=t("stickers"), default=True, subtext=t("stickers_s")),
             Input(key="sticker_pct", text=t("sticker_pct"), default="12"),
             Switch(key="sticker_recent", text=t("sticker_recent"), default=True),
-            Switch(key="see_media", text=t("see_media"), default=False, subtext=t("see_media_s")),
+            note(t("media_per_chat")),
         ] + [Input(key=k, text=t(k), default="", subtext=t("until_touch")) for k in (
             "lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
             "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap", "split2_pct", "split_gap_min",

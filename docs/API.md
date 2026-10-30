@@ -577,3 +577,33 @@ def work():
         return client.ai_transcribe(v["audio_b64"], v["mime"] or "audio/ogg")
 client.run_in_bg(work)
 ```
+
+
+## 14. AI auto-reply 0.3.8: per-chat media consent
+
+In the plugin settings expand a chat row to opt in separately to **See media** and
+**Transcribe voice messages**. These are `see_media_<sk>` and `transcribe_voice_<sk>`,
+where `<sk>` is the existing account/dialog settings suffix. Both default to false;
+the former global `see_media` switch never grants consent to a chat.
+
+Only incoming attachment IDs in the current reply batch are fetched, with its explicit
+account and dialog. Up to two small images/frames are passed via `ai_complete(images=...)`.
+Voice audio is sent only with that chat's voice consent. Unsupported/403 transcription
+is recorded as `voice_transcription_unavailable`, leaves the chat enabled, and never
+creates an imaginary transcript. The currently configured gateway's Whisper route
+returned 403 during the external audit; recognition still needs server/provider access.
+The server may translate provider access errors to 503; the plugin treats those equally
+as transcription unavailable, without changing the user's auth token.
+
+Settings changes and unload invalidate in-flight media work. Consent is rechecked after
+each blocking call, before retries and before delivery. Old SDK compatibility for sends
+and drafts is allowed only when the intended account is currently selected.
+
+### Actual typing/read helpers in app 0.1.5
+
+`client.set_typing(dialog_id, account=None, cancel=False)` (`send_typing` alias) and
+`client.mark_read(dialog_id, max_id, account=None)` (`read_history` alias) require
+`network.requests` and return whether a Telegram request was queued. Ghost-suppressed,
+secret or unknown dialogs return false; `mark_read` also requires a positive message ID.
+Channel read requests are supported. The auto-reply plugin prefers these helpers and
+retains its older-app fallback.

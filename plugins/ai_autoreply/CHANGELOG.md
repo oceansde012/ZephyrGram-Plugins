@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8
+- Added separate per-chat opt-ins for incoming images/stickers/GIF frames and voice transcription. Both default to off. The former global See media setting does not grant permission in any chat.
+- Only incoming attachment IDs from the current enabled chat and current batch are fetched, using its explicit Telegram account. At most two bounded images are attached to the reply model. Voice audio uses the configured AI server's transcription endpoint; unsupported/403 failures produce a decision-log entry, no fabricated transcript, and do not disable the chat.
+- Media retrieval, transcription, model retries and delivery check the current chat/account and a configuration epoch. Disabling/removing a chat, changing settings or unloading invalidates in-flight attachment work; a late result cannot be sent after cancellation. Text sends/drafts use the explicit account, with safe compatibility fallback only when that account is selected.
+- No claim that the current gateway supports speech recognition: its transcription route currently returns 403 and requires separate server configuration.
+
 ## 0.3.7
 - Stickers are now chosen by CONTEXT, not at random. 'Sticker chance' (default 12 %) is the chance per reply to ask a short AI 'picker' call. The picker sees the last chat messages, the incoming message, the finished text reply and a numbered list of up to 25 of your recent stickers ('3: emoji (set name)') and answers strict JSON {"use_sticker", "index", "reason_emoji", "mode": "instead"|"after"}. It is told to use a sticker only when one naturally fits (laughter, thanks, surprise, sympathy, greeting, agreement/refusal), to answer use_sticker=false when none fits (no sticker beats a wrong one) and never to use one for serious, conflict, informational messages or questions. 'instead' is honoured only for tiny replies.
 - Robust parsing: JSON is extracted from surrounding text; on garbage or an AI error the fallback is a sticker whose emoji equals an emoji of the reply, otherwise no sticker. The same sticker or the same sticker set is never used twice in a row in a chat (and the last 6 sticker ids are avoided). Never in groups and never for questions.

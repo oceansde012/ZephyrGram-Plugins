@@ -736,7 +736,7 @@ class TestStickers(LiveBase):
         self.picker.append('{"use_sticker": false}')
         self.cand(hist=hist)
         self.assertNotIn("Incoming media", self.picker_calls[-1])
-        self.p.settings["see_media"] = True
+        self.p.settings["see_media_" + self.p._sk(self.key())] = True
         self.picker.append('{"use_sticker": false}')
         self.cand(hist=hist)
         self.assertIn(u"[media: sticker, 😭, Sad]", self.picker_calls[-1])
@@ -818,8 +818,8 @@ class TestLanguage(LiveBase):
 
 class TestMeta(unittest.TestCase):
     def test_header(self):
-        self.assertEqual(mod.__version__, "0.3.7")
-        self.assertEqual(mod.__version_code__, 10)
+        self.assertEqual(mod.__version__, "0.3.8")
+        self.assertEqual(mod.__version_code__, 11)
         self.assertIn("network.requests", mod.__permissions__)
         self.assertEqual(len(mod.PRESET_NAMES), len(mod.PRESETS))
 
