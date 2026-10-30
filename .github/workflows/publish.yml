@@ -1,0 +1,93 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"   # weekly: refreshes `expires` and re-signs
+  workflow_dispatch:
+  pull_request:
+    branches: [main]       # validation only, never publishes
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-index
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python tools/build_index.py validate
+
+  publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      INDEX_SIGNING_KEY: ${{ secrets.INDEX_SIGNING_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install cryptography
+        run: pip install cryptography
+
+      - name: Check signing key present
+        run: |
+          if [ -z "$INDEX_SIGNING_KEY" ]; then
+            echo "::error::secret INDEX_SIGNING_KEY is not set (see tools/keygen.md)"; exit 1
+          fi
+
+      - name: Fetch previous index (history + sequence)
+        run: |
+          mkdir -p out
+          if git ls-remote --exit-code --heads origin index >/dev/null 2>&1; then
+            git fetch origin index:refs/remotes/origin/index
+            git show origin/index:index.json > out/prev.json || rm -f out/prev.json
+          fi
+          ls -la out
+
+      - name: Build index
+        run: |
+          # GITHUB_SHA on schedule/dispatch is the tip of main; URLs are pinned to it.
+          PREV=""; [ -f out/prev.json ] && PREV="--prev out/prev.json"
+          python tools/build_index.py build $PREV --repo "$GITHUB_REPOSITORY" \
+            --sha "$(git rev-parse HEAD)" --out out/index.json
+
+      - name: Sign index
+        run: python tools/build_index.py sign --index out/index.json --key-env INDEX_SIGNING_KEY
+
+      - name: Verify signature with the key's own public half
+        run: |
+          printf '%s' "$INDEX_SIGNING_KEY" > "$RUNNER_TEMP/k.pem"
+          python tools/build_index.py verify --index out/index.json --pubkey "$RUNNER_TEMP/k.pem"
+          rm -f "$RUNNER_TEMP/k.pem"
+
+      - name: Publish to orphan branch `index`
+        run: |
+          set -e
+          WORK="$RUNNER_TEMP/index-branch"
+          rm -rf "$WORK"; mkdir "$WORK"
+          cp out/index.json out/index.json.sig "$WORK/"
+          cd "$WORK"
+          git init -q
+          git checkout -q --orphan index
+          git config user.name "zephyrgram-plugins-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.json index.json.sig
+          git commit -q -m "index: sequence $(python -c 'import json;print(json.load(open("index.json"))["sequence"])') from ${GITHUB_SHA::7}"
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin index

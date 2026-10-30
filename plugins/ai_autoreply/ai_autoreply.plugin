@@ -1,0 +1,654 @@
+__id__ = "ai_autoreply"
+__name__ = "AI auto-reply"
+__description__ = "Answers incoming messages with the app's AI in chats you explicitly add. Auto, draft or .ai command mode, with cooldown, daily and hourly caps and loop protection."
+__author__ = "ZephyrGram"
+__version__ = "0.2.0"
+__version_code__ = 2
+__api_version__ = 1
+__min_app_version__ = "0.1.0"
+__permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
+
+import json
+import threading
+import time
+from collections import deque
+
+from zephyr import BasePlugin, MenuItem, MenuType
+from zephyr import client
+from zephyr.ui import Header, Switch, Input, Selector, Text, Divider
+try:
+    from zephyr.ui import DialogPicker, UsernameInput
+except ImportError:                      # older app: only the chat header menu can add chats
+    DialogPicker = UsernameInput = None
+
+MODE_AUTO = 0
+MODE_DRAFT = 1
+MODE_COMMAND = 2
+MODE_NAMES = ["Auto (answer right away)", "Draft (put reply into the input field)",
+              "Friend mode (the other person triggers with .ai)"]
+MODES_HELP = (
+    "Auto: the AI answers every message from the other person.\n"
+    "Draft: the AI writes the reply into your input field; you send it.\n"
+    "Friend mode: you stay silent. The OTHER person can ask the AI by starting a message "
+    "with the trigger (default \".ai \"), e.g. \".ai tell me a joke\", and the AI answers "
+    "in the chat. Messages without the trigger and your own messages are ignored.")
+
+MAX_AGE_SEC = 180            # ignore messages older than this (offline catch-up)
+MAX_FAILURES = 5             # consecutive AI/send failures before a chat is disabled
+MAX_REPLY_CHARS = 1500
+LOOP_SAME_TEXT = 3           # same sender, same text N times in a row -> loop
+LOOP_BURST_COUNT = 4         # our replies within LOOP_BURST_SEC -> ping-pong, pause
+LOOP_BURST_SEC = 120
+ROBOT = "\U0001F916"
+AUTO_MARKERS = (ROBOT, "auto-reply", "autoreply", "auto reply", "[auto]",
+                "автовідповідь",
+                "автоответ")
+DEFAULT_PROMPT = (
+    "You are replying on behalf of the owner of this Telegram account. Answer briefly and "
+    "naturally, in the same language as the other person, in plain text without markdown. "
+    "Never reveal secrets or personal data and do not make promises or payments on the "
+    "owner's behalf. If asked directly, say you are an automatic AI assistant."
+)
+
+
+def norm_text(text):
+    return " ".join(str(text or "").lower().split())
+
+
+class ChatState(object):
+    """In-memory runtime state of one allowlisted chat."""
+
+    def __init__(self):
+        self.pending = []                  # [(msg_id, from_id, text)]
+        self.last_ts = 0.0                 # time of the last accepted incoming message
+        self.timer = False                 # a debounce timer is scheduled
+        self.inflight = False              # one in-flight request per chat
+        self.cooldown_until = 0.0
+        self.incoming = deque(maxlen=8)    # (from_id, normalized text)
+        self.replies = deque(maxlen=16)    # timestamps of our replies
+        self.seen = deque(maxlen=300)
+        self.seen_set = set()
+        self.info = None
+        self.info_ts = 0.0
+
+
+class Plugin(BasePlugin):
+    # ------------------------------------------------------------------ lifecycle
+    def on_plugin_load(self):
+        self._lock = threading.RLock()
+        self._states = {}
+        self._hourly = deque()             # timestamps of AI calls (global)
+        self._load_chats()
+        self.add_on_new_message_hook(priority=0)
+        self.add_menu_item(MenuItem(
+            menu_type=MenuType.CHAT_ACTION, text="AI auto-reply: OFF (tap to enable)",
+            on_click=self.on_enable_click, priority=0,
+            condition=self.cond_show_off, key="ai_autoreply_off"))
+        self.add_menu_item(MenuItem(
+            menu_type=MenuType.CHAT_ACTION, text="AI auto-reply: ON (tap to disable)",
+            on_click=self.on_disable_click, priority=0,
+            condition=self.cond_show_on, key="ai_autoreply_on"))
+        self.log("loaded %s v%s, %d chats" % (self.name, self.version, len(self._chats)))
+
+    def on_plugin_unload(self):
+        self.log("unloaded")
+
+    # ------------------------------------------------------------------ helpers
+    def _now(self):
+        return time.time()
+
+    def _int(self, key, default, lo, hi):
+        try:
+            v = int(float(str(self.get_setting(key, default)).strip()))
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+
+    @staticmethod
+    def chat_key(account, dialog_id):
+        return "%d:%d" % (int(account or 0), int(dialog_id))
+
+    @staticmethod
+    def _sk(key):
+        return key.replace(":", "_").replace("-", "n")
+
+    def _load_chats(self):
+        try:
+            data = json.loads(self.get_setting("chats", "{}") or "{}")
+            self._chats = data if isinstance(data, dict) else {}
+        except (ValueError, TypeError):
+            self._chats = {}
+
+    def _save_chats(self):
+        self.set_setting("chats", json.dumps(self._chats, ensure_ascii=False))
+
+    def is_enabled(self, key):
+        c = self._chats.get(key)
+        return bool(c and c.get("enabled"))
+
+    def _state(self, key):
+        with self._lock:
+            st = self._states.get(key)
+            if st is None:
+                st = self._states[key] = ChatState()
+            return st
+
+    def _chat_mode(self, key):
+        try:
+            return int(self.get_setting("mode_" + self._sk(key), MODE_AUTO))
+        except (TypeError, ValueError):
+            return MODE_AUTO
+
+    def _chat_prompt(self, key):
+        p = str(self.get_setting("prompt_" + self._sk(key), "") or "").strip()
+        if p:
+            return p
+        g = str(self.get_setting("default_prompt", "") or "").strip()
+        return g or DEFAULT_PROMPT
+
+    def _to_dict(self, mo):
+        fn = getattr(client, "message_to_dict", None)
+        if fn is None:
+            try:
+                import zephyr
+                fn = getattr(zephyr, "message_to_dict", None)
+            except ImportError:
+                fn = None
+        if fn is not None:
+            try:
+                return dict(fn(mo))
+            except Exception as e:
+                self.error(e)
+        # minimal fallback straight from the Java object
+        d = {}
+        try:
+            d["id"] = int(mo.getId())
+            d["out"] = bool(mo.isOutOwner())
+            d["date"] = int(mo.messageOwner.date)
+            d["text"] = str(mo.messageText or "")
+            d["from_id"] = int(mo.getFromChatId())
+            d["is_bot"] = False
+        except Exception as e:
+            self.error(e)
+        return d
+
+    @staticmethod
+    def _dialog_id_of(mo, m):
+        if m.get("dialog_id"):
+            return int(m["dialog_id"])
+        try:
+            return int(mo.getDialogId())
+        except Exception:
+            return 0
+
+    # ------------------------------------------------------------------ menu
+    def cond_show_off(self, ctx):
+        try:
+            did = ctx.get("dialog_id") or 0
+            return bool(did) and not self.is_enabled(self.chat_key(ctx.get("account"), did))
+        except Exception:
+            return False
+
+    def cond_show_on(self, ctx):
+        try:
+            did = ctx.get("dialog_id") or 0
+            return bool(did) and self.is_enabled(self.chat_key(ctx.get("account"), did))
+        except Exception:
+            return False
+
+    def on_enable_click(self, ctx):
+        account, did = ctx.get("account") or 0, ctx.get("dialog_id") or 0
+        if not did:
+            return
+        key = self.chat_key(account, did)
+
+        def work():
+            try:
+                info = client.get_dialog_info(did)
+                reason = self.check_info(info)
+                if reason:
+                    client.bulletin("AI auto-reply: not available here (%s)" % reason)
+                    return
+                with self._lock:
+                    c = self._chats.get(key) or {}
+                    c.update({"enabled": True, "account": int(account), "dialog_id": int(did),
+                              "title": str(info.get("title") or did), "type": info.get("type"),
+                              "fails": 0})
+                    self._chats[key] = c
+                    self._save_chats()
+                client.bulletin("AI auto-reply: ON for %s" % c["title"])
+            except Exception as e:
+                self.error(e)
+                client.bulletin("AI auto-reply: could not enable this chat")
+        client.run_in_bg(work)
+
+    def on_disable_click(self, ctx):
+        key = self.chat_key(ctx.get("account"), ctx.get("dialog_id") or 0)
+        with self._lock:
+            if key in self._chats:
+                self._chats[key]["enabled"] = False
+                self._save_chats()
+        client.bulletin("AI auto-reply: OFF")
+
+    @staticmethod
+    def check_info(info):
+        """Returns a reason string if the chat must never be auto-replied, else None."""
+        if not isinstance(info, dict):
+            return "unknown chat"
+        t = info.get("type")
+        if t == "secret":
+            return "secret chat"
+        if t == "channel":
+            return "channel"
+        if info.get("is_bot"):
+            return "bot"
+        if t not in ("user", "group"):
+            return "unsupported chat type"
+        return None
+
+    # ------------------------------------------------------------------ incoming
+    def on_new_message(self, account, message_object):
+        try:
+            self.handle_incoming(account, message_object)
+        except Exception as e:
+            self.error(e)
+
+    def handle_incoming(self, account, mo):
+        if not self.get_setting("master", True):
+            return None
+        m = self._to_dict(mo)
+        did = self._dialog_id_of(mo, m)
+        if not did:
+            return None
+        key = self.chat_key(account, did)
+        if not self.is_enabled(key):
+            return None
+        reason = self.accept_message(key, m)
+        if reason:
+            self.log("skip %s msg %s: %s" % (key, m.get("id"), reason))
+            return reason
+        st = self._state(key)
+        with self._lock:
+            st.pending.append((m.get("id"), m.get("from_id"), self._strip_trigger(key, m["text"])))
+            st.last_ts = self._now()
+            need_timer = not st.timer
+            if need_timer:
+                st.timer = True
+        if need_timer:
+            self._schedule(key, self._int("debounce", 3, 0, 60))
+        return None
+
+    def _trigger(self):
+        t = str(self.get_setting("trigger", ".ai ") or ".ai ")
+        return t if t.strip() else ".ai "
+
+    def _strip_trigger(self, key, text):
+        if self._chat_mode(key) == MODE_COMMAND:
+            t = self._trigger()
+            if text.lower().startswith(t.lower()):
+                return text[len(t):].strip()
+        return text
+
+    def accept_message(self, key, m):
+        """Safety filters for one incoming message. Returns skip reason or None (accept)."""
+        st = self._state(key)
+        if m.get("out"):
+            return "outgoing"
+        if m.get("is_bot"):
+            return "sender is bot"
+        text = m.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return "no text / service message"
+        mid = m.get("id")
+        with self._lock:
+            if mid is not None:
+                if mid in st.seen_set:
+                    return "duplicate"
+                if len(st.seen) == st.seen.maxlen:
+                    st.seen_set.discard(st.seen[0])
+                st.seen.append(mid)
+                st.seen_set.add(mid)
+        date = m.get("date")
+        try:
+            if date is None or self._now() - float(date) > MAX_AGE_SEC:
+                return "too old"
+        except (TypeError, ValueError):
+            return "bad date"
+        low = text.lower()
+        prefix = str(self.get_setting("disclosure_text", ROBOT + " ") or "").strip().lower()
+        if any(mk in low for mk in AUTO_MARKERS) or (prefix and low.startswith(prefix)):
+            return "looks like an auto-reply"
+        with self._lock:
+            st.incoming.append((m.get("from_id"), norm_text(text)))
+            tail = list(st.incoming)[-LOOP_SAME_TEXT:]
+            if len(tail) == LOOP_SAME_TEXT and len(set(tail)) == 1:
+                return "repeated identical text"
+            now = self._now()
+            if len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= LOOP_BURST_COUNT:
+                return "reply burst (possible loop)"
+        if self._chat_mode(key) == MODE_COMMAND and not low.startswith(self._trigger().lower()):
+            return "no command prefix"
+        return None
+
+    # ------------------------------------------------------------------ scheduling
+    def _schedule(self, key, delay_s):
+        client.run_on_ui(lambda: client.run_in_bg(lambda: self.tick(key)),
+                         delay_ms=int(max(0.0, delay_s) * 1000))
+
+    def tick(self, key):
+        """Debounce timer fired (runs in a background worker)."""
+        try:
+            st = self._state(key)
+            now = self._now()
+            deb = self._int("debounce", 3, 0, 60)
+            batch = None
+            with self._lock:
+                if not st.pending:
+                    st.timer = False
+                    return
+                wait = max(st.last_ts + deb - now, st.cooldown_until - now)
+                if wait > 0:
+                    pass                    # timer stays set, re-armed below
+                elif st.inflight:
+                    st.timer = False        # the running request reschedules when done
+                    return
+                else:
+                    st.timer = False
+                    st.inflight = True
+                    batch, st.pending = st.pending, []
+            if batch is None:
+                self._schedule(key, wait + 0.05)
+                return
+            try:
+                self.process(key, batch)
+            finally:
+                with self._lock:
+                    st.inflight = False
+                    again = bool(st.pending) and not st.timer
+                    if again:
+                        st.timer = True
+                if again:
+                    self._schedule(key, self._int("debounce", 3, 0, 60))
+        except Exception as e:
+            self.error(e)
+
+    # ------------------------------------------------------------------ caps
+    def _day(self):
+        return time.strftime("%Y-%m-%d", time.localtime(self._now()))
+
+    def _usage(self):
+        try:
+            u = json.loads(self.get_setting("usage", "{}") or "{}")
+        except (ValueError, TypeError):
+            u = {}
+        if not isinstance(u, dict) or u.get("day") != self._day() or not isinstance(u.get("n"), dict):
+            u = {"day": self._day(), "n": {}}
+        return u
+
+    def caps_ok(self, key):
+        """Returns a skip reason or None; does not count."""
+        now = self._now()
+        with self._lock:
+            while self._hourly and now - self._hourly[0] > 3600:
+                self._hourly.popleft()
+            if len(self._hourly) >= self._int("hourly_cap", 30, 1, 1000):
+                return "hourly cap reached"
+            if self._usage()["n"].get(key, 0) >= self._int("daily_cap", 50, 1, 1000):
+                return "daily cap reached"
+        return None
+
+    def count_use(self, key):
+        with self._lock:
+            self._hourly.append(self._now())
+            u = self._usage()
+            u["n"][key] = u["n"].get(key, 0) + 1
+            self.set_setting("usage", json.dumps(u))
+
+    def _fail(self, key, err):
+        self.log("failure in %s: %s" % (key, err))
+        with self._lock:
+            c = self._chats.get(key)
+            if not c:
+                return
+            c["fails"] = int(c.get("fails", 0)) + 1
+            if c["fails"] >= MAX_FAILURES:
+                c["enabled"] = False
+                self.log("auto-disabled %s after %d failures" % (key, c["fails"]))
+                client.bulletin("AI auto-reply disabled in %s after repeated errors"
+                                % c.get("title", key))
+            self._save_chats()
+
+    # ------------------------------------------------------------------ processing
+    def _info(self, key, did):
+        st = self._state(key)
+        now = self._now()
+        if st.info is None or now - st.info_ts > 600:
+            st.info = client.get_dialog_info(did)
+            st.info_ts = now
+        return st.info
+
+    def process(self, key, batch):
+        c = self._chats.get(key)
+        if not c or not c.get("enabled") or not self.get_setting("master", True):
+            return "disabled"
+        st = self._state(key)
+        did, account = int(c["dialog_id"]), int(c.get("account", 0))
+        reason = self.caps_ok(key)
+        if reason:
+            self.log("skip %s: %s" % (key, reason))
+            return reason
+        try:
+            reason = self.check_info(self._info(key, did))
+        except Exception as e:
+            self._fail(key, e)
+            return "info failed"
+        if reason:
+            self.log("skip %s: %s" % (key, reason))
+            return reason
+        mode = self._chat_mode(key)
+        try:
+            messages = self.build_messages(key, account, did, batch)
+        except Exception as e:
+            self._fail(key, e)
+            return "context failed"
+        if not messages:
+            return "empty context"
+        self.count_use(key)
+        kwargs = {"system": self._chat_prompt(key), "timeout": 60}
+        model = str(self.get_setting("model", "") or "").strip()
+        if model:
+            kwargs["model"] = model
+        try:
+            reply = client.ai_complete(messages, **kwargs)
+        except Exception as e:
+            self._fail(key, e)
+            return "ai failed"
+        reply = self.clean_reply(reply)
+        if not reply:
+            self._fail(key, "empty AI reply")
+            return "empty reply"
+        # state may have changed during the (slow) AI call
+        c = self._chats.get(key)
+        if not c or not c.get("enabled") or not self.get_setting("master", True):
+            return "disabled meanwhile"
+        try:
+            if mode == MODE_DRAFT:
+                client.set_draft(did, reply)
+            else:
+                if self.get_setting("disclosure", True) and not c.get("disclosed"):
+                    reply = str(self.get_setting("disclosure_text", ROBOT + " ")) + reply
+                time.sleep(min(4.0, 0.6 + len(reply) / 80.0))   # typing delay
+                reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
+                self.send(did, reply, reply_to)
+                with self._lock:
+                    c["disclosed"] = True
+                    st.replies.append(self._now())
+        except Exception as e:
+            self._fail(key, e)
+            return "send failed"
+        with self._lock:
+            st.cooldown_until = self._now() + self._int("cooldown", 20, 0, 3600)
+            c["fails"] = 0
+            self._save_chats()
+        return "ok"
+
+    def send(self, did, text, reply_to):
+        if reply_to is not None:
+            try:
+                return client.send_text(did, text, reply_to=reply_to)
+            except TypeError:
+                pass
+        return client.send_text(did, text)
+
+    @staticmethod
+    def clean_reply(reply):
+        if not isinstance(reply, str):
+            return ""
+        r = reply.strip()
+        if len(r) > MAX_REPLY_CHARS:
+            r = r[:MAX_REPLY_CHARS].rstrip() + "…"
+        return r
+
+    def build_messages(self, key, account, did, batch):
+        n = self._int("context_n", 10, 1, 40)
+        hist = []
+        try:
+            hist = client.get_recent_messages(did, limit=n, account=account) or []
+        except Exception as e:
+            self.log("history unavailable for %s: %s" % (key, e))
+        hist = sorted((h for h in hist if isinstance(h, dict) and str(h.get("text") or "").strip()),
+                      key=lambda h: (h.get("date") or 0, h.get("id") or 0))[-n:]
+        c = self._chats.get(key) or {}
+        group = c.get("type") == "group"
+        out = []
+        for h in hist:
+            role = "assistant" if h.get("out") else "user"
+            text = str(h["text"]).strip()
+            if group and role == "user":
+                text = "[user %s] %s" % (h.get("from_id"), text)
+            out.append({"role": role, "content": text})
+        ids = set(h.get("id") for h in hist)
+        for mid, fid, text in batch:          # make sure the new messages are present
+            if mid not in ids and text:
+                out.append({"role": "user",
+                            "content": ("[user %s] %s" % (fid, text)) if group else text})
+        while out and out[0]["role"] == "assistant":
+            out.pop(0)
+        if not out or out[-1]["role"] != "user":
+            return []
+        return out
+
+    # ------------------------------------------------------------------ settings
+    def create_settings(self):
+        self._load_chats()
+        items = [
+            Header(text="AI auto-reply"),
+            Switch(key="master", text="Master switch", default=True,
+                   subtext="Off = never answers anywhere"),
+            Header(text="Add chat"),
+        ]
+        if DialogPicker is not None:
+            items.append(DialogPicker(key="add_pick", text="Choose from my chats",
+                                      on_pick=self.on_chat_added,
+                                      subtext="Opens your chat list."))
+            items.append(UsernameInput(key="add_username", text="Add by @username or t.me link",
+                                       on_resolved=self.on_chat_added,
+                                       subtext="Public usernames only. Secret chats, channels and bots are refused."))
+        else:
+            items.append(Text(text="Add a chat with the 'AI auto-reply' item in the chat header menu."))
+        items.append(Text(text="Modes", subtext=MODES_HELP))
+        items += [
+            Input(key="default_prompt", text="Default system prompt", default="", multiline=True,
+                  subtext="Empty = built-in prompt"),
+            Input(key="context_n", text="Context size (messages)", default="10"),
+            Input(key="model", text="Model (empty = app default)", default=""),
+            Switch(key="disclosure", text="Disclose AI in first reply", default=True),
+            Input(key="disclosure_text", text="Disclosure prefix", default=ROBOT + " "),
+            Input(key="trigger", text="Command trigger (Friend mode)", default=".ai "),
+            Divider(),
+            Header(text="Limits"),
+            Input(key="debounce", text="Wait after last message (s)", default="3"),
+            Input(key="cooldown", text="Cooldown per chat (s)", default="20"),
+            Input(key="daily_cap", text="Daily cap per chat", default="50"),
+            Input(key="hourly_cap", text="Hourly cap (all chats)", default="30"),
+            Divider(),
+            Header(text="Chats"),
+        ]
+        shown = 0
+        for key, c in sorted(self._chats.items()):
+            shown += 1
+            sk = self._sk(key)
+            title = str(c.get("title") or key)
+            self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
+            items.append(Header(text=title if c.get("enabled") else title + " (paused)"))
+            items.append(Selector(key="mode_" + sk, text="Mode", items=list(MODE_NAMES),
+                                  default=MODE_AUTO))
+            items.append(Input(key="prompt_" + sk, text="System prompt for this chat", default="",
+                               multiline=True, subtext="Empty = default prompt"))
+            items.append(Switch(key="keep_" + sk, text="Enabled", default=bool(c.get("enabled")),
+                                on_change=self._keep_cb(key)))
+            items.append(Text(text="Remove chat", key="remove_" + sk, on_click=self._remove_cb(key)))
+        if not shown:
+            items.append(Text(text="No chats yet."))
+        return items
+
+    def on_chat_added(self, dialog_id, title):
+        """DialogPicker / UsernameInput callback (UI thread, no blocking calls)."""
+        try:
+            did = int(dialog_id)
+            if not did:
+                return
+            try:
+                account = int(client.current_account())
+            except Exception:
+                account = 0
+            key = self.chat_key(account, did)
+            info = None
+            try:
+                info = client.get_dialog_info(did)       # cache only, cheap
+            except Exception as e:
+                self.log("info unavailable for %s: %s" % (key, e))
+            if info is not None:
+                reason = self.check_info(info)
+                if reason:
+                    client.bulletin("AI auto-reply: not available here (%s)" % reason)
+                    return
+                kind = info.get("type")
+                name = str(info.get("title") or title or did)
+            else:
+                kind = "user" if did > 0 else "group"
+                name = str(title or did)
+            with self._lock:
+                c = self._chats.get(key) or {}
+                c.update({"enabled": True, "account": account, "dialog_id": did,
+                          "title": name, "type": kind, "fails": 0})
+                self._chats[key] = c
+                self._save_chats()
+            client.bulletin("AI auto-reply: ON for %s" % name)
+        except Exception as e:
+            self.error(e)
+
+    def _remove_cb(self, key):
+        def cb():
+            with self._lock:
+                c = self._chats.pop(key, None)
+                self._states.pop(key, None)
+                self._save_chats()
+            sk = self._sk(key)
+            self.set_setting("mode_" + sk, None)
+            self.set_setting("prompt_" + sk, None)
+            self.set_setting("keep_" + sk, None)
+            if c:
+                client.bulletin("AI auto-reply: removed %s" % (c.get("title") or key))
+        return cb
+
+    def _keep_cb(self, key):
+        def cb(value):
+            with self._lock:
+                c = self._chats.get(key)
+                if c:
+                    c["enabled"] = bool(value)
+                    if value:
+                        c["fails"] = 0
+                    self._save_chats()
+        return cb

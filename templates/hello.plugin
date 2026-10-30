@@ -1,0 +1,45 @@
+# ZephyrGram plugin template. Copy to plugins/<id>/<id>.plugin and edit.
+# Metadata must be plain literals (no expressions, no f-strings).
+__id__ = "hello"
+__name__ = "Hello"
+__description__ = "Template plugin: adds a drawer-menu item and shows a bulletin."
+__author__ = "@yourname"
+__version__ = "1.0.0"
+__version_code__ = 1
+__api_version__ = 1
+__min_app_version__ = "0.1.0"
+# __max_app_version__ = "1.0.0"   # optional, exclusive upper bound
+__permissions__ = ["ui.menu"]
+# __icon__ = ""                   # optional short name; or ship icon.png next to the plugin
+
+from zephyr import BasePlugin, MenuItem, MenuType
+from zephyr import client
+from zephyr.ui import Header, Switch, Input, Text, Divider
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self.log("loaded %s v%s" % (self.name, self.version))
+        self.add_menu_item(MenuItem(
+            menu_type=MenuType.DRAWER,
+            text="Say hello",
+            on_click=self.on_hello,
+            subtext="Template plugin",
+            priority=0,
+        ))
+
+    def on_plugin_unload(self):
+        self.log("unloaded")
+
+    def on_hello(self, ctx):
+        who = self.get_setting("name", "world")
+        client.bulletin("Hello, %s!" % who)
+
+    def create_settings(self):
+        return [
+            Header(text="Hello"),
+            Input(key="name", text="Name", default="world", subtext="Who to greet"),
+            Switch(key="loud", text="Loud mode", default=False),
+            Divider(),
+            Text(text="Docs: docs/API.md in the plugins repository"),
+        ]

@@ -1,0 +1,30 @@
+__id__ = "copy_message_id"
+__name__ = "Copy message ID"
+__description__ = "Adds a 'Copy message ID' item to the message context menu."
+__author__ = "ZephyrGram"
+__version__ = "1.0.0"
+__version_code__ = 1
+__api_version__ = 1
+__min_app_version__ = "0.1.0"
+__permissions__ = ["ui.menu"]
+
+from zephyr import BasePlugin, MenuItem, MenuType
+from zephyr import client
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self.add_menu_item(MenuItem(
+            menu_type=MenuType.MESSAGE_CONTEXT,
+            text="Copy message ID",
+            on_click=self.on_copy,
+            priority=0,
+        ))
+
+    def on_copy(self, ctx):
+        message = ctx.get("message")
+        if message is None:
+            return
+        mid = str(message.getId())
+        client.copy_to_clipboard(mid)
+        client.bulletin("Message ID copied: " + mid)

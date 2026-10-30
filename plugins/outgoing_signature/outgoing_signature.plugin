@@ -1,0 +1,38 @@
+__id__ = "outgoing_signature"
+__name__ = "Outgoing signature"
+__description__ = "Appends a configurable signature to every text message you send."
+__author__ = "ZephyrGram"
+__version__ = "1.0.0"
+__version_code__ = 1
+__api_version__ = 1
+__min_app_version__ = "0.1.0"
+__permissions__ = ["messages.send"]
+
+from zephyr import BasePlugin, HookResult, HookStrategy
+from zephyr.ui import Header, Switch, Input, Text
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self.add_on_send_message_hook(priority=0)
+
+    def on_send_message_hook(self, account, params):
+        if not self.get_setting("enabled", True):
+            return HookResult()
+        signature = self.get_setting("signature", "-- sent via ZephyrGram")
+        text = params.message
+        if not signature or text is None:
+            return HookResult()
+        text = str(text)
+        if not text or text.endswith(signature):
+            return HookResult()
+        params.message = text + "\n" + signature
+        return HookResult(strategy=HookStrategy.MODIFY, params=params)
+
+    def create_settings(self):
+        return [
+            Header(text="Outgoing signature"),
+            Switch(key="enabled", text="Append signature", default=True),
+            Input(key="signature", text="Signature", default="-- sent via ZephyrGram"),
+            Text(text="Applies to text messages sent from this device."),
+        ]
