@@ -77,7 +77,8 @@ def install_fake_zephyr():
         fn()
 
     def ai_complete(messages, system=None, model=None, temperature=None, timeout=60):
-        cl.ai_calls.append({"messages": messages, "system": system, "model": model})
+        cl.ai_calls.append({"messages": messages, "system": system, "model": model,
+                            "temperature": temperature})
         r = cl.ai_result(messages)
         if isinstance(r, Exception):
             raise r
@@ -86,7 +87,7 @@ def install_fake_zephyr():
     cl.run_on_ui, cl.run_in_bg, cl.ai_complete = run_on_ui, run_in_bg, ai_complete
     cl.bulletin = lambda t: cl.bulletins.append(t)
     cl.get_recent_messages = lambda did, limit=20, account=None: list(cl.history)[-limit:]
-    cl.get_dialog_info = lambda did: dict(cl.info)
+    cl.get_dialog_info = lambda did, account=None: dict(cl.info)
     cl.send_text = lambda did, text, reply_to=None: cl.sent.append((did, text, reply_to))
     cl.set_draft = lambda did, text: cl.drafts.append((did, text))
     cl.message_to_dict = lambda mo: dict(mo)
@@ -123,6 +124,7 @@ class Base(unittest.TestCase):
         self.p._now = lambda: self.clock[0]
         self.p.on_plugin_load()
         self.p.settings["debounce"] = "3"
+        self.p._rng.seed(1)
         self.n = 0
 
     def enable(self, did=DID, account=0):
@@ -389,6 +391,239 @@ class TestCaps(Base):
         msgs = CLIENT.ai_calls[0]["messages"]
         self.assertEqual([m["role"] for m in msgs], ["user", "assistant", "user"])
         self.assertEqual(msgs[-1]["content"], "question")
+
+
+OWN = ["ну ща гляну", "та норм", "ага давай", "хз шо там", "ок бро", "ща буду", "блін забув",
+       "не знаю ще", "та ладно", "ну типу так", "ага ок", "потім напишу", "ніт", "хах ну да"]
+
+
+def own_history(texts=OWN):
+    return [{"id": 200 + i, "from_id": 1, "out": True, "date": 10 + i, "text": t, "is_bot": False}
+            for i, t in enumerate(texts)]
+
+
+class TestPureHelpers(unittest.TestCase):
+    def test_clean_strips_markdown_quotes_prefix_filler(self):
+        c = mod.clean_humanized
+        self.assertEqual(c("**ну ща** `гляну`"), "ну ща гляну")
+        self.assertEqual(c("Assistant: привіт"), "привіт")
+        self.assertEqual(c('"та норм"'), "та норм")
+        self.assertEqual(c("«ок»"), "ок")
+        self.assertEqual(c("Звісно, зараз гляну"), "зараз гляну")
+        self.assertEqual(c("- один\n- два"), "один\nдва")
+        self.assertEqual(c("[user 7] йо"), "йо")
+
+    def test_cap_text_at_sentence(self):
+        t = mod.cap_text("Перше речення тут. " * 10, 60)
+        self.assertTrue(t.endswith("."))
+        self.assertLessEqual(len(t), 60)
+
+    def test_examples_filter(self):
+        self.assertFalse(mod.eligible_example("/start"))
+        self.assertFalse(mod.eligible_example(".ai hi"))
+        self.assertFalse(mod.eligible_example("глянь https://x.com/a"))
+        self.assertFalse(mod.eligible_example("a" * 300))
+        self.assertTrue(mod.eligible_example("ну ща гляну"))
+
+    def test_style_stats_and_rules(self):
+        st = mod.compute_style(OWN)
+        self.assertEqual(st["n"], len(OWN))
+        self.assertGreater(st["lower_start"], 0.9)
+        self.assertEqual(st["period_end"], 0)
+        self.assertEqual(st["emoji_rate"], 0)
+        self.assertGreater(st["uk_share"], 0.5)
+        rules = " ".join(mod.style_rules(st))
+        self.assertIn("lowercase", rules)
+        self.assertIn("period", rules)
+        self.assertIn("Do not add any", rules)
+        self.assertEqual(mod.style_rules(mod.compute_style(OWN[:3])), [])
+
+    def test_apply_style(self):
+        st = mod.compute_style(OWN)
+        self.assertEqual(mod.apply_style("\U0001F600 Ну ща гляну.", st), "ну ща гляну")
+        self.assertEqual(mod.apply_style("OK.", st), "OK")
+        self.assertEqual(mod.apply_style("Ну ща.", {"n": 2}), "Ну ща.")
+
+    def test_split(self):
+        self.assertEqual(mod.split_reply("коротко"), ["коротко"])
+        long = "Це перше речення довге. Це друге речення теж. Третє. Четверте речення ось."
+        parts = mod.split_reply(long)
+        self.assertTrue(1 < len(parts) <= 3)
+        self.assertEqual(mod.split_reply("один рядок\nдругий рядок тут"), ["один рядок", "другий рядок тут"])
+
+    def test_typing_delay_grows(self):
+        self.assertLess(mod.typing_delay_s("ок"), mod.typing_delay_s("x" * 60))
+        self.assertLessEqual(mod.typing_delay_s("x" * 5000), 6.0)
+
+    def test_emoji_only(self):
+        self.assertTrue(mod.is_emoji_only("\U0001F44D"))
+        self.assertTrue(mod.is_emoji_only("..."))
+        self.assertFalse(mod.is_emoji_only("ок \U0001F44D"))
+
+
+class TestHumanize(Base):
+    def setUp(self):
+        Base.setUp(self)
+        self.enable()
+        self.p.settings["cooldown"] = "0"
+        CLIENT.history[:] = own_history()
+
+    def round(self, text):
+        self.incoming(text=text)
+        self.fire_timers()
+
+    def test_style_in_system_prompt(self):
+        self.round("привіт")
+        sysmsg = CLIENT.ai_calls[0]["system"]
+        self.assertIn("ща гляну", sysmsg)               # few-shot example
+        self.assertIn("lowercase", sysmsg)              # derived rule
+        self.assertIn("No lists", sysmsg)               # anti-AI rules
+        self.assertEqual(CLIENT.ai_calls[0]["temperature"], 0.95)
+
+    def test_custom_prompt_is_extra_layer_and_tone(self):
+        self.p.settings["default_prompt"] = "Call me Vova."
+        self.p.settings["tone"] = 2
+        self.round("hi")
+        s = CLIENT.ai_calls[0]["system"]
+        self.assertIn("Call me Vova.", s)
+        self.assertIn("sarcastic", s)
+        self.assertIn("No lists", s)
+
+    def test_bot_replies_not_learned(self):
+        CLIENT.ai_result = lambda m, **kw: "Ну давай гляну пізніше"
+        self.round("привіт")
+        CLIENT.history.append({"id": 900, "from_id": 1, "out": True, "date": 99,
+                               "text": "ну давай гляну пізніше", "is_bot": False})
+        texts = self.p._own_texts(0, DID)
+        self.assertNotIn("ну давай гляну пізніше", texts)
+        self.assertIn("ща буду", texts)
+
+    def test_learning_off_and_cache(self):
+        self.p.settings["learn_style"] = False
+        self.round("привіт")
+        self.assertNotIn("ща гляну", CLIENT.ai_calls[0]["system"])
+        self.p.settings["learn_style"] = True
+        n = len(CLIENT.history)
+        self.p.get_profile(self.key(), 0, DID)
+        CLIENT.history[:] = []
+        self.assertEqual(len(self.p.get_profile(self.key(), 0, DID)["examples"]), n)   # cached
+        self.clock[0] += 31 * 60
+        self.assertEqual(self.p.get_profile(self.key(), 0, DID)["examples"], [])      # expired
+
+    def test_borrow_from_other_chats(self):
+        CLIENT.history[:] = own_history(OWN[:2])
+        self.p._chats["0:77"] = {"enabled": True, "account": 0, "dialog_id": 77, "title": "B", "type": "user"}
+        CLIENT.history[:] = own_history(OWN[:2])
+        prof = self.p.get_profile(self.key(), 0, DID)
+        self.assertGreaterEqual(prof["style"]["n"], 2)
+
+    def test_postprocess_in_delivery(self):
+        CLIENT.ai_result = lambda m, **kw: "**Ну** ща гляну."
+        self.round("привіт")
+        self.assertTrue(CLIENT.sent[0][1].endswith("ну ща гляну"))
+
+    def test_split_and_delays(self):
+        CLIENT.ai_result = lambda m, **kw: "Це перше речення довге. Це друге речення теж."
+        slept = []
+        mod.time.sleep = lambda s: slept.append(s)
+        self.round("привіт")
+        self.assertEqual(len(CLIENT.sent), 2)
+        self.assertTrue(CLIENT.sent[0][1].startswith(mod.ROBOT))
+        self.assertFalse(CLIENT.sent[1][1].startswith(mod.ROBOT))
+        self.assertEqual(len(slept), 2)
+        self.assertTrue(all(0.5 < x < 9 for x in slept))
+        self.assertEqual(len(self.p._state(self.key()).replies), 1)
+
+    def test_split_off_and_delay_off(self):
+        self.p.settings["split_msgs"] = False
+        self.p.settings["typing_delay"] = False
+        CLIENT.ai_result = lambda m, **kw: "Це перше речення довге. Це друге речення теж."
+        slept = []
+        mod.time.sleep = lambda s: slept.append(s)
+        self.round("привіт")
+        self.assertEqual(len(CLIENT.sent), 1)
+        self.assertEqual(slept, [])
+
+    def test_draft_not_split(self):
+        self.p.settings["mode_0_42"] = mod.MODE_DRAFT
+        CLIENT.ai_result = lambda m, **kw: "Це перше речення довге. Це друге речення теж."
+        self.round("привіт")
+        self.assertEqual(CLIENT.sent, [])
+        self.assertEqual(len(CLIENT.drafts), 1)
+
+    def test_skip_emoji_only(self):
+        self.round("\U0001F44D")
+        self.assertEqual(CLIENT.ai_calls, [])
+        self.p.settings["skip_emoji"] = False
+        self.round("\U0001F44E")
+        self.assertEqual(len(CLIENT.ai_calls), 1)
+
+    def test_max_reply_cap(self):
+        self.p.settings["max_reply"] = "50"
+        self.p.settings["split_msgs"] = False
+        CLIENT.ai_result = lambda m, **kw: "слово " * 100
+        self.round("привіт")
+        self.assertLessEqual(len(CLIENT.sent[0][1]), 50 + len(mod.ROBOT) + 1)
+
+    def test_duplicate_reply_retried_then_skipped(self):
+        CLIENT.ai_result = lambda m, **kw: "ага давай потім напишу тобі"
+        self.round("одне")
+        self.assertEqual(len(CLIENT.sent), 1)
+        self.round("друге")                     # same text twice: retry, still same -> skipped
+        self.assertEqual(len(CLIENT.sent), 1)
+        self.assertEqual(len(CLIENT.ai_calls), 3)
+        self.assertIn("rejected", CLIENT.ai_calls[2]["system"])
+        replies = iter(["ага давай потім напишу тобі", "зовсім інша відповідь тут"])
+        CLIENT.ai_result = lambda m, **kw: next(replies)
+        self.round("третє")
+        self.assertEqual(CLIENT.sent[-1][1], "зовсім інша відповідь тут")
+
+    def test_ai_tell_rejected(self):
+        self.p.settings["disclosure"] = False
+        CLIENT.ai_result = lambda m, **kw: "Як ШІ я не можу це зробити"
+        self.round("привіт")
+        self.assertEqual(CLIENT.sent, [])
+        self.assertTrue(self.p.is_enabled(self.key()))      # not counted as a failure
+
+    def test_humanize_off_is_legacy(self):
+        self.p.settings["humanize"] = False
+        CLIENT.ai_result = lambda m, **kw: "Звісно. Це перше. Це друге."
+        self.round("привіт")
+        self.assertEqual(len(CLIENT.sent), 1)
+        self.assertEqual(CLIENT.ai_calls[0]["system"], mod.DEFAULT_PROMPT)
+        self.assertIsNone(CLIENT.ai_calls[0]["temperature"])
+
+    def test_disclosure_rule_in_prompt(self):
+        self.round("привіт")
+        self.assertIn("honestly say", CLIENT.ai_calls[0]["system"])
+        self.p.settings["disclosure"] = False
+        self.round("інше")
+        self.assertIn("never claim to be a human", CLIENT.ai_calls[1]["system"])
+
+
+class TestStyleTest(Base):
+    def test_five_samples_nothing_sent(self):
+        hist = []
+        for i in range(8):
+            hist.append({"id": 10 + i, "from_id": 7, "out": False, "date": 100 + i,
+                         "text": "питання %d" % i, "is_bot": False})
+        CLIENT.history[:] = hist + own_history()
+        CLIENT.ai_result = lambda m, **kw: "ну ща гляну"
+        self.assertTrue(self.p.start_style_test(0, DID, "Alice"))
+        self.assertEqual(CLIENT.sent, [])
+        self.assertEqual(len(CLIENT.ai_calls), 5)
+        res = self.p.get_setting("style_test_result")
+        self.assertIn("питання 7", res)
+        self.assertNotIn("питання 2", res)
+        self.assertTrue(CLIENT.bulletins)
+        self.assertFalse(self.p._testing)
+
+    def test_settings_expose_humanize_controls(self):
+        keys = {getattr(i, "key", None) for i in self.p.create_settings()}
+        for k in ("humanize", "learn_style", "learn_n", "split_msgs", "typing_delay", "tone", "test_pick"):
+            self.assertIn(k, keys)
+        text = " ".join(str(getattr(i, "subtext", "") or "") for i in self.p.create_settings())
+        self.assertIn("your own AI server", text)
 
 
 if __name__ == "__main__":

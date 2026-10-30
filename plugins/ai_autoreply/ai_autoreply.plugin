@@ -1,14 +1,17 @@
 __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
-__description__ = "Answers incoming messages with the app's AI in chats you explicitly add. Auto, draft or .ai command mode, with cooldown, daily and hourly caps and loop protection."
+__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode, with cooldown, daily and hourly caps and loop protection."
 __author__ = "ZephyrGram"
-__version__ = "0.2.0"
-__version_code__ = 2
+__version__ = "0.3.0"
+__version_code__ = 3
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
 
+import difflib
 import json
+import random
+import re
 import threading
 import time
 from collections import deque
@@ -51,8 +54,270 @@ DEFAULT_PROMPT = (
 )
 
 
+TONES = ["Neutral", "Friendly", "Toxic (sarcastic banter)"]
+TONE_RULES = [
+    "Tone: calm and matter-of-fact, friendly enough but never gushing.",
+    "Tone: warm, easygoing and supportive, a bit of humor, still short.",
+    "Tone: sarcastic, teasing banter like between close friends, dry jokes, light roasting. "
+    "Swear words only at the level seen in the owner's examples. No real insults, slurs, hate "
+    "or threats. If the topic is serious or the other person is upset, drop the sarcasm.",
+]
+
+HUMAN_PROMPT = (
+    "You are texting as the owner of this Telegram account in a casual chat. For this reply "
+    "you ARE the owner: write exactly the way they text. Output ONLY the message text.\n"
+    "Hard rules:\n"
+    "- Sound like a real person typing fast on a phone, not like an assistant. Casual "
+    "Ukrainian/Russian chat register: short plain everyday words. No bookish, formal, "
+    "'clever' or polished literary phrasing.\n"
+    "- Never use assistant filler or openers such as «звісно», «безумовно», "
+    "«звичайно», «розумію», «чудове питання», «з радістю», "
+    "«конечно», «разумеется», «понимаю», «безусловно», "
+    "«как ИИ / як ШІ / as an AI», «чим можу допомогти».\n"
+    "- No lists, bullets, numbering, markdown, headings, quotes around the message, and no "
+    "'Assistant:' or name labels. Never write labels like [user 123].\n"
+    "- No long intros, no summarizing, no repeating what the other person said, no moralizing, "
+    "no explanations nobody asked for.\n"
+    "- Do not end every message with a question; ask back only when it is really natural, rarely.\n"
+    "- Reply in the language the other person writes in (Ukrainian, Russian or a mix): mirror "
+    "it and their tone. Do not be more polite or more enthusiastic than they are.\n"
+    "- Match the owner's usual message length: normally one short line, at most two short "
+    "sentences. Answer only what was asked.\n"
+    "- Typos, missing punctuation and slang only if the owner's examples show them. Never "
+    "invent typos yourself.\n"
+    "- Do not invent facts, plans, names, places, prices or promises. If you do not know or "
+    "cannot commit, say so briefly and naturally («хз, потім напишу»).\n"
+    "- Never reveal secrets or personal data and never make promises or payments on the "
+    "owner's behalf."
+)
+DISCLOSE_RULE = "If the other person asks directly whether this is a bot, honestly say it is an automatic AI assistant."
+NO_DISCLOSE_RULE = ("Do not bring up being an AI on your own and never claim to be a human; "
+                    "if asked directly, deflect briefly.")
+
+MIN_STATS = 8                # fewer own messages than this: no style rules, no post-style
+MIN_OWN = 12                 # fewer own messages in this chat: borrow from other allowed chats
+MAX_EXAMPLE_CHARS = 200
+MAX_TYPING_TOTAL = 15.0      # seconds, all parts of one reply together
+
+EMOJI_CLS = u"[🀀-🫿☀-➿⬀-⯿️‍]"
+EMOJI_RE = re.compile(EMOJI_CLS)
+LEAD_EMOJI_RE = re.compile(u"^(?:%s|\\s)+" % EMOJI_CLS)
+TRAIL_EMOJI_RE = re.compile(u"(?:%s|\\s)+$" % EMOJI_CLS)
+URL_RE = re.compile(r"(https?://|www\.|t\.me/|\b\w+\.(?:com|ua|ru|org|net|me)\b)", re.I)
+COMMAND_RE = re.compile(r"^[/.!#]\w")
+UK_RE = re.compile(u"[іїєґІЇЄҐ]")
+RU_RE = re.compile(u"[ыэъёЫЭЪЁ]")
+WORD_RE = re.compile(u"[\\w'’]+", re.U)
+LABEL_RE = re.compile(r"^\s*\[user [^\]]*\]\s*", re.I)
+PREFIX_RE = re.compile(u"^\\s*(?:assistant|ai|bot|owner|me|reply|answer|я|відповідь|"
+                       u"ответ)\\s*[:：]\\s*", re.I)
+FILLER_RE = re.compile(
+    u"^\\s*(?:звісно|звичайно|безумовно|"
+    u"безперечно|конечно|разумеется|"
+    u"безусловно|я розумію|розумію|"
+    u"я понимаю|понимаю)\\s*[,!.:—-]+\\s*", re.I)
+STRONG_TELL_RE = re.compile(r"as an ai\b|language model|мовна модель|языковая модель", re.I)
+AI_TELL_RE = re.compile(
+    u"як (?:я )?(?:ші|штучн)|как (?:я )?(?:ии|искусствен)|"
+    u"as an ai\\b|language model|мовна модель|языковая модель", re.I)
+
+SLANG = frozenset(u"""блін блин нах хз типу типа короч капец ахах ахаха хах хаха лол ок окей
+норм ага угу ща щас шо чо чё нє ні мда жесть крінж кринж збс пох ну та давай
+давайте спс дякую пліз плиз бро братан чувак чувачок прикол ржу тіпа типо""".split())
+SWEAR = frozenset(u"""бля блять блядь сука суки піздець пиздец пздц хуй хуйня нахуй
+нахер ебать йопта їбати гандон мудак підар дебіл""".split())
+
+
 def norm_text(text):
     return " ".join(str(text or "").lower().split())
+
+
+def is_emoji_only(text):
+    """True for messages with no letters/digits at all (emoji, stickers' alt text, '...')."""
+    t = str(text or "").strip()
+    return bool(t) and not any(ch.isalnum() for ch in t)
+
+
+def eligible_example(text):
+    """Own message usable as a style example (no commands, links, long or multi-line texts)."""
+    t = str(text or "").strip()
+    if not t or len(t) > MAX_EXAMPLE_CHARS or t.count("\n") > 2:
+        return False
+    if COMMAND_RE.match(t) or URL_RE.search(t):
+        return False
+    return any(ch.isalpha() for ch in t) or bool(EMOJI_RE.search(t))
+
+
+def compute_style(texts):
+    """Simple stats about how the owner writes."""
+    n = len(texts)
+    st = {"n": n}
+    if not n:
+        return st
+    lens = sorted(len(t) for t in texts)
+    st["median_len"] = lens[n // 2] if n % 2 else (lens[n // 2 - 1] + lens[n // 2]) // 2
+    st["avg_words"] = sum(len(t.split()) for t in texts) / float(n)
+    alpha = [t for t in texts if any(ch.isalpha() for ch in t)]
+    first = [next(ch for ch in t if ch.isalpha()) for t in alpha]
+    st["lower_start"] = (sum(1 for ch in first if ch.islower()) / float(len(first))) if first else 0.5
+    st["period_end"] = sum(1 for t in texts if t.rstrip().endswith(".") and not t.rstrip().endswith("..")) / float(n)
+    st["emoji_rate"] = sum(1 for t in texts if EMOJI_RE.search(t)) / float(n)
+    slang, swear = {}, {}
+    slang_msgs = swear_msgs = 0
+    for t in texts:
+        words = WORD_RE.findall(t.lower())
+        hit_s = hit_w = False
+        for w in words:
+            if w in SWEAR:
+                swear[w] = swear.get(w, 0) + 1
+                hit_w = True
+            elif w in SLANG:
+                slang[w] = slang.get(w, 0) + 1
+                hit_s = True
+        slang_msgs += hit_s
+        swear_msgs += hit_w
+    st["slang_rate"] = slang_msgs / float(n)
+    st["swear_rate"] = swear_msgs / float(n)
+    st["slang_used"] = [w for w, _ in sorted(slang.items(), key=lambda x: -x[1])[:8]]
+    st["swear_used"] = [w for w, _ in sorted(swear.items(), key=lambda x: -x[1])[:5]]
+    uk = sum(1 for t in texts if UK_RE.search(t))
+    ru = sum(1 for t in texts if RU_RE.search(t))
+    st["uk_share"] = (uk / float(uk + ru)) if (uk + ru) else None
+    return st
+
+
+def style_rules(st):
+    """Explicit rules for the system prompt from compute_style() stats ([] if too few samples)."""
+    if not st or st.get("n", 0) < MIN_STATS:
+        return []
+    med = st["median_len"]
+    r = ["Typical message: about %d characters (~%.0f words). Stay close to that; never write "
+         "more than roughly %d characters unless the question truly needs it."
+         % (med, st["avg_words"], max(2 * med, 40))]
+    if st["lower_start"] >= 0.7:
+        r.append("Starts messages with a lowercase letter (%d%% of them)." % round(st["lower_start"] * 100))
+    elif st["lower_start"] <= 0.3:
+        r.append("Starts messages with a capital letter.")
+    if st["period_end"] <= 0.15:
+        r.append("Almost never ends a message with a period. Do not put a period at the end.")
+    elif st["period_end"] >= 0.6:
+        r.append("Usually ends messages with a period.")
+    er = st["emoji_rate"]
+    if er < 0.05:
+        r.append("Does not use emoji. Do not add any.")
+    elif er > 0.3:
+        r.append("Uses emoji often (%d%% of messages), but at most one or two per message." % round(er * 100))
+    else:
+        r.append("Rarely uses emoji (%d%% of messages): usually none." % round(er * 100))
+    if st["slang_used"]:
+        r.append("Casual words the owner really uses: %s. Use them only where natural, do not force them."
+                 % ", ".join(st["slang_used"]))
+    if st["swear_used"]:
+        r.append("The owner sometimes swears (%s). Mirror this only if the other person does it too."
+                 % ", ".join(st["swear_used"]))
+    elif st["slang_rate"] < 0.1:
+        r.append("Plain wording, almost no slang; do not add slang.")
+    u = st.get("uk_share")
+    if u is None:
+        r.append("Language: mirror the other person's language.")
+    elif u >= 0.75:
+        r.append("The owner mostly writes Ukrainian. Answer in Ukrainian unless the other person writes Russian.")
+    elif u <= 0.25:
+        r.append("The owner mostly writes Russian. Answer in Russian unless the other person writes Ukrainian.")
+    else:
+        r.append("The owner mixes Ukrainian and Russian. Mirror the other person's language.")
+    return r
+
+
+def strip_markdown(text):
+    t = str(text or "")
+    t = re.sub(r"```[a-zA-Z]*\n?", "", t).replace("```", "")
+    t = re.sub(r"(\*\*|__|~~)(.+?)\1", r"\2", t, flags=re.S)
+    t = re.sub(r"(?<![\w*])\*(?!\s)([^*\n]+?)\*(?!\w)", r"\1", t)
+    t = t.replace("`", "")
+    t = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", t)
+    t = re.sub(r"(?m)^\s*(?:[-*•–]\s+|\d{1,2}[.)]\s+)", "", t)
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"\1", t)
+    return t
+
+
+def unwrap_quotes(t):
+    pairs = [(u"«", u"»"), ('"', '"'), (u"“", u"”"), ("'", "'"), (u"„", u"“")]
+    t = t.strip()
+    for a, b in pairs:
+        if len(t) > 2 and t[0] == a and t[-1] == b and t.count(a) + (t.count(b) if a != b else 0) <= 2:
+            return t[1:-1].strip()
+    return t
+
+
+def cap_text(t, limit):
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    ends = [cut.rfind(c) for c in ".!?…"]
+    e = max(ends)
+    if e >= limit // 2:
+        return cut[:e + 1].strip()
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > limit // 2 else cut).rstrip(" ,;:-")
+
+
+def clean_humanized(reply, limit=300):
+    """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler; cap the length."""
+    if not isinstance(reply, str):
+        return ""
+    t = strip_markdown(reply).strip()
+    for _ in range(2):
+        t = unwrap_quotes(PREFIX_RE.sub("", LABEL_RE.sub("", t)))
+    f = FILLER_RE.sub("", t, count=1).strip()
+    if f:
+        t = f
+    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(r"\n\s*\n+", "\n", t).strip()
+    return cap_text(t, limit)
+
+
+def apply_style(text, st):
+    """Match the owner's capitalisation / final period / emoji habits (only with enough samples)."""
+    t = str(text or "").strip()
+    if not t or not st or st.get("n", 0) < MIN_STATS:
+        return t
+    out = t
+    if st["emoji_rate"] < 0.05:
+        out = TRAIL_EMOJI_RE.sub("", LEAD_EMOJI_RE.sub("", out)).strip()
+    if st["lower_start"] >= 0.7 and out and out[0].isupper() and not (len(out) > 1 and out[1].isupper()):
+        out = out[0].lower() + out[1:]
+    if st["period_end"] <= 0.15 and out.endswith(".") and not out.endswith(".."):
+        out = out[:-1].rstrip()
+    return out or t
+
+
+def split_reply(text, max_parts=3):
+    """Split into 1..max_parts short messages at natural breaks (lines, then sentences)."""
+    text = str(text or "").strip()
+    pieces = [p.strip() for p in re.split(r"\n+", text) if p.strip()]
+    by_line = len(pieces) > 1
+    if not by_line:
+        if len(text) < 45:
+            return [text] if text else []
+        pieces = [s.strip() for s in re.split(u"(?<=[.!?…])\\s+", text) if s.strip()]
+    merged = []
+    for p in pieces:
+        if merged and not by_line and len(merged[-1]) < 12:
+            merged[-1] += " " + p
+        else:
+            merged.append(p)
+    if len(merged) > 1 and not by_line and len(merged[-1]) < 8:
+        merged[-2] += " " + merged.pop()
+    while len(merged) > max(1, max_parts):
+        i = min(range(len(merged) - 1), key=lambda k: len(merged[k]) + len(merged[k + 1]))
+        merged[i:i + 2] = [merged[i] + " " + merged[i + 1]]
+    return merged
+
+
+def typing_delay_s(text, jitter=1.0):
+    """Seconds to 'type' one message: proportional to its length, with jitter."""
+    return min(6.0, 0.8 + len(text) * 0.07) * jitter
 
 
 class ChatState(object):
@@ -70,6 +335,7 @@ class ChatState(object):
         self.seen_set = set()
         self.info = None
         self.info_ts = 0.0
+        self.recent = deque(maxlen=5)      # normalized texts of our last replies (de-duplication)
 
 
 class Plugin(BasePlugin):
@@ -78,6 +344,10 @@ class Plugin(BasePlugin):
         self._lock = threading.RLock()
         self._states = {}
         self._hourly = deque()             # timestamps of AI calls (global)
+        self._profiles = {}                # chat key -> (ts, n, {"examples": [...], "style": {...}})
+        self._rng = random.Random()
+        self._testing = False
+        self._load_bot_texts()
         self._load_chats()
         self.add_on_new_message_hook(priority=0)
         self.add_menu_item(MenuItem(
@@ -103,6 +373,29 @@ class Plugin(BasePlugin):
         except (TypeError, ValueError):
             v = default
         return max(lo, min(hi, v))
+
+    def _float(self, key, default, lo, hi):
+        try:
+            v = float(str(self.get_setting(key, default)).strip().replace(",", "."))
+        except (TypeError, ValueError):
+            v = default
+        return max(lo, min(hi, v))
+
+    def _humanize(self):
+        return bool(self.get_setting("humanize", True))
+
+    def _load_bot_texts(self):
+        try:
+            data = json.loads(self.get_setting("bot_texts", "[]") or "[]")
+        except (ValueError, TypeError):
+            data = []
+        self._bot_texts = deque((str(x) for x in data if x), maxlen=200)
+
+    def _remember_bot_text(self, text):
+        """Remember what the plugin itself sent, so it is never learned as the owner's style."""
+        with self._lock:
+            self._bot_texts.append(norm_text(text)[:160])
+            self.set_setting("bot_texts", json.dumps(list(self._bot_texts), ensure_ascii=False))
 
     @staticmethod
     def chat_key(account, dialog_id):
@@ -433,6 +726,11 @@ class Plugin(BasePlugin):
             return "disabled"
         st = self._state(key)
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
+        humanize = self._humanize()
+        if (humanize and self.get_setting("skip_emoji", True) and batch
+                and all(is_emoji_only(t) for _, _, t in batch)):
+            self.log("skip %s: emoji/sticker only" % key)
+            return "emoji only"
         reason = self.caps_ok(key)
         if reason:
             self.log("skip %s: %s" % (key, reason))
@@ -454,35 +752,28 @@ class Plugin(BasePlugin):
         if not messages:
             return "empty context"
         self.count_use(key)
-        kwargs = {"system": self._chat_prompt(key), "timeout": 60}
-        model = str(self.get_setting("model", "") or "").strip()
-        if model:
-            kwargs["model"] = model
         try:
-            reply = client.ai_complete(messages, **kwargs)
+            parts, why = self.generate(key, account, did, messages, c, st,
+                                       split=(mode != MODE_DRAFT))
         except Exception as e:
             self._fail(key, e)
             return "ai failed"
-        reply = self.clean_reply(reply)
-        if not reply:
-            self._fail(key, "empty AI reply")
-            return "empty reply"
+        if not parts:
+            if why == "empty":
+                self._fail(key, "empty AI reply")
+                return "empty reply"
+            self.log("skip %s: %s" % (key, why))
+            return why
         # state may have changed during the (slow) AI call
         c = self._chats.get(key)
         if not c or not c.get("enabled") or not self.get_setting("master", True):
             return "disabled meanwhile"
         try:
             if mode == MODE_DRAFT:
-                client.set_draft(did, reply)
+                client.set_draft(did, "\n".join(parts))
+                st.recent.append(norm_text(" ".join(parts)))
             else:
-                if self.get_setting("disclosure", True) and not c.get("disclosed"):
-                    reply = str(self.get_setting("disclosure_text", ROBOT + " ")) + reply
-                time.sleep(min(4.0, 0.6 + len(reply) / 80.0))   # typing delay
-                reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
-                self.send(did, reply, reply_to)
-                with self._lock:
-                    c["disclosed"] = True
-                    st.replies.append(self._now())
+                self.deliver(key, c, st, did, parts, batch, humanize)
         except Exception as e:
             self._fail(key, e)
             return "send failed"
@@ -491,6 +782,39 @@ class Plugin(BasePlugin):
             c["fails"] = 0
             self._save_chats()
         return "ok"
+
+    def deliver(self, key, c, st, did, parts, batch, humanize):
+        """Send the parts one by one with a typing delay; raises on send failure."""
+        parts = list(parts)
+        bodies = list(parts)
+        if self.get_setting("disclosure", True) and not c.get("disclosed"):
+            parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
+        reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
+        budget = MAX_TYPING_TOTAL
+        sent = []
+        try:
+            for i, part in enumerate(parts):
+                if humanize:
+                    if self.get_setting("typing_delay", True):
+                        d = max(0.0, min(budget, typing_delay_s(part, self._rng.uniform(0.8, 1.3))))
+                        budget -= d
+                        time.sleep(d)
+                else:
+                    time.sleep(min(4.0, 0.6 + len(part) / 80.0))   # legacy typing delay
+                if i:
+                    cur = self._chats.get(key)
+                    if not cur or not cur.get("enabled") or not self.get_setting("master", True):
+                        break
+                self.send(did, part, reply_to if i == 0 else None)
+                sent.append(part)
+                self._remember_bot_text(bodies[i])
+                with self._lock:
+                    c["disclosed"] = True
+        finally:
+            if sent:
+                with self._lock:
+                    st.replies.append(self._now())
+                    st.recent.append(norm_text(" ".join(sent)))
 
     def send(self, did, text, reply_to):
         if reply_to is not None:
@@ -509,16 +833,144 @@ class Plugin(BasePlugin):
             r = r[:MAX_REPLY_CHARS].rstrip() + "…"
         return r
 
-    def build_messages(self, key, account, did, batch):
-        n = self._int("context_n", 10, 1, 40)
-        hist = []
+    # ------------------------------------------------------------------ generation
+    def _custom_prompt(self, key):
+        p = str(self.get_setting("prompt_" + self._sk(key), "") or "").strip()
+        return p or str(self.get_setting("default_prompt", "") or "").strip()
+
+    def build_system(self, key, profile):
+        """System prompt: anti-AI rules + tone + learned style + examples + owner's own prompt."""
+        if not self._humanize():
+            return self._chat_prompt(key)
         try:
-            hist = client.get_recent_messages(did, limit=n, account=account) or []
-        except Exception as e:
-            self.log("history unavailable for %s: %s" % (key, e))
-        hist = sorted((h for h in hist if isinstance(h, dict) and str(h.get("text") or "").strip()),
-                      key=lambda h: (h.get("date") or 0, h.get("id") or 0))[-n:]
+            tone = int(self.get_setting("tone", 0))
+        except (TypeError, ValueError):
+            tone = 0
+        parts = [HUMAN_PROMPT, TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
+                 DISCLOSE_RULE if self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
         c = self._chats.get(key) or {}
+        if c.get("type") == "group":
+            parts.append("This is a group chat; messages are labelled [user ID] only so you can "
+                         "tell people apart. Answer the latest one briefly.")
+        style = (profile or {}).get("style") or {}
+        rules = style_rules(style)
+        if rules:
+            parts.append("How the owner writes (measured on their last %d messages):\n- %s"
+                         % (style.get("n", 0), "\n- ".join(rules)))
+        ex = (profile or {}).get("examples") or []
+        if ex:
+            parts.append("Examples of the owner's real messages. Imitate the voice and rhythm; "
+                         "never copy or quote them:\n" + "\n".join("- " + e for e in ex))
+        custom = self._custom_prompt(key)
+        if custom and custom != DEFAULT_PROMPT:
+            parts.append("Extra instructions from the owner (they refine the rules above):\n" + custom)
+        return "\n\n".join(parts)
+
+    def _own_texts(self, account, did, limit=100):
+        """Owner's eligible outgoing texts in one chat, oldest first."""
+        hist = client.get_recent_messages(did, limit=limit, account=account) or []
+        prefix = str(self.get_setting("disclosure_text", ROBOT + " ") or "").strip().lower()
+        out, seen = [], set()
+        for h in sorted((h for h in hist if isinstance(h, dict)),
+                        key=lambda h: (h.get("date") or 0, h.get("id") or 0)):
+            if not h.get("out") or h.get("is_service") or h.get("fwd") or h.get("forwarded"):
+                continue
+            t = str(h.get("text") or "").strip()
+            low = t.lower()
+            if not eligible_example(t) or norm_text(t)[:160] in self._bot_texts:
+                continue
+            if any(mk in low for mk in AUTO_MARKERS) or (prefix and low.startswith(prefix)):
+                continue
+            nk = norm_text(t)
+            if nk in seen:
+                continue
+            seen.add(nk)
+            out.append(t)
+        return out
+
+    def get_profile(self, key, account, did):
+        """Style profile of the owner (cached per chat). Empty profile if learning is off."""
+        if not self.get_setting("learn_style", True):
+            return {}
+        n = self._int("learn_n", 40, 5, 50)
+        ttl = self._int("style_cache_min", 30, 0, 1440) * 60
+        now = self._now()
+        with self._lock:
+            ent = self._profiles.get(key)
+            if ent and ent[1] == n and now - ent[0] < ttl:
+                return ent[2]
+        prof = {}
+        try:
+            own = self._own_texts(account, did)
+            texts = own[-n:]
+            if len(own) < MIN_OWN:                  # few messages here: borrow from other allowed chats
+                extra = []
+                for k, oc in sorted(self._chats.items()):
+                    if k == key or not oc.get("enabled"):
+                        continue
+                    try:
+                        extra += self._own_texts(int(oc.get("account", 0)), int(oc["dialog_id"]), 60)
+                    except Exception as e:
+                        self.log("style borrow failed for %s: %s" % (k, e))
+                    if len(extra) + len(own) >= n:
+                        break
+                texts = extra[-(n - len(own)):] + own if n > len(own) else own[-n:]
+            prof = {"examples": texts[-n:], "style": compute_style(texts[-n:])}
+        except Exception as e:
+            self.log("style learning failed for %s: %s" % (key, e))
+        with self._lock:
+            self._profiles[key] = (now, n, prof)
+        return prof
+
+    def generate(self, key, account, did, messages, c, st, split=True):
+        """Returns (parts, why). parts is [] with why in {'empty','repeat','ai-tell'} if unusable.
+        st is the ChatState used for de-duplication (None = no de-duplication)."""
+        model = str(self.get_setting("model", "") or "").strip()
+        if not self._humanize():
+            kwargs = {"system": self._chat_prompt(key), "timeout": 60}
+            if model:
+                kwargs["model"] = model
+            reply = self.clean_reply(client.ai_complete(messages, **kwargs))
+            return ([reply] if reply else []), "empty"
+        profile = self.get_profile(key, account, did)
+        system = self.build_system(key, profile)
+        temp = self._float("temperature", 0.95, 0.0, 2.0)
+        limit = self._int("max_reply", 300, 40, MAX_REPLY_CHARS)
+        style = (profile or {}).get("style") or {}
+        why = "empty"
+        for attempt in range(2):
+            kwargs = {"system": system, "timeout": 60, "temperature": min(2.0, temp + 0.1 * attempt)}
+            if model:
+                kwargs["model"] = model
+            if attempt:
+                kwargs["system"] = system + (
+                    "\n\nYour previous attempt was rejected: it repeated an earlier reply or sounded "
+                    "like an AI assistant. Write a clearly different, shorter, more casual message.")
+            reply = clean_humanized(client.ai_complete(messages, **kwargs), limit)
+            if not reply:
+                return [], "empty"
+            raw = split_reply(reply) if (split and self.get_setting("split_msgs", True)) else [reply]
+            parts = [p for p in (apply_style(p, style) for p in raw) if p]
+            if not parts:
+                return [], "empty"
+            why = self.reply_problem(" ".join(parts), st)
+            if not why:
+                return parts, ""
+        return [], why
+
+    def reply_problem(self, text, st):
+        """'ai-tell' / 'repeat' if the reply must not be used, else ''."""
+        tell = STRONG_TELL_RE if self.get_setting("disclosure", True) else AI_TELL_RE
+        if tell.search(text):
+            return "ai-tell"
+        n = norm_text(text)
+        if st is not None and len(n) >= 12:
+            for prev in st.recent:
+                if prev == n or difflib.SequenceMatcher(None, prev, n).ratio() >= 0.85:
+                    return "repeat"
+        return ""
+
+    def _hist_messages(self, c, hist):
         group = c.get("type") == "group"
         out = []
         for h in hist:
@@ -527,16 +979,93 @@ class Plugin(BasePlugin):
             if group and role == "user":
                 text = "[user %s] %s" % (h.get("from_id"), text)
             out.append({"role": role, "content": text})
+        while out and out[0]["role"] == "assistant":
+            out.pop(0)
+        return out
+
+    def _load_history(self, key, account, did, n):
+        hist = []
+        try:
+            hist = client.get_recent_messages(did, limit=n, account=account) or []
+        except Exception as e:
+            self.log("history unavailable for %s: %s" % (key, e))
+        return sorted((h for h in hist if isinstance(h, dict) and str(h.get("text") or "").strip()),
+                      key=lambda h: (h.get("date") or 0, h.get("id") or 0))[-n:]
+
+    def build_messages(self, key, account, did, batch):
+        n = self._int("context_n", 10, 1, 40)
+        hist = self._load_history(key, account, did, n)
+        c = self._chats.get(key) or {}
+        group = c.get("type") == "group"
+        out = self._hist_messages(c, hist)
         ids = set(h.get("id") for h in hist)
         for mid, fid, text in batch:          # make sure the new messages are present
             if mid not in ids and text:
                 out.append({"role": "user",
                             "content": ("[user %s] %s" % (fid, text)) if group else text})
-        while out and out[0]["role"] == "assistant":
-            out.pop(0)
         if not out or out[-1]["role"] != "user":
             return []
         return out
+
+    # ------------------------------------------------------------------ style test
+    def on_test_style(self, dialog_id, title=""):
+        """DialogPicker callback (UI thread): the test itself runs in a worker."""
+        try:
+            try:
+                account = int(client.current_account())
+            except Exception:
+                account = 0
+            self.start_style_test(account, int(dialog_id), title)
+        except Exception as e:
+            self.error(e)
+
+    def start_style_test(self, account, did, title=""):
+        if self._testing:
+            client.bulletin("Style test is already running")
+            return False
+        self._testing = True
+
+        def work():
+            try:
+                self.run_style_test(account, did, title)
+            except Exception as e:
+                self.error(e)
+                client.bulletin("Style test failed: %s" % e)
+            finally:
+                self._testing = False
+        client.run_in_bg(work)
+        return True
+
+    def run_style_test(self, account, did, title=""):
+        """Generates a sample reply to each of the last 5 incoming messages. Nothing is sent."""
+        info = client.get_dialog_info(did)
+        reason = self.check_info(info)
+        if reason:
+            client.bulletin("Style test: not available here (%s)" % reason)
+            return []
+        key = self.chat_key(account, did)
+        c = {"type": info.get("type")}
+        n = self._int("context_n", 10, 1, 40)
+        hist = self._load_history(key, account, did, 60)
+        idx = [i for i, h in enumerate(hist) if not h.get("out") and not h.get("is_bot")][-5:]
+        if not idx:
+            client.bulletin("Style test: no incoming messages in this chat")
+            return []
+        profile = self.get_profile(key, account, did)
+        lines = []
+        for i in idx:
+            msgs = self._hist_messages(c, hist[max(0, i + 1 - n):i + 1])
+            if not msgs or msgs[-1]["role"] != "user":
+                continue
+            parts, why = self.generate(key, account, did, msgs, c, None, split=True)
+            shown = " || ".join(parts) if parts else "(skipped: %s)" % why
+            lines.append("%d) %s\n   -> %s" % (len(lines) + 1, str(hist[i]["text"]).strip()[:120], shown))
+        learned = len((profile or {}).get("examples") or [])
+        text = "Style test for %s (%d own messages learned, nothing was sent)\n%s" % (
+            info.get("title") or title or did, learned, "\n".join(lines))
+        self.set_setting("style_test_result", text)
+        client.bulletin(text[:900])
+        return lines
 
     # ------------------------------------------------------------------ settings
     def create_settings(self):
@@ -558,8 +1087,40 @@ class Plugin(BasePlugin):
             items.append(Text(text="Add a chat with the 'AI auto-reply' item in the chat header menu."))
         items.append(Text(text="Modes", subtext=MODES_HELP))
         items += [
+            Divider(),
+            Header(text="Humanize"),
+            Switch(key="humanize", text="Humanize replies", default=True,
+                   subtext="Answer like you: casual, short, no assistant phrases, no markdown. "
+                           "Off = the old plain behavior."),
+            Switch(key="learn_style", text="Learn my style", default=True,
+                   subtext="Your last outgoing messages (no commands, links or long texts) are sent "
+                           "as examples to your own AI server configured in ZephyrGram - nowhere else. "
+                           "If this chat has few of them, a few other chats you added are used too."),
+            Input(key="learn_n", text="Style examples (5-50)", default="40"),
+            Input(key="style_cache_min", text="Re-learn style every (minutes)", default="30"),
+            Selector(key="tone", text="Tone", items=list(TONES), default=0,
+                     subtext="Your own prompt below is added on top."),
+            Switch(key="split_msgs", text="Split into short messages", default=True,
+                   subtext="1-3 messages at natural breaks."),
+            Switch(key="typing_delay", text="Typing delay", default=True,
+                   subtext="Pause before each message depending on its length."),
+            Switch(key="skip_emoji", text="Skip emoji-only messages", default=True),
+            Input(key="max_reply", text="Max reply length (characters)", default="300"),
+            Input(key="temperature", text="Temperature (0-2)", default="0.95"),
+        ]
+        if DialogPicker is not None:
+            items.append(DialogPicker(key="test_pick", text="Test style: choose a chat",
+                                      on_pick=self.on_test_style,
+                                      subtext="Writes 5 sample replies to the last 5 incoming messages. "
+                                              "Nothing is sent; the result is shown below."))
+        last = str(self.get_setting("style_test_result", "") or "")
+        if last:
+            items.append(Text(text=last))
+        items += [
+            Divider(),
             Input(key="default_prompt", text="Default system prompt", default="", multiline=True,
-                  subtext="Empty = built-in prompt"),
+                  subtext="Extra instructions on top of the humanize rules. Empty = nothing extra "
+                          "(with Humanize off: built-in prompt)"),
             Input(key="context_n", text="Context size (messages)", default="10"),
             Input(key="model", text="Model (empty = app default)", default=""),
             Switch(key="disclosure", text="Disclose AI in first reply", default=True),
@@ -587,6 +1148,8 @@ class Plugin(BasePlugin):
                                multiline=True, subtext="Empty = default prompt"))
             items.append(Switch(key="keep_" + sk, text="Enabled", default=bool(c.get("enabled")),
                                 on_change=self._keep_cb(key)))
+            items.append(Text(text="Test style in this chat (nothing is sent)", key="test_" + sk,
+                              on_click=self._test_cb(key)))
             items.append(Text(text="Remove chat", key="remove_" + sk, on_click=self._remove_cb(key)))
         if not shown:
             items.append(Text(text="No chats yet."))
@@ -633,6 +1196,7 @@ class Plugin(BasePlugin):
             with self._lock:
                 c = self._chats.pop(key, None)
                 self._states.pop(key, None)
+                self._profiles.pop(key, None)
                 self._save_chats()
             sk = self._sk(key)
             self.set_setting("mode_" + sk, None)
@@ -640,6 +1204,13 @@ class Plugin(BasePlugin):
             self.set_setting("keep_" + sk, None)
             if c:
                 client.bulletin("AI auto-reply: removed %s" % (c.get("title") or key))
+        return cb
+
+    def _test_cb(self, key):
+        def cb():
+            c = self._chats.get(key)
+            if c:
+                self.start_style_test(int(c.get("account", 0)), int(c["dialog_id"]), c.get("title", ""))
         return cb
 
     def _keep_cb(self, key):

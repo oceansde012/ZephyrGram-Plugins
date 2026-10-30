@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+- Humanize (new switch, on by default): replies sound like the owner. Strong anti-AI prompt (no assistant filler like "звісно/розумію/як ШІ", no lists/markdown, no intros or summaries, no question back every time, mirror the other person's language, no invented facts). Your own prompt stays as an extra layer; tone presets Neutral / Friendly / Toxic.
+- Learn my style: the last 5-50 own outgoing messages (commands, links, long and plugin-sent texts skipped) go to the prompt as examples, plus measured rules (typical length, lowercase start, final period, emoji, slang/swear words, Ukrainian/Russian mix). Cached per chat (default 30 min); chats with few own messages borrow from other added chats. Examples are sent only to your own AI server.
+- Delivery: split into 1-3 short messages, typing delay proportional to length with jitter, skip emoji-only messages, max reply length (default 300).
+- Generation: temperature 0.95. `max_tokens` and frequency penalty are not exposed by `client.ai_complete`, so the length is limited by prompt and `max_reply`.
+- Post-processing: strips markdown, quotes, `Assistant:` prefixes and filler openers; matches the owner's capitalisation, final period and emoji habits; a reply that repeats the previous one or sounds like an AI is regenerated once, then skipped.
+- 'Test style': pick a chat (or use the per-chat item) to see 5 sample replies to the last 5 incoming messages; nothing is sent.
+- Humanize off keeps the 0.2.0 behavior.
+
 ## 0.2.0
 - Settings: 'Add chat' section with a chat-list picker and @username / t.me link input (needs an app with `DialogPicker` / `UsernameInput`; older apps keep the chat header menu).
 - Friend mode (command mode): the other person triggers the AI with `.ai ` while you stay silent; documented in settings.
