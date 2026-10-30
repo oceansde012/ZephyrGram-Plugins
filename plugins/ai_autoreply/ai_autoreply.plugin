@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.3"
-__version_code__ = 6
+__version__ = "0.3.4"
+__version_code__ = 7
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
@@ -115,13 +115,14 @@ MAX_EXAMPLE_CHARS = 200
 MAX_TYPING_TOTAL = 2.5       # default cap (s) for all parts of one reply; setting 'typing_cap' overrides
 MIN_TYPING_TOTAL = 0.4
 SPLIT_MIN_CHARS = 120        # replies up to this length are never split
+MAX_OWNER_DEFERS = 2         # a batch held back by the owner-active rule is retried this many times
 MAX_DEBOUNCE_TOTAL = 20.0    # a batch is answered at the latest this long after its first message
 AUTH_RESUME_SEC = 1800       # a chat auto-disabled by errors is re-enabled after this long
 POLITE_STOP_TEXT = u"ок, я трохи зайнятий, напишу пізніше"
 
 PRESET_NAMES = ["Balanced (default)", "Chatty", "Quiet"]
 PRESETS = [
-    {"debounce": 4, "debounce_jitter": 2, "cooldown": 20, "chat_hourly": 12, "owner_active": 120,
+    {"debounce": 4, "debounce_jitter": 2, "cooldown": 20, "chat_hourly": 20, "owner_active": 45,
      "skip_ack": True, "group_need_question": True, "typing_cap": 2.5},
     {"debounce": 3, "debounce_jitter": 1, "cooldown": 8, "chat_hourly": 30, "owner_active": 30,
      "skip_ack": False, "group_need_question": False, "typing_cap": 2.5},
@@ -402,6 +403,64 @@ def detect_lang(text):
     return "Ukrainian"
 
 
+UK_WORDS_RE = re.compile(u"(?<!\\w)(?:що|це|як|привіт|дякую|вже|тільки|також|нічого|сьогодні|мені|тобі|зараз|чого|"
+                         u"ще|дуже|добре|будь ласка|звідки|кудись|якось)(?!\\w)", re.I | re.U)
+RU_WORDS_RE = re.compile(u"(?<!\\w)(?:что|это|как|привет|нет|спасибо|почему|когда|тебя|меня|есть|ничего|сейчас|"
+                         u"хорошо|сегодня|очень|тоже|уже|ещё|мне|тебе|ладно|давно|чего)(?!\\w)", re.I | re.U)
+
+
+def lang_signal(text):
+    """(ukrainian score, russian score) of one message: distinctive letters and everyday words."""
+    t = str(text or "")
+    return (2 * len(UK_RE.findall(t)) + 3 * len(UK_WORDS_RE.findall(t)),
+            2 * len(RU_RE.findall(t)) + 3 * len(RU_WORDS_RE.findall(t)))
+
+
+def _side_language(texts):
+    uk = ru = 0.0
+    last = None
+    n = max(1, len(texts))
+    for i, t in enumerate(texts):
+        a, b = lang_signal(t)
+        if a == b:
+            continue
+        w = 1.0 + i / float(n)                 # newer messages weigh more
+        if a > b:
+            uk, last = uk + w, "Ukrainian"
+        else:
+            ru, last = ru + w, "Russian"
+    return uk, ru, last
+
+
+def context_language(own_texts, incoming_texts):
+    """'Ukrainian' / 'Russian' / None from the chat history (oldest first). The owner's own messages decide;
+    a real mix follows the owner's latest message that shows a language; with no own signal the other
+    person's messages are used."""
+    ou, orr, olast = _side_language(own_texts)
+    if ou or orr:
+        if ou > 1.5 * orr:
+            return "Ukrainian"
+        if orr > 1.5 * ou:
+            return "Russian"
+        return olast
+    iu, ir, ilast = _side_language(incoming_texts)
+    if iu or ir:
+        return "Ukrainian" if iu > ir else "Russian" if ir > iu else ilast
+    return None
+
+
+LANG_RULES = {
+    "Ukrainian": u"Відповідай українською, як пише власник у цьому чаті. Write only in Ukrainian.",
+    "Russian": u"Отвечай по-русски, как пишет владелец в этом чате. Write only in Russian.",
+    "English": u"Reply in English only.",
+}
+
+
+def lang_rule(lang):
+    return ("LANGUAGE OF THIS REPLY (this overrides every other language rule above): %s. %s"
+            % (lang, LANG_RULES.get(lang, LANG_RULES["Ukrainian"])))
+
+
 def banned_hits(text, extra=()):
     """Banned assistant words/phrases found in the reply (lowercase, unique, in order)."""
     t = str(text or "")
@@ -452,10 +511,10 @@ def detect_ui_lang():
 # key: (English, Ukrainian, Russian). A missing translation falls back to English.
 S = {
     # menu and bulletins
-    "menu_off": ("AI auto-reply: OFF (tap to enable)", "ШІ-автовідповідач: ВИМК (натисніть, щоб увімкнути)",
-                 "ИИ-автоответчик: ВЫКЛ (нажмите, чтобы включить)"),
-    "menu_on": ("AI auto-reply: ON (tap to disable)", "ШІ-автовідповідач: УВІМК (натисніть, щоб вимкнути)",
-                "ИИ-автоответчик: ВКЛ (нажмите, чтобы выключить)"),
+    "menu_off": ("Bot in this chat: off (tap to turn on)", "Бот у цьому чаті: вимк. (натисніть, щоб увімкнути)",
+                 "Бот в этом чате: выкл. (нажмите, чтобы включить)"),
+    "menu_on": ("Bot in this chat: on (tap to turn off)", "Бот у цьому чаті: увімк. (натисніть, щоб вимкнути)",
+                "Бот в этом чате: вкл. (нажмите, чтобы выключить)"),
     "menu_cmd": ("AI: write the next message for me", "ШІ: написати наступне повідомлення за мене",
                  "ИИ: написать следующее сообщение за меня"),
     "bl_na": ("AI auto-reply: not available here (%s)", "ШІ-автовідповідач: тут недоступно (%s)",
@@ -518,14 +577,14 @@ S = {
                "Авто берёт язык телефона, если плагин его видит (украинский или русский), иначе украинский. "
                "Тексты пунктов меню меняются после перезагрузки плагина."),
     "preset": ("Preset", "Пресет", "Пресет"),
-    "preset_s": ("Balanced: waits ~5 s and answers a batch once, 20 s between replies, max 12 replies/hour "
+    "preset_s": ("Balanced: waits ~5 s and answers a batch once, 20 s between replies, max 20 replies/hour "
                  "per chat, skips plain 'ok/thanks', stays silent while you are writing yourself. Chatty: "
                  "answers more often. Quiet: rarely. Fields below with a value override the preset; empty = preset.",
-                 "Збалансований: чекає ~5 с і відповідає на пачку одним разом, 20 с між відповідями, до 12 "
+                 "Збалансований: чекає ~5 с і відповідає на пачку одним разом, 20 с між відповідями, до 20 "
                  "відповідей на годину в чаті, пропускає прості «ок/дякую», мовчить, поки ви пишете самі. "
                  "Балакучий: відповідає частіше. Тихий: рідко. Поля нижче зі значенням мають пріоритет над "
                  "пресетом; порожньо = пресет.",
-                 "Сбалансированный: ждёт ~5 с и отвечает на пачку один раз, 20 с между ответами, до 12 ответов "
+                 "Сбалансированный: ждёт ~5 с и отвечает на пачку один раз, 20 с между ответами, до 20 ответов "
                  "в час в чате, пропускает простые «ок/спасибо», молчит, пока вы пишете сами. Разговорчивый: "
                  "отвечает чаще. Тихий: редко. Поля ниже со значением приоритетнее пресета; пусто = пресет."),
     "h_decisions": ("Recent decisions", "Останні рішення", "Последние решения"),
@@ -682,12 +741,14 @@ S = {
     "cooldown": ("Min seconds between replies in a chat", "Мін. секунд між відповідями в чаті", "Мин. секунд между ответами в чате"),
     "cooldown_s": ("Empty = preset (Balanced 20).", "Порожньо = пресет (збалансований 20).", "Пусто = пресет (сбалансированный 20)."),
     "chat_hourly": ("Max replies per hour per chat", "Макс. відповідей на годину в чаті", "Макс. ответов в час в чате"),
-    "chat_hourly_s": ("Empty = preset (Balanced 12). At the limit one polite line is sent, then silence.",
-                      "Порожньо = пресет (збалансований 12). На ліміті надсилається один ввічливий рядок, далі тиша.",
-                      "Пусто = пресет (сбалансированный 12). На лимите отправляется одна вежливая строка, дальше тишина."),
+    "chat_hourly_s": ("Empty = preset (Balanced 20). At the limit one polite line is sent, then silence.",
+                      "Порожньо = пресет (збалансований 20). На ліміті надсилається один ввічливий рядок, далі тиша.",
+                      "Пусто = пресет (сбалансированный 20). На лимите отправляется одна вежливая строка, дальше тишина."),
     "polite_stop": ("Polite stop at the hourly limit", "Ввічливо зупинитись на годинному ліміті", "Вежливо остановиться на часовом лимите"),
     "owner_active": ("Silent after you wrote in the chat (s)", "Мовчати після того, як ви писали в чаті (с)", "Молчать после того, как вы писали в чате (с)"),
-    "owner_active_s": ("Empty = preset (Balanced 120). 0 = off.", "Порожньо = пресет (збалансований 120). 0 = вимк.", "Пусто = пресет (сбалансированный 120). 0 = выкл."),
+    "owner_active_s": ("Empty = preset (Balanced 45). 0 = off. A message that arrives meanwhile is answered after this silence.",
+                     "Порожньо = пресет (збалансований 45). 0 = вимк. Повідомлення, що прийшло за цей час, отримає відповідь після тиші.",
+                     "Пусто = пресет (сбалансированный 45). 0 = выкл. Сообщение, пришедшее за это время, получит ответ после тишины."),
     "quiet": ("Quiet hours (HH:MM-HH:MM)", "Тихі години (ГГ:ХХ-ГГ:ХХ)", "Тихие часы (ЧЧ:ММ-ЧЧ:ММ)"),
     "quiet_s": ("Example 23:00-08:00. Empty = always allowed.", "Приклад 23:00-08:00. Порожньо = завжди дозволено.", "Пример 23:00-08:00. Пусто = всегда разрешено."),
     "skip_ack": ("Ignore plain 'ok / thanks / lol'", "Ігнорувати прості «ок / дякую / лол»", "Игнорировать простые «ок / спасибо / лол»"),
@@ -703,7 +764,79 @@ S = {
     "chat_enabled": ("Enabled", "Увімкнено", "Включено"),
     "chat_test": ("Test style in this chat (nothing is sent)", "Тест стилю в цьому чаті (нічого не надсилається)", "Тест стиля в этом чате (ничего не отправляется)"),
     "chat_remove": ("Remove chat", "Видалити чат", "Удалить чат"),
-    "no_chats": ("No chats yet.", "Чатів ще немає.", "Чатов пока нет."),
+    "no_chats": ("No chats yet. Type .ai on in a private chat, or add one below.",
+                 "Чатів ще немає. Напишіть .ai on в особистому чаті або додайте чат нижче.",
+                 "Чатов пока нет. Напишите .ai on в личном чате или добавьте чат ниже."),
+    # chats screen (0.3.4)
+    "h_bot_chats": ("Chats with the bot", "Чати з ботом", "Чаты с ботом"),
+    "chats_hint": ("Tap a chat to open its options (mode, prompt, on/off, remove). Tap again to close.",
+                   "Натисніть на чат, щоб відкрити його параметри (режим, промпт, увімк./вимк., видалити). Ще раз — закрити.",
+                   "Нажмите на чат, чтобы открыть его параметры (режим, промпт, вкл./выкл., удалить). Ещё раз — закрыть."),
+    "master_off_note": ("The master switch is OFF: the bot is silent everywhere (see General settings below).",
+                        "Головний перемикач ВИМКНЕНО: бот ніде не відповідає (див. «Загальні» нижче).",
+                        "Главный переключатель ВЫКЛЮЧЕН: бот нигде не отвечает (см. «Общие» ниже)."),
+    "add_cmds": (
+        "Or type in a private chat (the text is not sent): .ai on - turn the bot on here, .ai off - remove "
+        "this chat, .ai status, .ai list, .ai mode auto|draft|friend.",
+        "Або напишіть в особистому чаті (текст не надсилається): .ai on — увімкнути бота тут, .ai off — "
+        "прибрати цей чат, .ai status, .ai list, .ai mode auto|draft|friend.",
+        "Или напишите в личном чате (текст не отправляется): .ai on — включить бота здесь, .ai off — "
+        "убрать этот чат, .ai status, .ai list, .ai mode auto|draft|friend."),
+    "h_general": ("General settings", "Загальні", "Общие"),
+    "h_prompts": ("Prompts and model", "Промпти та модель", "Промпты и модель"),
+    "h_test": ("Style test", "Тест стилю", "Тест стиля"),
+    "ms_0": ("Auto", "Авто", "Авто"),
+    "ms_1": ("Draft", "Чернетка", "Черновик"),
+    "ms_2": ("Friend", "Друг", "Друг"),
+    "st_on": ("on", "увімк.", "вкл."),
+    "st_off": ("off", "вимк.", "выкл."),
+    "last_pref": ("last: %s", "останнє: %s", "последнее: %s"),
+    "reply_lang": ("Reply language", "Мова відповідей", "Язык ответов"),
+    "reply_lang_s": ("Auto = the language you write in this chat (your own messages decide, a mix follows your "
+                     "latest message; Ukrainian when there is no signal). Applies to auto-replies and to .ai.",
+                     "Авто = мова, якою ви пишете в цьому чаті (вирішують ваші повідомлення, мікс — за вашим "
+                     "останнім; без сигналу — українська). Діє для автовідповідей і для .ai.",
+                     "Авто = язык, на котором вы пишете в этом чате (решают ваши сообщения, микс — по вашему "
+                     "последнему; без сигнала — украинский). Действует для автоответов и для .ai."),
+    "rl_0": ("Auto (by the chat context)", "Авто (за контекстом чату)", "Авто (по контексту чата)"),
+    "rl_1": ("Ukrainian", "Українська", "Украинский"),
+    "rl_2": ("Russian", "Російська", "Русский"),
+    "rl_3": ("The other person's language", "Мова співрозмовника", "Язык собеседника"),
+    "rl_chat_0": ("Same as in General settings", "Як у загальних налаштуваннях", "Как в общих настройках"),
+    "chat_rlang": ("Reply language in this chat", "Мова відповідей у цьому чаті", "Язык ответов в этом чате"),
+    "no_last": ("no decisions yet", "рішень ще немає", "решений пока нет"),
+    # in-chat admin commands
+    "bl_adm_on": ("Bot is ON in %s (mode: Auto). It answers by itself now.",
+                  "Бот УВІМКНЕНО в %s (режим: Авто). Тепер відповідає сам.",
+                  "Бот ВКЛЮЧЁН в %s (режим: Авто). Теперь отвечает сам."),
+    "bl_adm_on_again": ("Bot is ON in %s (mode: %s)", "Бот УВІМКНЕНО в %s (режим: %s)", "Бот ВКЛЮЧЁН в %s (режим: %s)"),
+    "bl_adm_off": ("Bot is OFF in %s: chat removed from the list", "Бот ВИМКНЕНО в %s: чат прибрано зі списку",
+                   "Бот ВЫКЛЮЧЕН в %s: чат убран из списка"),
+    "bl_adm_off_none": ("The bot was not active in this chat", "У цьому чаті бот і так не був активний",
+                        "В этом чате бот и так не был активен"),
+    "bl_adm_status_on": ("%s: bot ON, mode %s. Last: %s", "%s: бот УВІМК., режим %s. Останнє: %s",
+                         "%s: бот ВКЛ., режим %s. Последнее: %s"),
+    "bl_adm_status_paused": ("%s: bot PAUSED (mode %s). Last: %s", "%s: бот на ПАУЗІ (режим %s). Останнє: %s",
+                             "%s: бот на ПАУЗЕ (режим %s). Последнее: %s"),
+    "bl_adm_status_off": ("%s: bot OFF in this chat. Type .ai on to turn it on.",
+                          "%s: бот у цьому чаті ВИМК. Напишіть .ai on, щоб увімкнути.",
+                          "%s: бот в этом чате ВЫКЛ. Напишите .ai on, чтобы включить."),
+    "bl_adm_master": (" (master switch is OFF: the bot is silent)", " (головний перемикач ВИМК.: бот мовчить)",
+                      " (главный переключатель ВЫКЛ.: бот молчит)"),
+    "bl_adm_list": ("Active chats (%d): %s", "Активні чати (%d): %s", "Активные чаты (%d): %s"),
+    "bl_adm_list_none": ("No active chats. Type .ai on in a private chat.",
+                         "Активних чатів немає. Напишіть .ai on в особистому чаті.",
+                         "Активных чатов нет. Напишите .ai on в личном чате."),
+    "bl_adm_mode": ("Mode in %s: %s", "Режим у %s: %s", "Режим в %s: %s"),
+    "bl_adm_mode_unlisted": ("The bot is not on in this chat. Type .ai on first.",
+                             "У цьому чаті бот не увімкнено. Спершу напишіть .ai on.",
+                             "В этом чате бот не включён. Сначала напишите .ai on."),
+    "bl_adm_mode_bad": ("Use: .ai mode auto | draft | friend", "Використання: .ai mode auto | draft | friend",
+                        "Использование: .ai mode auto | draft | friend"),
+    "bl_adm_private": ("Only private chats with a person: %s", "Лише особисті чати з людиною: %s",
+                       "Только личные чаты с человеком: %s"),
+    "o_seen": ("received", "отримано", "получено"),
+    "o_cmd": ("command", "команда", "команда"),
 }
 
 # reason code (as stored in the decision log) -> (English, Ukrainian, Russian) plain-language explanation
@@ -747,9 +880,33 @@ R = {
                         "простая реакция (ок / спасибо / лол), отвечать нечего"),
     "group_no_question": ("group chat: no question or request to you", "група: немає питання чи прохання до вас",
                           "группа: нет вопроса или просьбы к вам"),
-    "owner_active": ("you wrote in this chat a moment ago, so the bot stays silent",
-                     "ви щойно самі писали в цьому чаті, тому бот мовчить",
-                     "вы только что сами писали в этом чате, поэтому бот молчит"),
+    "owner_active": ("you wrote in this chat a moment ago: the bot waits for your silence window, then tries again",
+                     "ви щойно самі писали в цьому чаті: бот чекає вашої тиші й тоді пробує ще раз",
+                     "вы только что сами писали в этом чате: бот ждёт вашей тишины и пробует снова"),
+    "incoming_seen": ("message from the other person received", "повідомлення співрозмовника отримано",
+                      "сообщение собеседника получено"),
+    "group": ("groups are not allowed for this (private chats only)", "групи тут не дозволені (лише особисті чати)",
+              "группы здесь не разрешены (только личные чаты)"),
+    "admin_on": (".ai on: bot turned on, mode Auto", ".ai on: бота увімкнено, режим Авто",
+                 ".ai on: бот включён, режим Авто"),
+    "admin_off": (".ai off: chat removed from the list", ".ai off: чат прибрано зі списку",
+                  ".ai off: чат убран из списка"),
+    "admin_off_none": (".ai off: the chat was not in the list", ".ai off: чату не було в списку",
+                       ".ai off: чата не было в списке"),
+    "admin_status": (".ai status shown", ".ai status показано", ".ai status показан"),
+    "admin_list": (".ai list shown", ".ai list показано", ".ai list показан"),
+    "admin_mode_auto": (".ai mode: Auto", ".ai mode: Авто", ".ai mode: Авто"),
+    "admin_mode_draft": (".ai mode: Draft", ".ai mode: Чернетка", ".ai mode: Черновик"),
+    "admin_mode_friend": (".ai mode: Friend", ".ai mode: Друг", ".ai mode: Друг"),
+    "admin_mode_unlisted": (".ai mode ignored: chat is not in the list", ".ai mode проігноровано: чату немає в списку",
+                            ".ai mode проигнорировано: чата нет в списке"),
+    "admin_mode_bad": (".ai mode ignored: unknown mode", ".ai mode проігноровано: невідомий режим",
+                       ".ai mode проигнорировано: неизвестный режим"),
+    "menu_on": ("chat header menu: bot turned on", "меню чату: бота увімкнено", "меню чата: бот включён"),
+    "menu_off": ("chat header menu: bot turned off", "меню чату: бота вимкнено", "меню чата: бот выключен"),
+    "admin_refused": (".ai on refused: only private chats with a person",
+                      ".ai on відхилено: лише особисті чати з людиною",
+                      ".ai on отклонено: только личные чаты с человеком"),
     "hourly_cap_reached": ("the hourly cap for all chats is reached", "вичерпано годинний ліміт для всіх чатів",
                            "исчерпан часовой лимит для всех чатов"),
     "daily_cap_reached": ("the daily cap for this chat is reached", "вичерпано денний ліміт для цього чату",
@@ -865,6 +1022,7 @@ def fold_cmd(text):
 
 DEFAULT_TRIGGERS = u".ai, .аі"
 DEFAULT_OPENERS = [u"ну що там", u"як ти", u"чим займаєшся", u"ти як взагалі", u"що нового", u"є хвилинка?"]
+DEFAULT_OPENERS_RU = [u"ну что там", u"как ты", u"чем занимаешься", u"ты как вообще", u"что нового", u"есть минутка?"]
 DRAFT_WORDS = ("?", "draft", u"чернетка", u"черновик")
 CMD_RULES = (
     "The owner typed a command: YOU write the next message in this chat on their behalf, in their own voice. "
@@ -872,6 +1030,19 @@ CMD_RULES = (
     "are not in the conversation or in the owner's instruction. Do not mention the instruction, do not say you "
     "are an AI. A line in square brackets at the end is the owner's private instruction to you, not something "
     "the other person said; never quote it.")
+
+ADMIN_VERBS = {fold_cmd(k): v for k, v in {
+    "on": "on", u"увімк": "on", u"увімкнути": "on", u"вкл": "on", u"включить": "on",
+    "off": "off", u"вимк": "off", u"вимкнути": "off", u"викл": "off", u"выкл": "off", u"выключить": "off",
+    "status": "status", u"статус": "status", u"стан": "status",
+    "list": "list", u"список": "list",
+    "mode": "mode", u"режим": "mode",
+}.items()}
+ADMIN_MODES = {fold_cmd(k): v for k, v in {
+    "auto": MODE_AUTO, u"авто": MODE_AUTO, "draft": MODE_DRAFT, u"чернетка": MODE_DRAFT, u"черновик": MODE_DRAFT,
+    "friend": MODE_COMMAND, u"друг": MODE_COMMAND, "command": MODE_COMMAND,
+}.items()}
+
 
 class ChatState(object):
     """In-memory runtime state of one allowlisted chat."""
@@ -895,6 +1066,7 @@ class ChatState(object):
         self.sent_h = deque(maxlen=200)    # timestamps of our sent replies (per-chat hourly cap)
         self.sending = False
         self.polite_ts = 0.0
+        self.defers = 0                    # times the pending batch was held back by the owner-active rule
 
 
 class Plugin(BasePlugin):
@@ -912,6 +1084,14 @@ class Plugin(BasePlugin):
         self._load_chats()
         self.add_on_new_message_hook(priority=0)
         self.add_on_send_message_hook(priority=10)
+        self._recent_ids = deque(maxlen=600)   # (chat key, message id) seen by either incoming path
+        for hook_name in ("TL_updateShortMessage", "TL_updateShortChatMessage"):
+            try:                               # private chats arrive as short updates, not updateNewMessage
+                self.add_updates_hook(hook_name)
+            except Exception as e:
+                self.log("updates hook %s unavailable: %s" % (hook_name, e))
+        self._lang_cache = {}              # chat key -> (ts, 'Ukrainian' | 'Russian' | None)
+        self._open_key = None              # chat whose options are expanded in the settings screen
         self._cmd_busy = set()
         self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
         self._cmd_fallback = {}
@@ -1005,6 +1185,9 @@ class Plugin(BasePlugin):
             self.log("decision %s %s %s" % (outcome, key, reason))
             if ring:
                 with self._lock:
+                    if (outcome == "seen" and self._decisions and self._decisions[-1].get("o") == "seen"
+                            and self._decisions[-1].get("chat") == key):
+                        self._decisions.pop()          # a run of received messages is one entry (newest time)
                     self._decisions.append({"t": int(self._now()), "chat": key, "o": outcome, "r": reason})
                     self.set_setting("decisions", json.dumps(list(self._decisions)))
         except Exception:
@@ -1162,13 +1345,8 @@ class Plugin(BasePlugin):
                 if reason:
                     client.bulletin(self.t("bl_na", self.rt(reason)))
                     return
-                with self._lock:
-                    c = self._chats.get(key) or {}
-                    c.update({"enabled": True, "account": int(account), "dialog_id": int(did),
-                              "title": str(info.get("title") or did), "type": info.get("type"),
-                              "fails": 0})
-                    self._chats[key] = c
-                    self._save_chats()
+                c = self.chat_on(account, did, str(info.get("title") or did), info.get("type"))
+                self._decide(key, "cmd", "menu_on")
                 client.bulletin(self.t("bl_on", c["title"]))
             except Exception as e:
                 self.error(e)
@@ -1177,11 +1355,57 @@ class Plugin(BasePlugin):
 
     def on_disable_click(self, ctx):
         key = self.chat_key(ctx.get("account"), ctx.get("dialog_id") or 0)
-        with self._lock:
-            if key in self._chats:
-                self._chats[key]["enabled"] = False
-                self._save_chats()
+        self.chat_off(key, remove=False)
+        self._decide(key, "cmd", "menu_off")
         client.bulletin(self.t("bl_off"))
+
+    # ---- shared add / remove (menu, command, pickers)
+    def chat_on(self, account, did, title, kind):
+        """Add or re-enable a chat. A new chat starts in mode Auto. Stored format: see docs/API.md."""
+        key = self.chat_key(account, did)
+        sk = self._sk(key)
+        with self._lock:
+            c = self._chats.get(key)
+            new = c is None
+            c = c or {}
+            c.update({"enabled": True, "account": int(account), "dialog_id": int(did),
+                      "title": str(title or did), "type": kind or ("user" if int(did) > 0 else "group"),
+                      "fails": 0})
+            c.pop("auto_off_ts", None)
+            self._chats[key] = c
+            self._save_chats()
+        if new or self.get_setting("mode_" + sk, None) is None:
+            self.set_setting("mode_" + sk, MODE_AUTO)
+        self.set_setting("keep_" + sk, True)
+        st = self._states.get(key)
+        if st is not None:
+            st.defers = 0
+        return c
+
+    def chat_off(self, key, remove):
+        """Turn a chat off (remove=False: stays in the list as paused) or drop it. Returns its title or None."""
+        sk = self._sk(key)
+        with self._lock:
+            c = self._chats.get(key)
+            if c is None:
+                return None
+            title = str(c.get("title") or key)
+            if remove:
+                self._chats.pop(key, None)
+                self._states.pop(key, None)
+                self._profiles.pop(key, None)
+            else:
+                c["enabled"] = False
+                c.pop("auto_off_ts", None)
+            self._save_chats()
+        if remove:
+            self.set_setting("mode_" + sk, None)
+            self.set_setting("prompt_" + sk, None)
+            self.set_setting("keep_" + sk, None)
+            self.set_setting("rlang_" + sk, None)
+        else:
+            self.set_setting("keep_" + sk, False)
+        return title
 
     @staticmethod
     def check_info(info):
@@ -1229,11 +1453,30 @@ class Plugin(BasePlugin):
 
     def handle_incoming(self, account, mo):
         m = self._to_dict(mo)
-        did = self._dialog_id_of(mo, m)
+        return self._handle_dict(account, self._dialog_id_of(mo, m), m)
+
+    def _dup_event(self, key, mid):
+        """True when this (chat, message id) already came through the other incoming path."""
+        if mid is None:
+            return False
+        with self._lock:
+            ident = (key, mid)
+            if ident in self._recent_ids:
+                return True
+            self._recent_ids.append(ident)
+        return False
+
+    def _handle_dict(self, account, did, m):
         if not did:
             return None
         key = self.chat_key(account, did)
         self._maybe_resume(key)
+        if m.get("out") and not self.is_enabled(key):
+            try:                                   # '.ai on' must work in a chat that is not listed yet
+                self._outgoing_command_fallback(account, did, key, m, admin_only=True)
+            except Exception as e:
+                self.error(e)
+            return None
         if not self.is_enabled(key):
             return None
         if m.get("out"):
@@ -1244,6 +1487,10 @@ class Plugin(BasePlugin):
                 self.error(e)
             self._decide(key, "skip", "outgoing", ring=False)
             return "outgoing"
+        if self._dup_event(key, m.get("id")):
+            self._decide(key, "skip", "duplicate", ring=False)
+            return "duplicate"
+        self._decide(key, "seen", "incoming_seen")      # the owner can see that the plugin got the message
         if not self.get_setting("master", True):
             self._decide(key, "skip", "master_off")
             return None
@@ -1255,6 +1502,7 @@ class Plugin(BasePlugin):
         with self._lock:
             if not st.pending:
                 st.first_ts = self._now()
+                st.defers = 0
             st.pending.append((m.get("id"), m.get("from_id"), self._strip_trigger(key, m["text"])))
             st.last_ts = self._now()
             need_timer = not st.timer
@@ -1263,6 +1511,59 @@ class Plugin(BasePlugin):
         if need_timer:
             self._schedule(key, self._debounce(jitter=True))
         return None
+
+    # Private chats (and basic groups) deliver messages as TL_updateShortMessage / TL_updateShortChatMessage
+    # containers that never become an updateNewMessage, so on_new_message may not fire for them.
+    def on_updates_hook(self, name, account, updates):
+        try:
+            m = self._short_update_dict(str(name), updates)
+            if m is not None:
+                did = m.pop("dialog_id")
+                try:
+                    client.run_in_bg(lambda: self._safe_handle(int(account or 0), did, m))
+                except Exception:
+                    self._safe_handle(int(account or 0), did, m)
+        except Exception as e:
+            self.log("updates hook failed: %s" % e)      # never self.error here: it counts toward auto-disable
+        return None
+
+    def _safe_handle(self, account, did, m):
+        try:
+            self._handle_dict(account, did, m)
+        except Exception as e:
+            self.error(e)
+            self._decide("?", "error", "handle_incoming_exception")
+
+    @staticmethod
+    def _short_update_dict(name, u):
+        """TL_updateShortMessage / TL_updateShortChatMessage -> the dict shape of message_to_dict (+ dialog_id)."""
+        def g(*names):
+            for n in names:
+                try:
+                    v = getattr(u, n)
+                except Exception:
+                    continue
+                if v is not None:
+                    return v
+            return None
+        if name.endswith("ShortChatMessage"):
+            cid = int(g("chat_id") or 0)
+            did = -abs(cid)
+            try:
+                fid = int(g("from_id") or 0)
+            except (TypeError, ValueError):
+                fid = 0
+        elif name.endswith("ShortMessage"):
+            did = int(g("user_id") or 0)
+            fid = did
+        else:
+            return None
+        if not did:
+            return None
+        date = g("date")
+        return {"id": g("id"), "dialog_id": did, "from_id": fid, "out": bool(g("out")),
+                "date": int(date) if date is not None else None, "text": str(g("message") or ""),
+                "is_bot": False, "reply_to": None}
 
     def _trigger(self):
         t = str(self.get_setting("trigger", ".ai ") or ".ai ")
@@ -1467,6 +1768,18 @@ class Plugin(BasePlugin):
                 pass
         return False
 
+    def _defer_owner(self, key, st, batch, remaining):
+        """The owner wrote here recently: log why, and (a limited number of times) answer after the silence
+        window instead of dropping the message. A reply the owner already gave is detected later
+        (the last message is no longer from them)."""
+        self._skip(key, "owner active")
+        with self._lock:
+            if st.defers < MAX_OWNER_DEFERS:
+                st.defers += 1
+                st.pending = list(batch) + st.pending
+                st.cooldown_until = max(st.cooldown_until, self._now() + max(1.0, remaining) + 1.0)
+        return "owner active"
+
     def _polite_stop(self, key, c, st, did, batch):
         """Hourly cap reached: one short polite line per hour, then silence."""
         if not self.get_setting("polite_stop", True) or self._now() - st.polite_ts < 3600:
@@ -1506,7 +1819,7 @@ class Plugin(BasePlugin):
             return self._skip(key, "group no question")
         window = self._pnum("owner_active", 0, 3600)
         if auto and window and self._now() - st.owner_ts < window:
-            return self._skip(key, "owner active")
+            return self._defer_owner(key, st, batch, window - (self._now() - st.owner_ts))
         reason = self.caps_ok(key)
         if reason:
             return self._skip(key, reason)
@@ -1528,7 +1841,7 @@ class Plugin(BasePlugin):
             hist = self._load_history(key, account, did, self._int("context_n", 10, 1, 40))
             if auto and window and self._owner_active_in(hist, window):
                 st.owner_ts = self._now()
-                return self._skip(key, "owner active")
+                return self._defer_owner(key, st, batch, window)
             messages = self.build_messages(key, account, did, batch, hist)
         except Exception as e:
             self._fail(key, e)
@@ -1565,6 +1878,7 @@ class Plugin(BasePlugin):
                 if b[0] is not None:
                     st.answered.append(b[0])
             st.cooldown_until = self._now() + self._pnum("cooldown", 0, 3600)
+            st.defers = 0
             c["fails"] = 0
             self._save_chats()
         self._decide(key, "draft" if mode == MODE_DRAFT else "sent",
@@ -1722,7 +2036,13 @@ class Plugin(BasePlugin):
         (identical to our previous reply). st is the ChatState used for de-duplication (None = off)."""
         model = str(self.get_setting("model", "") or "").strip()
         if not self._humanize():
-            kwargs = {"system": self._chat_prompt(key) + ("\n\n" + extra_system if extra_system else ""),
+            legacy_lang = ""
+            if self._reply_lang_mode(key) or extra_system:      # the old plain mode only follows an explicit choice
+                plain_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
+                legacy_lang = "\n\n" + lang_rule(self.pick_reply_lang(
+                    key, account, did, plain_in if lang_text is None else str(lang_text)))
+            kwargs = {"system": self._chat_prompt(key) + ("\n\n" + extra_system if extra_system else "")
+                      + legacy_lang,
                       "timeout": 60}
             if model:
                 kwargs["model"] = model
@@ -1732,9 +2052,9 @@ class Plugin(BasePlugin):
         last_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
         if lang_text is not None:
             last_in = str(lang_text)
-        lang = detect_lang(last_in)
+        lang = self.pick_reply_lang(key, account, did, last_in)
         system = self.build_system(key, profile) + ("\n\n" + extra_system if extra_system else "") + (
-            "\n\nThe message you answer is in %s: reply in %s only." % (lang, lang))
+            "\n\n" + lang_rule(lang))
         temp = self._float("temperature", 0.95, 0.0, 2.0)
         limit = self._int("max_reply", 300, 40, MAX_REPLY_CHARS)
         style = (profile or {}).get("style") or {}
@@ -1954,6 +2274,8 @@ class Plugin(BasePlugin):
         label = self.t("o_" + outcome) if ("o_" + outcome) in S else outcome
         if outcome in ("sent", "draft") and code == "ok":
             return label
+        if outcome in ("seen", "cmd"):
+            return self.rt(code)
         return "%s: %s" % (label, self.rt(code))
 
     def _stamp(self, ts, full=False):
@@ -2071,8 +2393,9 @@ class Plugin(BasePlugin):
             if text is None:
                 return None
             text = str(text)
-            cmd = self.parse_command(text)
-            if cmd is None:
+            adm = self.parse_admin(text)
+            cmd = None if adm else self.parse_command(text)
+            if cmd is None and adm is None:
                 return None
             did = int(getattr(params, "peer", 0) or 0)
             if not did:
@@ -2082,6 +2405,12 @@ class Plugin(BasePlugin):
             if self._has_media(params):
                 self._decide(key, "skip", "command_ignored_media")
                 return None
+            if adm:
+                if not self.get_setting("cmd_enable", True):
+                    self._decide(key, "skip", "command_disabled")
+                    return None
+                self._start_admin(account, did, key, adm)
+                return HookResult(strategy=HookStrategy.CANCEL)
             gate = self._command_gate(account, did, key, cmd, "hook")
             if gate == "master_off":
                 return HookResult(strategy=HookStrategy.CANCEL)
@@ -2098,14 +2427,15 @@ class Plugin(BasePlugin):
                 pass
             return None
 
-    def _outgoing_command_fallback(self, account, did, key, m):
+    def _outgoing_command_fallback(self, account, did, key, m, admin_only=False):
         """The send hook did not see this '.ai' (old app / other send path): the message is already in the
         chat, so we cannot cancel it, but the command still works."""
         text = str(m.get("text") or "")
         if not text or self._is_bot_text(text):
             return
-        cmd = self.parse_command(text)
-        if cmd is None:
+        adm = self.parse_admin(text)
+        cmd = None if adm else (None if admin_only else self.parse_command(text))
+        if cmd is None and adm is None:
             return
         now = self._now()
         if now - self._cmd_seen.get(key, 0.0) < 30 or now - self._cmd_fallback.get(key, 0.0) < 30:
@@ -2115,10 +2445,143 @@ class Plugin(BasePlugin):
             return
         self._cmd_fallback[key] = now
         self._decide(key, "skip", "owner_command_hook_missed")
+        if adm:
+            if not self.get_setting("cmd_enable", True):
+                self._decide(key, "skip", "command_disabled")
+                return
+            self._start_admin(account, did, key, adm)
+            return
         if self._command_gate(account, did, key, cmd, "outgoing"):
             return
         draft, topic = cmd
         self._start_command(account, did, key, draft, topic)
+
+    # ---- in-chat admin commands: .ai on | off | status | list | mode auto|draft|friend
+    def parse_admin(self, text):
+        """-> (verb, arg) when the text is exactly one of the admin commands, else None."""
+        t = str(text or "").strip()
+        low = fold_cmd(t)
+        for trig in self._cmd_triggers():
+            if low.startswith(trig) and len(low) > len(trig) and low[len(trig)].isspace():
+                words = low[len(trig):].split()
+                verb = ADMIN_VERBS.get(words[0]) if words else None
+                if verb is None:
+                    return None
+                if verb == "mode":
+                    if len(words) > 2:
+                        return None
+                    return ("mode", words[1] if len(words) == 2 else "")
+                return (verb, "") if len(words) == 1 else None
+        return None
+
+    def _start_admin(self, account, did, key, adm):
+        def work():
+            self.run_admin(int(account), did, key, adm)
+        try:
+            client.run_in_bg(work)
+        except Exception as e:
+            self.log("admin command could not start: %s" % e)
+            self._decide(key, "error", "command_hook_exception")
+
+    def run_admin(self, account, did, key, adm):
+        try:
+            self._run_admin(account, did, key, adm[0], adm[1])
+        except Exception as e:
+            self.error(e)
+            self._decide(key, "error", "command_hook_exception")
+            client.bulletin(self.t("bl_cmd_failed", e))
+
+    @staticmethod
+    def private_reason(info):
+        """Reason why a chat is not a private chat with a person (None = ok): secret/channel/bot/group/..."""
+        reason = Plugin.check_info(info)
+        if reason:
+            return reason
+        return None if info.get("type") == "user" else "group"
+
+    def _mode_label(self, mode):
+        return self.t("ms_%d" % mode) if mode in (0, 1, 2) else str(mode)
+
+    def _last_for(self, key):
+        """Newest real decision of a chat as 'HH:MM:SS sentence' (incoming_seen entries do not count)."""
+        for r in reversed(list(self._decisions)):
+            if r.get("chat") == key and r.get("o") not in ("seen", "cmd"):
+                return "%s %s" % (self._stamp(r.get("t", 0)), self.decision_sentence(r))
+        return self.t("no_last")
+
+    def _active_titles(self):
+        out = []
+        for k, c in sorted(self._chats.items()):
+            if c.get("enabled"):
+                out.append("%s (%s)" % (self._title_of(k, c), self._mode_label(self._chat_mode(k))))
+        return out
+
+    def _title_of(self, key, c):
+        return str((c or {}).get("title") or key)
+
+    def _run_admin(self, account, did, key, verb, arg):
+        master = "" if self.get_setting("master", True) else self.t("bl_adm_master")
+        if verb == "list":
+            names = self._active_titles()
+            self._decide(key, "cmd", "admin_list")
+            if not names:
+                client.bulletin(self.t("bl_adm_list_none") + master)
+                return
+            shown = ", ".join(names[:8]) + (" +%d" % (len(names) - 8) if len(names) > 8 else "")
+            client.bulletin(self.t("bl_adm_list", len(names), shown) + master)
+            return
+        try:
+            info = client.get_dialog_info(did)
+        except Exception:
+            info = None
+        c = self._chats.get(key)
+        if verb == "on":
+            reason = self.private_reason(info) if isinstance(info, dict) else "unknown chat"
+            if reason:
+                self._decide(key, "cmd", "admin_refused")
+                client.bulletin(self.t("bl_adm_private", self.rt(reason)))
+                return
+            new = c is None or not c.get("enabled")
+            c = self.chat_on(account, did, str(info.get("title") or did), "user")
+            self._decide(key, "cmd", "admin_on")
+            mode = self._chat_mode(key)
+            if new and mode == MODE_AUTO:
+                client.bulletin(self.t("bl_adm_on", c["title"]) + master)
+            else:
+                client.bulletin(self.t("bl_adm_on_again", c["title"], self._mode_label(mode)) + master)
+            return
+        if verb == "off":
+            title = self.chat_off(key, remove=True)
+            if title is None:
+                self._decide(key, "cmd", "admin_off_none")
+                client.bulletin(self.t("bl_adm_off_none"))
+                return
+            self._decide(key, "cmd", "admin_off")
+            client.bulletin(self.t("bl_adm_off", title))
+            return
+        if verb == "status":
+            self._decide(key, "cmd", "admin_status")
+            if c is None:
+                title = str((info or {}).get("title") or did) if isinstance(info, dict) else str(did)
+                client.bulletin(self.t("bl_adm_status_off", title) + master)
+                return
+            fmt = "bl_adm_status_on" if c.get("enabled") else "bl_adm_status_paused"
+            client.bulletin(self.t(fmt, self._title_of(key, c), self._mode_label(self._chat_mode(key)),
+                                   self._last_for(key)) + master)
+            return
+        if verb == "mode":
+            if c is None:
+                self._decide(key, "cmd", "admin_mode_unlisted")
+                client.bulletin(self.t("bl_adm_mode_unlisted"))
+                return
+            mode = ADMIN_MODES.get(arg)
+            if mode is None:
+                self._decide(key, "cmd", "admin_mode_bad")
+                client.bulletin(self.t("bl_adm_mode_bad"))
+                return
+            self.set_setting("mode_" + self._sk(key), mode)
+            self._decide(key, "cmd", "admin_mode_" + ("auto", "draft", "friend")[mode])
+            client.bulletin(self.t("bl_adm_mode", self._title_of(key, c), self._mode_label(mode)))
 
     def cond_show_cmd(self, ctx):
         try:
@@ -2147,10 +2610,55 @@ class Plugin(BasePlugin):
         finally:
             self._cmd_busy.discard(key)
 
-    def _openers(self):
+    def _openers(self, code="uk"):
+        """Your own list (any language) or the built-in one in the chat's language (uk / ru)."""
         raw = str(self.get_setting("cmd_openers", "") or "")
         items = [x.strip() for x in re.split(r"[\n;]", raw) if x.strip()]
-        return items or list(DEFAULT_OPENERS)
+        return items or list(DEFAULT_OPENERS_RU if code == "ru" else DEFAULT_OPENERS)
+
+    # ---- reply language
+    def _reply_lang_mode(self, key):
+        """0 auto, 1 Ukrainian, 2 Russian, 3 the other person's language. Per chat ('rlang_<sk>', 0 = follow
+        the global 'reply_lang') over global."""
+        try:
+            per = int(self.get_setting("rlang_" + self._sk(key), 0))
+        except (TypeError, ValueError):
+            per = 0
+        if per in (1, 2, 3, 4):
+            return per - 1
+        try:
+            g = int(self.get_setting("reply_lang", 0))
+        except (TypeError, ValueError):
+            g = 0
+        return g if g in (0, 1, 2, 3) else 0
+
+    def pick_reply_lang(self, key, account, did, last_in=""):
+        """'Ukrainian' / 'Russian' / 'English' to answer in. Auto: from the last ~15 messages of the chat
+        (the owner's own count most), cached 10 minutes per chat; no signal: the language of last_in,
+        Ukrainian by default."""
+        mode = self._reply_lang_mode(key)
+        if mode == 1:
+            return "Ukrainian"
+        if mode == 2:
+            return "Russian"
+        if mode == 3:
+            return detect_lang(last_in)
+        now = self._now()
+        ent = self._lang_cache.get(key)
+        if ent and now - ent[0] < 600:
+            found = ent[1]
+        else:
+            found = None
+            try:
+                hist = self._load_history(key, account, did, 15)
+                own = [str(h.get("text") or "") for h in hist
+                       if h.get("out") and not h.get("is_service") and not self._is_bot_text(h.get("text"))]
+                inc = [str(h.get("text") or "") for h in hist if not h.get("out")]
+                found = context_language(own, inc)
+            except Exception as e:
+                self.log("language detection failed for %s: %s" % (key, e))
+            self._lang_cache[key] = (now, found)
+        return found or detect_lang(last_in)
 
     def _run_command(self, account, did, key, draft, topic):
         try:
@@ -2172,7 +2680,8 @@ class Plugin(BasePlugin):
         if hist and not msgs:                    # only the owner's own messages are fresh
             msgs = [{"role": "assistant" if h.get("out") else "user", "content": str(h["text"]).strip()}
                     for h in hist]
-        lang_text = str(hist[-1]["text"]) if hist else topic
+        inc_texts = [str(h["text"]) for h in hist if not h.get("out")]
+        lang_text = inc_texts[-1] if inc_texts else (str(hist[-1]["text"]) if hist else topic)
         opener = ""
         if topic:
             kind = "owner_command_topic"
@@ -2186,7 +2695,8 @@ class Plugin(BasePlugin):
                      "or ask a short follow-up. One short message.")
         else:
             kind = "owner_command_opener"
-            opener = self._rng.choice(self._openers())
+            ctx_lang = self.pick_reply_lang(key, account, did, topic or "")
+            opener = self._rng.choice(self._openers("ru" if ctx_lang == "Russian" else "uk"))
             instr = ("There is no recent conversation. Open one with a short casual message that means: '%s'. "
                      "Say it in my own style; add no facts and no extra questions." % opener)
         parts, why = [], ""
@@ -2234,27 +2744,76 @@ class Plugin(BasePlugin):
         self._decide(key, "sent", kind)
 
     # ------------------------------------------------------------------ settings
+    def _text_row(self, text, key, on_click, subtext=None):
+        try:
+            return Text(text=text, key=key, on_click=on_click, subtext=subtext)
+        except TypeError:                   # an older app without Text(subtext=...)
+            return Text(text=("%s - %s" % (text, subtext)) if subtext else text, key=key, on_click=on_click)
+
+    def _fresh_title(self, key, c):
+        """Chat title: stored one, else from the app's dialog info (cache only)."""
+        title = str(c.get("title") or "")
+        if title and title != str(c.get("dialog_id")):
+            return title
+        try:
+            info = client.get_dialog_info(int(c.get("dialog_id") or 0), account=int(c.get("account", 0)))
+            new = str((info or {}).get("title") or "").strip()
+        except Exception:
+            new = ""
+        if new:
+            c["title"] = new
+            self._save_chats()
+            return new
+        return title or key
+
+    def chat_row_sub(self, key, c):
+        """Second line of a chat row: mode, on/off, last decision."""
+        if c.get("enabled"):
+            state = self.t("st_on")
+        elif c.get("auto_off_ts"):
+            state = self.t("paused")
+        else:
+            state = self.t("st_off")
+        return "%s \u00b7 %s \u00b7 %s" % (self._mode_label(self._chat_mode(key)), state,
+                                           self.t("last_pref", self._last_for(key)))
+
+    def _toggle_open(self, key):
+        def cb():
+            self._open_key = None if self._open_key == key else key
+        return cb
+
     def create_settings(self):
         self._load_chats()
         t = self.t
-        items = [
-            Header(text=t("h_title")),
-            Switch(key="master", text=t("master"), default=True, subtext=t("master_s")),
-            Selector(key="ui_lang", text=t("lang"), items=list(LANG_NAMES), default=0, subtext=t("lang_s")),
-            Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(3)], default=0,
-                     subtext=t("preset_s")),
-            Header(text=t("h_decisions")),
-        ]
-        rows = self.decision_rows()
-        if rows:
-            for title, sentence, _r in rows:
-                items.append(Header(text=title))
-                items.append(note(sentence))
-            items.append(Text(text=t("log_copy"), key="log_copy", on_click=self.copy_log))
-            items.append(Text(text=t("log_clear"), key="log_clear", on_click=self.clear_log))
+        # 1. chats where the bot is active
+        items = [Header(text=t("h_bot_chats"))]
+        if not self.get_setting("master", True):
+            items.append(note(t("master_off_note")))
+        if self._chats:
+            items.append(note(t("chats_hint")))
         else:
-            items.append(note(t("log_none")))
-        items.append(note(t("decisions_note")))
+            items.append(note(t("no_chats")))
+        if self._open_key not in self._chats:
+            self._open_key = None
+        for key, c in sorted(self._chats.items(), key=lambda kv: (not kv[1].get("enabled"), kv[0])):
+            sk = self._sk(key)
+            title = self._fresh_title(key, c)
+            self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
+            opened = self._open_key == key
+            items.append(self._text_row(("\u25be " if opened else "\u25b8 ") + title, "chat_" + sk,
+                                        self._toggle_open(key), self.chat_row_sub(key, c)))
+            if opened:
+                items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
+                                      items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO))
+                items.append(Selector(key="rlang_" + sk, text=t("chat_rlang"),
+                                      items=[t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)], default=0))
+                items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
+                                    on_change=self._keep_cb(key)))
+                items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
+                                   subtext=t("chat_prompt_s")))
+                items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
+                items.append(Text(text=t("chat_remove"), key="remove_" + sk, on_click=self._remove_cb(key)))
+        # 2. add a chat, right below the list
         items.append(Header(text=t("h_add")))
         if DialogPicker is not None:
             items.append(DialogPicker(key="add_pick", text=t("add_pick"), on_pick=self.on_chat_added,
@@ -2263,9 +2822,18 @@ class Plugin(BasePlugin):
                                        subtext=t("add_user_s")))
         else:
             items.append(note(t("add_old")))
-        items.append(Header(text=t("h_modes")))
-        items.append(note(t("modes_help")))
+        items.append(note(t("add_cmds")))
+        # 3. advanced settings
         items += [
+            Header(text=t("h_general")),
+            Switch(key="master", text=t("master"), default=True, subtext=t("master_s")),
+            Selector(key="ui_lang", text=t("lang"), items=list(LANG_NAMES), default=0, subtext=t("lang_s")),
+            Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(3)], default=0,
+                     subtext=t("preset_s")),
+            Selector(key="reply_lang", text=t("reply_lang"), items=[t("rl_%d" % i) for i in range(4)], default=0,
+                     subtext=t("reply_lang_s")),
+            Header(text=t("h_modes")),
+            note(t("modes_help")),
             Header(text=t("h_cmd")),
             note(t("cmd_note")),
             Switch(key="cmd_enable", text=t("cmd_on"), default=True, subtext=t("cmd_on_s")),
@@ -2273,7 +2841,6 @@ class Plugin(BasePlugin):
             Selector(key="cmd_mode", text=t("cmd_mode"), items=[t("cmd_mode_0"), t("cmd_mode_1")], default=0),
             Switch(key="cmd_any_private", text=t("cmd_any"), default=False, subtext=t("cmd_any_s")),
             Input(key="cmd_openers", text=t("cmd_openers"), default="", multiline=True, subtext=t("cmd_openers_s")),
-            Divider(),
             Header(text=t("h_humanize")),
             Switch(key="humanize", text=t("humanize"), default=True, subtext=t("humanize_s")),
             Switch(key="learn_style", text=t("learn"), default=True, subtext=t("learn_s")),
@@ -2288,16 +2855,7 @@ class Plugin(BasePlugin):
             Switch(key="skip_emoji", text=t("skip_emoji"), default=True),
             Input(key="max_reply", text=t("max_reply"), default="300"),
             Input(key="temperature", text=t("temperature"), default="0.95"),
-        ]
-        if DialogPicker is not None:
-            items.append(DialogPicker(key="test_pick", text=t("test_pick"), on_pick=self.on_test_style,
-                                      subtext=t("test_pick_s")))
-        last = str(self.get_setting("style_test_result", "") or "")
-        if last:
-            items.append(Header(text=t("h_test_result")))
-            items.append(note(last))
-        items += [
-            Divider(),
+            Header(text=t("h_prompts")),
             Input(key="default_prompt", text=t("default_prompt"), default="", multiline=True,
                   subtext=t("default_prompt_s")),
             Input(key="context_n", text=t("context_n"), default="10"),
@@ -2305,7 +2863,6 @@ class Plugin(BasePlugin):
             Switch(key="disclosure", text=t("disclosure"), default=True),
             Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
             Input(key="trigger", text=t("trigger"), default=".ai "),
-            Divider(),
             Header(text=t("h_limits")),
             Input(key="debounce", text=t("debounce"), default="", subtext=t("debounce_s")),
             Input(key="cooldown", text=t("cooldown"), default="", subtext=t("cooldown_s")),
@@ -2317,26 +2874,27 @@ class Plugin(BasePlugin):
             Switch(key="group_need_question", text=t("group_q"), default=True, subtext=t("until_touch")),
             Input(key="daily_cap", text=t("daily_cap"), default="50"),
             Input(key="hourly_cap", text=t("hourly_cap"), default="30"),
-            Divider(),
-            Header(text=t("h_chats")),
+            Header(text=t("h_test")),
         ]
-        shown = 0
-        for key, c in sorted(self._chats.items()):
-            shown += 1
-            sk = self._sk(key)
-            title = str(c.get("title") or key)
-            self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
-            items.append(Header(text=title if c.get("enabled") else "%s (%s)" % (title, t("paused"))))
-            items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
-                                  items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO))
-            items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
-                               subtext=t("chat_prompt_s")))
-            items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
-                                on_change=self._keep_cb(key)))
-            items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
-            items.append(Text(text=t("chat_remove"), key="remove_" + sk, on_click=self._remove_cb(key)))
-        if not shown:
-            items.append(note(t("no_chats")))
+        if DialogPicker is not None:
+            items.append(DialogPicker(key="test_pick", text=t("test_pick"), on_pick=self.on_test_style,
+                                      subtext=t("test_pick_s")))
+        last = str(self.get_setting("style_test_result", "") or "")
+        if last:
+            items.append(Header(text=t("h_test_result")))
+            items.append(note(last))
+        # 4. decisions log: always last
+        items.append(Header(text=t("h_decisions")))
+        rows = self.decision_rows()
+        if rows:
+            for title, sentence, _r in rows:
+                items.append(Header(text=title))
+                items.append(note(sentence))
+            items.append(Text(text=t("log_copy"), key="log_copy", on_click=self.copy_log))
+            items.append(Text(text=t("log_clear"), key="log_clear", on_click=self.clear_log))
+        else:
+            items.append(note(t("log_none")))
+        items.append(note(t("decisions_note")))
         return items
 
     def on_chat_added(self, dialog_id, title):
@@ -2365,29 +2923,19 @@ class Plugin(BasePlugin):
             else:
                 kind = "user" if did > 0 else "group"
                 name = str(title or did)
-            with self._lock:
-                c = self._chats.get(key) or {}
-                c.update({"enabled": True, "account": account, "dialog_id": did,
-                          "title": name, "type": kind, "fails": 0})
-                self._chats[key] = c
-                self._save_chats()
+            self.chat_on(account, did, name, kind)
+            self._decide(key, "cmd", "menu_on")
             client.bulletin(self.t("bl_on", name))
         except Exception as e:
             self.error(e)
 
     def _remove_cb(self, key):
         def cb():
-            with self._lock:
-                c = self._chats.pop(key, None)
-                self._states.pop(key, None)
-                self._profiles.pop(key, None)
-                self._save_chats()
-            sk = self._sk(key)
-            self.set_setting("mode_" + sk, None)
-            self.set_setting("prompt_" + sk, None)
-            self.set_setting("keep_" + sk, None)
-            if c:
-                client.bulletin(self.t("bl_removed", c.get("title") or key))
+            title = self.chat_off(key, remove=True)
+            if self._open_key == key:
+                self._open_key = None
+            if title is not None:
+                client.bulletin(self.t("bl_removed", title))
         return cb
 
     def _test_cb(self, key):

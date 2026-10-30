@@ -99,9 +99,13 @@ class TestSilentPaths(Base):
 
     def test_owner_active_skip_then_resume(self):
         self.assertEqual(self.incoming(out=True, text="йо, зараз гляну"), "outgoing")
-        self.round("привіт, як справи")
+        self.incoming(text="привіт, як справи")
+        self.fire_once()                        # 0.3.4: the held-back batch is retried later (own test in v034)
         self.assertEqual(CLIENT.ai_calls, [])
         self.assertIn("owner_active", self.decisions())
+        CLIENT.ui_queue[:] = []
+        self.p._states[self.key()].pending = []
+        self.p._states[self.key()].timer = False
         self.clock[0] += 130
         self.round("ти де взагалі")
         self.assertEqual(len(CLIENT.sent), 1)
@@ -109,7 +113,8 @@ class TestSilentPaths(Base):
     def test_owner_active_from_history(self):
         CLIENT.history.append({"id": 900, "from_id": 1, "out": True, "date": int(self.clock[0]) - 20,
                                "text": "та ні, не треба", "is_bot": False})
-        self.round("а чому?")
+        self.incoming(text="а чому?")
+        self.fire_once()
         self.assertEqual(CLIENT.sent, [])
         self.assertIn("owner_active", self.decisions())
 

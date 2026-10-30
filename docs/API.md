@@ -349,3 +349,64 @@ Proposals only, not implemented. `ai_autoreply` 0.3.2 works around the first two
    the app language (Python `locale`/`LANG` is not the app locale and `java.raw` is a heavy permission), so
    `ai_autoreply` has an `Interface language` setting (Auto = phone language if visible, else Ukrainian).
 3. `Header(text, multiline=False)`: long section titles are cut to one line.
+
+## 10. ai_autoreply storage format
+
+For other parts of the app (for example a core screen that lists the chats where the bot is active).
+Everything lives in the plugin's settings store (`id = ai_autoreply`, one string/int/bool value per key).
+The format is stable since 0.3.0; 0.3.4 only adds optional keys (marked *new*). Readers must ignore unknown keys.
+
+**`chats`** (string, JSON object; missing, empty or invalid = no chats). Key: `"<account>:<dialog_id>"`
+(`account` = account index, `dialog_id` = Telegram dialog id as a signed integer: user id > 0, group/chat id < 0),
+for example `"0:123456789"`. Value:
+
+```json
+{"enabled": true, "account": 0, "dialog_id": 123456789, "title": "Alice", "type": "user", "fails": 0}
+```
+
+| field | type | meaning |
+|---|---|---|
+| `enabled` | bool | the bot answers in this chat. `false` = paused (switched off in the menu or settings) |
+| `account` | int | account index |
+| `dialog_id` | int | dialog id (same as in the key) |
+| `title` | string | chat title when it was added (refreshed from dialog info when the settings screen opens) |
+| `type` | string | `"user"` (private chat) or `"group"`; channels, bots and secret chats are never stored |
+| `fails` | int | consecutive AI/send failures (reset on success; at 5 the chat is auto-paused) |
+| `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes |
+| `disclosed` | bool, optional | the AI disclosure prefix was already sent in this chat |
+
+"Active" chat = `enabled == true`. `.ai off` removes the entry, the chat-menu toggle and the "Enabled" switch only
+set `enabled`.
+
+**Per-chat settings**, key suffix `<sk>` = the chat key with `:` replaced by `_` and `-` by `n`
+(`"0:123456789"` -> `0_123456789`, `"0:-1001"` -> `0_n1001`):
+
+| key | type | meaning |
+|---|---|---|
+| `mode_<sk>` | int | `0` Auto (answers by itself), `1` Draft (writes into the input field), `2` Friend (the other person triggers with `.ai `). Missing = `0` |
+| `prompt_<sk>` | string | extra system prompt for this chat, empty = default |
+| `keep_<sk>` | bool | mirror of `enabled` for the settings switch |
+| `rlang_<sk>` | int, *new* | reply language for this chat: `0` as global, `1` Auto, `2` Ukrainian, `3` Russian, `4` the other person's language |
+
+**Global settings of interest:** `master` (bool, default true; false = the bot is silent everywhere),
+`reply_lang` (int, *new*: `0` Auto by the chat context, `1` Ukrainian, `2` Russian, `3` the other person's
+language), `preset` (int: `0` Balanced, `1` Chatty, `2` Quiet), `owner_active` (string, seconds the bot stays
+silent after the owner wrote in the chat; empty = preset, Balanced 45), `chat_hourly` (string; empty = preset,
+Balanced 20), `ui_lang` (int: `0` auto, `1` uk, `2` ru, `3` en).
+
+**`decisions`** (string, JSON array, at most 20, oldest first, no message text):
+`{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}`.
+`o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`
+(reason `incoming_seen`: a message from the other person reached the plugin; consecutive ones of a chat are
+collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, `admin_status`, `admin_list`,
+`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`). The last real decision of a chat is the
+newest entry of that chat whose `o` is not `seen` or `cmd`.
+
+To list active chats: parse `chats`, keep entries with `enabled == true`, show `title`, mode from `mode_<sk>`.
+To add or remove a chat from the core side, write the same JSON back (keep unknown fields) and set `mode_<sk>`
+to `0` for a new chat; the plugin re-reads `chats` whenever its settings screen opens, but only at plugin load
+for message handling, so a running plugin needs a reload to see core-side edits.
+
+**In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
+`.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`. They are intercepted by the send hook;
+the command words (default `.ai`, `.аі`) are the `cmd_triggers` setting and the whole feature is `cmd_enable`.

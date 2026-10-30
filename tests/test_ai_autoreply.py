@@ -45,6 +45,9 @@ def install_fake_zephyr():
         def add_on_send_message_hook(self, priority=0):
             self.send_hook_registered = True
 
+        def add_updates_hook(self, name, match_substring=False, priority=0):
+            self.updates_hooks = getattr(self, "updates_hooks", []) + [name]
+
         def add_menu_item(self, item):
             self.menu = getattr(self, "menu", []) + [item]
 
@@ -168,6 +171,12 @@ class Base(unittest.TestCase):
             self.clock[0] += delay / 1000.0
             fn()
 
+    def fire_once(self):
+        """Run exactly one queued timer (advancing the clock by its delay)."""
+        delay, fn = CLIENT.ui_queue.pop(0)
+        self.clock[0] += delay / 1000.0
+        fn()
+
     def key(self):
         return self.p.chat_key(0, DID)
 
@@ -212,7 +221,7 @@ class TestAllowlist(Base):
     def test_settings_list_enabled_chat_titles(self):
         self.enable()
         texts = [getattr(i, "text", "") for i in self.p.create_settings()]
-        self.assertIn("Alice", texts)
+        self.assertIn("▸ Alice", texts)
 
 
 class TestAddChatSettings(Base):
@@ -235,8 +244,9 @@ class TestAddChatSettings(Base):
     def test_picked_chat_enabled_and_listed(self):
         self.p.on_chat_added(DID, "Alice")
         self.assertTrue(self.p.is_enabled(self.key()))
-        it = self.items()
         sk = self.p._sk(self.key())
+        self.items()["chat_" + sk].on_click()            # 0.3.4: tap the chat row to open its options
+        it = self.items()
         self.assertIn("mode_" + sk, it)
         self.assertIn("remove_" + sk, it)
         self.assertEqual(it["mode_" + sk].default, mod.MODE_AUTO)
@@ -264,6 +274,7 @@ class TestAddChatSettings(Base):
         self.p.on_chat_added(DID, "Alice")
         sk = self.p._sk(self.key())
         self.p.settings["mode_" + sk] = mod.MODE_DRAFT
+        self.items()["chat_" + sk].on_click()
         self.items()["remove_" + sk].on_click()
         self.assertNotIn(self.key(), self.p._chats)
         self.assertNotIn("remove_" + sk, self.items())
