@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.2"
-__version_code__ = 5
+__version__ = "0.3.3"
+__version_code__ = 6
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
@@ -456,6 +456,8 @@ S = {
                  "ИИ-автоответчик: ВЫКЛ (нажмите, чтобы включить)"),
     "menu_on": ("AI auto-reply: ON (tap to disable)", "ШІ-автовідповідач: УВІМК (натисніть, щоб вимкнути)",
                 "ИИ-автоответчик: ВКЛ (нажмите, чтобы выключить)"),
+    "menu_cmd": ("AI: write the next message for me", "ШІ: написати наступне повідомлення за мене",
+                 "ИИ: написать следующее сообщение за меня"),
     "bl_na": ("AI auto-reply: not available here (%s)", "ШІ-автовідповідач: тут недоступно (%s)",
               "ИИ-автоответчик: здесь недоступен (%s)"),
     "bl_on": ("AI auto-reply: ON for %s", "ШІ-автовідповідач: увімкнено для %s", "ИИ-автоответчик: включён для %s"),
@@ -804,6 +806,21 @@ R = {
     "owner_command_not_allowed": ("your .ai command ignored: not allowed in this chat",
                                   "вашу команду .ai проігноровано: у цьому чаті не дозволено",
                                   "вашу команду .ai проигнорировали: в этом чате не разрешено"),
+    "command_disabled": ("your .ai command ignored: the command is switched off in settings",
+                         "вашу команду .ai проігноровано: команду вимкнено в налаштуваннях",
+                         "вашу команду .ai проигнорировали: команда выключена в настройках"),
+    "chat_not_listed": ("your .ai command ignored: this chat is not in the plugin list (sent as a normal message)",
+                        "вашу команду .ai проігноровано: цього чату немає в списку плагіна (надіслано як звичайне повідомлення)",
+                        "вашу команду .ai проигнорировали: этого чата нет в списке плагина (отправлено как обычное сообщение)"),
+    "command_ignored_media": ("your .ai command ignored: the message has an attachment",
+                              "вашу команду .ai проігноровано: у повідомленні є вкладення",
+                              "вашу команду .ai проигнорировали: в сообщении есть вложение"),
+    "owner_command_hook_missed": ("your .ai command was already sent to the chat (the app did not pass it to the plugin before sending); running it anyway",
+                                  "вашу команду .ai вже надіслано в чат (застосунок не передав її плагіну до відправки); все одно виконую",
+                                  "вашу команду .ai уже отправили в чат (приложение не передало её плагину до отправки); всё равно выполняю"),
+    "command_hook_exception": ("your .ai command: internal plugin error (see the plugin log)",
+                               "ваша команда .ai: внутрішня помилка плагіна (див. журнал плагіна)",
+                               "ваша команда .ai: внутренняя ошибка плагина (см. журнал плагина)"),
 }
 
 
@@ -896,6 +913,8 @@ class Plugin(BasePlugin):
         self.add_on_new_message_hook(priority=0)
         self.add_on_send_message_hook(priority=10)
         self._cmd_busy = set()
+        self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
+        self._cmd_fallback = {}
         self._titles = {}
         self.add_menu_item(MenuItem(
             menu_type=MenuType.CHAT_ACTION, text=self.t("menu_off"),
@@ -905,6 +924,10 @@ class Plugin(BasePlugin):
             menu_type=MenuType.CHAT_ACTION, text=self.t("menu_on"),
             on_click=self.on_disable_click, priority=0,
             condition=self.cond_show_on, key="ai_autoreply_on"))
+        self.add_menu_item(MenuItem(
+            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_cmd"),
+            on_click=self.on_cmd_click, priority=0,
+            condition=self.cond_show_cmd, key="ai_autoreply_cmd"))
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
                                                           PRESET_NAMES[self._preset_index()]))
 
@@ -1215,6 +1238,10 @@ class Plugin(BasePlugin):
             return None
         if m.get("out"):
             self._note_owner(key, m)
+            try:
+                self._outgoing_command_fallback(account, did, key, m)
+            except Exception as e:
+                self.error(e)
             self._decide(key, "skip", "outgoing", ring=False)
             return "outgoing"
         if not self.get_setting("master", True):
@@ -1990,8 +2017,9 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _has_media(params):
+        # NOT sendAnimationData / mediaWebPage / entities: the input field sets them on every plain text.
         for a in ("photo", "document", "location", "poll", "game", "invoice", "user", "todo",
-                  "mediaWebPage", "retryMessageObject", "sendAnimationData"):
+                  "retryMessageObject", "videoEditedInfo", "richMessage"):
             if getattr(params, a, None) is not None:
                 return True
         return bool(getattr(params, "path", None))
@@ -2003,44 +2031,111 @@ class Plugin(BasePlugin):
             return False
         return isinstance(info, dict) and info.get("type") == "user" and self.check_info(info) is None
 
+    def _command_gate(self, account, did, key, cmd, via):
+        """Shared checks for every command attempt. Returns a reason code when it must not run (logged)."""
+        if not self.get_setting("cmd_enable", True):
+            self._decide(key, "skip", "command_disabled")
+            return "command_disabled"
+        if not (self.is_enabled(key) or (self.get_setting("cmd_any_private", False) and did > 0
+                                         and self._private_ok(did))):
+            self._decide(key, "skip", "chat_not_listed")
+            return "chat_not_listed"
+        if not self.get_setting("master", True):
+            self._decide(key, "skip", "master_off")
+            client.bulletin(self.t("bl_cmd_master"))
+            return "master_off"
+        return None
+
+    def _start_command(self, account, did, key, draft, topic):
+        """Runs the command in a worker. Returns False when the previous one is still running."""
+        with self._lock:
+            busy = key in self._cmd_busy
+            self._cmd_busy.add(key)
+        if busy:
+            self._decide(key, "skip", "owner_command_busy")
+            client.bulletin(self.t("bl_cmd_busy"))
+            return False
+        try:
+            client.run_in_bg(lambda: self.run_command(int(account), did, key, draft, topic))
+        except Exception as e:
+            self._cmd_busy.discard(key)
+            self.log("command could not start: %s" % e)
+            self._decide(key, "error", "owner_command_ai_failed")
+            client.bulletin(self.t("bl_cmd_failed", e))
+        return True
+
     def on_send_message_hook(self, account, params):
         """Intercepts the owner's own '.ai' command: cancelled (never sent), the work runs in a worker."""
         try:
             text = getattr(params, "message", None)
-            if not isinstance(text, str) or not self.get_setting("cmd_enable", True):
+            if text is None:
                 return None
+            text = str(text)
             cmd = self.parse_command(text)
-            if cmd is None or self._has_media(params):
+            if cmd is None:
                 return None
             did = int(getattr(params, "peer", 0) or 0)
             if not did:
                 return None
             key = self.chat_key(account, did)
-            if not (self.is_enabled(key) or (self.get_setting("cmd_any_private", False) and did > 0
-                                             and self._private_ok(did))):
-                return None                      # not a chat of the plugin: an ordinary message
+            self._cmd_seen[key] = self._now()
+            if self._has_media(params):
+                self._decide(key, "skip", "command_ignored_media")
+                return None
+            gate = self._command_gate(account, did, key, cmd, "hook")
+            if gate == "master_off":
+                return HookResult(strategy=HookStrategy.CANCEL)
+            if gate:
+                return None                      # not a chat of the plugin / disabled: an ordinary message
             draft, topic = cmd
-            if not self.get_setting("master", True):
-                self._decide(key, "skip", "master_off")
-                client.bulletin(self.t("bl_cmd_master"))
-                return HookResult(strategy=HookStrategy.CANCEL)
-            with self._lock:
-                busy = key in self._cmd_busy
-                self._cmd_busy.add(key)
-            if busy:
-                self._decide(key, "skip", "owner_command_busy")
-                client.bulletin(self.t("bl_cmd_busy"))
-                return HookResult(strategy=HookStrategy.CANCEL)
-            try:
-                client.run_in_bg(lambda: self.run_command(int(account), did, key, draft, topic))
-            except Exception as e:
-                self._cmd_busy.discard(key)
-                self.log("command could not start: %s" % e)
-                client.bulletin(self.t("bl_cmd_failed", e))
+            self._start_command(account, did, key, draft, topic)
             return HookResult(strategy=HookStrategy.CANCEL)
         except Exception as e:
             self.error(e)
+            try:
+                self._decide("?", "error", "command_hook_exception")
+            except Exception:
+                pass
             return None
+
+    def _outgoing_command_fallback(self, account, did, key, m):
+        """The send hook did not see this '.ai' (old app / other send path): the message is already in the
+        chat, so we cannot cancel it, but the command still works."""
+        text = str(m.get("text") or "")
+        if not text or self._is_bot_text(text):
+            return
+        cmd = self.parse_command(text)
+        if cmd is None:
+            return
+        now = self._now()
+        if now - self._cmd_seen.get(key, 0.0) < 30 or now - self._cmd_fallback.get(key, 0.0) < 30:
+            return
+        d = m.get("date")
+        if d is not None and now - float(d) > MAX_AGE_SEC:
+            return
+        self._cmd_fallback[key] = now
+        self._decide(key, "skip", "owner_command_hook_missed")
+        if self._command_gate(account, did, key, cmd, "outgoing"):
+            return
+        draft, topic = cmd
+        self._start_command(account, did, key, draft, topic)
+
+    def cond_show_cmd(self, ctx):
+        try:
+            did = ctx.get("dialog_id") or 0
+            return bool(did) and bool(self.get_setting("cmd_enable", True)) and                 self.is_enabled(self.chat_key(ctx.get("account"), did))
+        except Exception:
+            return False
+
+    def on_cmd_click(self, ctx):
+        account, did = int(ctx.get("account") or 0), int(ctx.get("dialog_id") or 0)
+        if not did:
+            return
+        key = self.chat_key(account, did)
+        self._cmd_seen[key] = self._now()
+        if self._command_gate(account, did, key, (False, ""), "menu"):
+            return
+        self._start_command(account, did, key, False, "")
 
     def run_command(self, account, did, key, draft, topic):
         try:

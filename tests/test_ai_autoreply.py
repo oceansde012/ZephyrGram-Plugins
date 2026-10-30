@@ -251,7 +251,9 @@ class TestAddChatSettings(Base):
     def test_friend_mode_other_person_triggers_owner_silent(self):
         self.p.on_chat_added(DID, "Alice")
         self.p.settings["mode_" + self.p._sk(self.key())] = mod.MODE_COMMAND
+        self.p.settings["cmd_enable"] = False          # 0.3.3: an outgoing .ai would run the owner command
         self.assertEqual(self.incoming(out=True, text=".ai hi me"), "outgoing")     # owner never triggers
+        self.p.settings["cmd_enable"] = True
         self.assertEqual(self.incoming(text="just chatting"), "no command prefix")
         self.assertIsNone(self.incoming(text=".ai what is 2+2"))
         self.fire_timers()

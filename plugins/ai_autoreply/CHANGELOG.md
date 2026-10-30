@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.3
+- Fix: the '.ai' command did nothing and left no trace. The input field always sets an animation object (and often a link-preview object) on a plain text message, and the plugin treated that as an attachment and silently let the message through. Only real attachments (photo, document, location, poll, game, invoice, contact, to-do, retry, video, rich message) are skipped now.
+- Every command attempt is in the decision log with a reason: command_disabled, chat_not_listed (sent as a normal message), command_ignored_media, master_off, owner_command_busy, owner_command_* (topic/continue/opener/draft), ai failed, send failed, command_hook_exception.
+- Robustness: if the app did not pass an outgoing '.ai' to the plugin before sending (so it reached the chat), the new-message hook now runs the command anyway (logged as owner_command_hook_missed; the '.ai' message itself stays in the chat, the plugin API has no delete call).
+- New chat menu item 'AI: write the next message for me' in chats of the plugin: the same command without typing it.
+- No app change needed.
+
 ## 0.3.2
 - Settings screen readable on the phone: 'Recent decisions' is one entry per decision, newest first (title '21:45:30 · Cherish' with the chat name from the plugin list or the app cache, id as fallback; below it the reason in plain language, shown in full and never cut). 'Copy log (last 20)' puts the last 20 decisions on the clipboard, 'Clear log' empties the list.
 - Explanatory rows (Modes, hints, style test result, 'No decisions') are no longer tap-looking buttons that do nothing: they use the non-clickable multi-line block. No app change needed; a cleaner API is proposed in docs/API.md 'Core change requests'.
