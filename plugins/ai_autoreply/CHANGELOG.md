@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5
+- The app's new chats screen (app 0.1.4) edits this plugin's settings and then sends the app event 'settings_changed'. `on_app_event` now handles it (the event arrives as the plain string; an enum-like object with `.name`/`.value` is accepted too): the chat list is reloaded under the plugin lock, the per-chat reply-language cache is dropped, and mode / keep / master / prompt (read live from the settings store) take effect at once. Debounce, cooldown, pending batches and in-flight state are kept.
+- A save made by the plugin can no longer overwrite newer external changes: every write re-reads `chats`, applies only the plugin's own change to that one chat (for example `fails`, `enabled` after repeated errors, `title`, `disclosed`) and writes it back. Other chats and other fields edited by the app stay as they are; a chat the app removed is not brought back (only an explicit add creates one).
+- The 'Auto' interface language now follows the app language through `client.app_locale()` ('uk', 'ru', 'en'); on apps without that call the previous detection is used. `__min_app_version__` is unchanged (feature-detected).
+- Documented in docs/API.md (section 3 next to AppEvent, section 10 storage). No storage format change.
+
 ## 0.3.4
 - Settings screen restructured. The first section is 'Chats with the bot': one row per chat (title from the app's dialog info; below it mode, on/off and the last decision). Tap a row to open its options (mode, enabled, prompt, reply language, style test, remove), tap again to close. 'Add chat' (chat picker, @username) is right below; everything advanced (general, modes, command, humanize, prompts and model, limits, style test) follows under headers, and 'Recent decisions' is last.
 - New owner commands in a private chat (intercepted, never sent, no need to list the chat first): '.ai on' (add and enable, mode Auto), '.ai off' (remove the chat), '.ai status' (state and last decision), '.ai list' (active chats), '.ai mode auto|draft|friend'. Localized uk/ru/en, written to the decision log; groups, channels, bots and secret chats are refused with a message. The chat header menu item is now 'Bot in this chat: on/off' and toggles the same.

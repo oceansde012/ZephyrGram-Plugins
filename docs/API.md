@@ -57,8 +57,16 @@ Lifecycle (override as needed; all optional):
 def on_plugin_load(self): ...
 def on_plugin_unload(self): ...
 def on_app_event(self, event): ...        # AppEvent.START / PAUSE / RESUME / STOP
+                                          # also the string "settings_changed" (see below)
 def create_settings(self): ...            # -> list of zephyr.ui items
 ```
+
+`settings_changed` (app 0.1.4+): sent to ONE plugin (not broadcast) after the core app edited that plugin's stored
+settings from its own screen. It is delivered as a plain string, not an `AppEvent` member (the `AppEvent` class only
+has `START`, `PAUSE`, `RESUME`, `STOP`), on the plugin's background executor. Compare defensively, e.g.
+`name = getattr(event, "name", None) or event; if str(name) == "settings_changed": ...`, and ignore unknown events.
+Re-read anything cached from `get_setting`; keep runtime state (timers, counters). `client.app_locale()` ('uk',
+'ru', 'en', app 0.1.4+, no permission) gives the UI language; guard with `hasattr(client, "app_locale")`.
 
 Helpers:
 
@@ -215,6 +223,7 @@ client.copy_to_clipboard(text)         # clipboard helper
 client.http_get(url, headers=None, timeout=15) -> (status:int, body:bytes)   # internet
 client.app_version() -> str            # ZEPHYR_VERSION, e.g. "0.1.0"
 client.api_version() -> int            # 1
+client.app_locale() -> str             # 'uk' | 'ru' | 'en' (app 0.1.4+; guard with hasattr)
 ```
 
 `run_on_ui` / `run_in_bg` callbacks that raise are logged and swallowed.
@@ -404,8 +413,11 @@ newest entry of that chat whose `o` is not `seen` or `cmd`.
 
 To list active chats: parse `chats`, keep entries with `enabled == true`, show `title`, mode from `mode_<sk>`.
 To add or remove a chat from the core side, write the same JSON back (keep unknown fields) and set `mode_<sk>`
-to `0` for a new chat; the plugin re-reads `chats` whenever its settings screen opens, but only at plugin load
-for message handling, so a running plugin needs a reload to see core-side edits.
+to `0` for a new chat. Since 0.3.5 the plugin re-reads `chats` (and drops its reply-language cache) when it receives
+the app event `settings_changed` (see section 3), so after a core-side edit call
+`PluginManager.notifySettingsChanged("ai_autoreply")`. The plugin's own writes are reload-merge-save: it re-reads
+`chats`, changes only the one chat field(s) it owns and writes back, so concurrent core edits are not lost. Per-chat
+keys (`mode_`, `keep_`, `rlang_`, `prompt_`) and `master` are read from the store on every use and need no reload.
 
 **In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
 `.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`. They are intercepted by the send hook;

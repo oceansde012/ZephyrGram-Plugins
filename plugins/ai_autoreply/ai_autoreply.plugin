@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.4"
-__version_code__ = 7
+__version__ = "0.3.5"
+__version_code__ = 8
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
@@ -506,6 +506,19 @@ def detect_ui_lang():
         if code in ("uk", "ru"):
             return code
     return None
+
+
+def app_ui_lang():
+    """UI language of the app via client.app_locale() (app 0.1.4+); older apps fall back to detect_ui_lang().
+    Returns 'uk', 'ru' or 'en'; None when unknown."""
+    try:
+        if hasattr(client, "app_locale"):
+            code = str(client.app_locale() or "").lower()[:2]
+            if code in LANGS:
+                return code
+    except Exception:
+        pass
+    return detect_ui_lang()
 
 
 # key: (English, Ukrainian, Russian). A missing translation falls back to English.
@@ -1248,15 +1261,60 @@ class Plugin(BasePlugin):
     def _sk(key):
         return key.replace(":", "_").replace("-", "n")
 
-    def _load_chats(self):
+    def _read_chats(self):
+        """The chats dict as currently stored (the core app screen may have edited it)."""
         try:
             data = json.loads(self.get_setting("chats", "{}") or "{}")
-            self._chats = data if isinstance(data, dict) else {}
+            return data if isinstance(data, dict) else {}
         except (ValueError, TypeError):
-            self._chats = {}
+            return {}
 
-    def _save_chats(self):
-        self.set_setting("chats", json.dumps(self._chats, ensure_ascii=False))
+    def _load_chats(self):
+        with self._lock:
+            self._chats = self._read_chats()
+
+    def _commit(self, key, set=None, drop=(), remove=False, create=False):
+        """Reload-merge-save: re-read the stored chats, apply ONLY this mutation to one chat, write back.
+        A newer external change (core screen) to other chats or other fields is never overwritten, and an
+        entry removed externally is not resurrected unless create=True. Returns the stored entry or None."""
+        with self._lock:
+            disk = self._read_chats()
+            cur = disk.get(key)
+            if remove:
+                disk.pop(key, None)
+                cur = None
+            else:
+                if not isinstance(cur, dict):
+                    if not create:
+                        self._chats = disk
+                        return None
+                    cur = disk[key] = {}
+                cur.update(set or {})
+                for d in drop:
+                    cur.pop(d, None)
+            self.set_setting("chats", json.dumps(disk, ensure_ascii=False))
+            self._chats = disk
+            return cur
+
+    def on_app_event(self, event):
+        """The core app screen edited our prefs (chats, mode_/keep_/rlang_<sk>, master): reload what we cache.
+        Debounce/cooldown/in-flight state (self._states) is deliberately kept. The event arrives as the plain
+        string 'settings_changed' (PluginRuntime.dispatchAppEventTo); an enum-like object is handled too."""
+        name = getattr(event, "name", None) or getattr(event, "value", None) or event
+        if str(name).strip().lower() != "settings_changed":
+            return
+        try:
+            with self._lock:
+                self._load_chats()
+                self._lang_cache.clear()           # rlang_<sk> may have changed
+                if self._open_key not in self._chats:
+                    self._open_key = None
+                for key in list(self._profiles):
+                    if key not in self._chats:
+                        self._profiles.pop(key, None)
+            self.log("settings_changed: reloaded %d chats" % len(self._chats))
+        except Exception as e:
+            self.error(e)
 
     def is_enabled(self, key):
         c = self._chats.get(key)
@@ -1365,15 +1423,11 @@ class Plugin(BasePlugin):
         key = self.chat_key(account, did)
         sk = self._sk(key)
         with self._lock:
-            c = self._chats.get(key)
-            new = c is None
-            c = c or {}
-            c.update({"enabled": True, "account": int(account), "dialog_id": int(did),
-                      "title": str(title or did), "type": kind or ("user" if int(did) > 0 else "group"),
-                      "fails": 0})
-            c.pop("auto_off_ts", None)
-            self._chats[key] = c
-            self._save_chats()
+            new = key not in self._read_chats()
+            c = self._commit(key, set={"enabled": True, "account": int(account), "dialog_id": int(did),
+                                       "title": str(title or did),
+                                       "type": kind or ("user" if int(did) > 0 else "group"),
+                                       "fails": 0}, drop=("auto_off_ts",), create=True)
         if new or self.get_setting("mode_" + sk, None) is None:
             self.set_setting("mode_" + sk, MODE_AUTO)
         self.set_setting("keep_" + sk, True)
@@ -1391,13 +1445,11 @@ class Plugin(BasePlugin):
                 return None
             title = str(c.get("title") or key)
             if remove:
-                self._chats.pop(key, None)
+                self._commit(key, remove=True)
                 self._states.pop(key, None)
                 self._profiles.pop(key, None)
             else:
-                c["enabled"] = False
-                c.pop("auto_off_ts", None)
-            self._save_chats()
+                self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             self.set_setting("mode_" + sk, None)
             self.set_setting("prompt_" + sk, None)
@@ -1437,10 +1489,7 @@ class Plugin(BasePlugin):
         if c and not c.get("enabled") and c.get("auto_off_ts"):
             if self._now() - float(c.get("auto_off_ts") or 0) >= AUTH_RESUME_SEC:
                 with self._lock:
-                    c["enabled"] = True
-                    c["fails"] = 0
-                    c.pop("auto_off_ts", None)
-                    self._save_chats()
+                    self._commit(key, set={"enabled": True, "fails": 0}, drop=("auto_off_ts",))
                 self._decide(key, "resume", "auto_resumed_after_errors")
 
     def _note_owner(self, key, m):
@@ -1717,14 +1766,14 @@ class Plugin(BasePlugin):
             c = self._chats.get(key)
             if not c:
                 return
-            c["fails"] = int(c.get("fails", 0)) + 1
-            if c["fails"] >= MAX_FAILURES:
-                c["enabled"] = False
-                c["auto_off_ts"] = self._now()
-                self.log("auto-disabled %s after %d failures" % (key, c["fails"]))
+            fails = int(c.get("fails", 0)) + 1
+            upd = {"fails": fails}
+            if fails >= MAX_FAILURES:
+                upd.update({"enabled": False, "auto_off_ts": self._now()})
+                self.log("auto-disabled %s after %d failures" % (key, fails))
                 self._decide(key, "disabled", "auto_disabled_after_errors")
                 client.bulletin(self.t("bl_errors_off", c.get("title", key)))
-            self._save_chats()
+            self._commit(key, set=upd)
 
     # ------------------------------------------------------------------ processing
     def _info(self, key, did):
@@ -1879,8 +1928,10 @@ class Plugin(BasePlugin):
                     st.answered.append(b[0])
             st.cooldown_until = self._now() + self._pnum("cooldown", 0, 3600)
             st.defers = 0
-            c["fails"] = 0
-            self._save_chats()
+            upd = {"fails": 0}
+            if c.get("disclosed"):
+                upd["disclosed"] = True
+            self._commit(key, set=upd)
         self._decide(key, "draft" if mode == MODE_DRAFT else "sent",
                      "ok_fallback_" + why if why else "ok")
         return "ok"
@@ -2233,7 +2284,7 @@ class Plugin(BasePlugin):
             i = 0
         if i in (1, 2, 3):
             return ("", "uk", "ru", "en")[i]
-        return detect_ui_lang() or "uk"
+        return app_ui_lang() or "uk"
 
     def t(self, key, *args):
         text = tr(self.lang(), key)
@@ -2762,7 +2813,7 @@ class Plugin(BasePlugin):
             new = ""
         if new:
             c["title"] = new
-            self._save_chats()
+            self._commit(key, set={"title": new})
             return new
         return title or key
 
@@ -2950,8 +3001,8 @@ class Plugin(BasePlugin):
             with self._lock:
                 c = self._chats.get(key)
                 if c:
-                    c["enabled"] = bool(value)
+                    upd = {"enabled": bool(value)}
                     if value:
-                        c["fails"] = 0
-                    self._save_chats()
+                        upd["fails"] = 0
+                    self._commit(key, set=upd)
         return cb
