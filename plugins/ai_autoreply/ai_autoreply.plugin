@@ -1,12 +1,12 @@
 __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
-__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Balanced/Chatty/Quiet): debounce, cooldown, hourly cap, owner-active and loop protection, short typing delay, decision log."
+__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.5"
-__version_code__ = 8
+__version__ = "0.3.6"
+__version_code__ = 9
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
-__permissions__ = ["ai.complete", "chat.read", "messages.send", "ui.menu", "updates.read"]
+__permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
 import difflib
 import json
@@ -120,7 +120,18 @@ MAX_DEBOUNCE_TOTAL = 20.0    # a batch is answered at the latest this long after
 AUTH_RESUME_SEC = 1800       # a chat auto-disabled by errors is re-enabled after this long
 POLITE_STOP_TEXT = u"ок, я трохи зайнятий, напишу пізніше"
 
-PRESET_NAMES = ["Balanced (default)", "Chatty", "Quiet"]
+PRESET_NAMES = ["Balanced", "Chatty", "Quiet", "Live (human-like, default)"]
+LIVE_PRESET = 3              # used when no preset is stored (new installs and settings without an explicit choice)
+# Numbers shared by every preset; they only matter when 'human_timing' / 'scan' are on (Live, or switched on by hand).
+PRESET_BASE = {
+    "cooldown_jitter": 0, "human_timing": False, "scan": False,
+    "hourly_cap": 30, "daily_cap": 50, "loop_burst": 4, "owner_defers": 2, "ack_reply_pct": 0,
+    "lat_warm_min": 2, "lat_warm_max": 9, "lat_cold_min": 8, "lat_cold_max": 40,
+    "lat_long_pct": 10, "lat_long_min": 60, "lat_long_max": 120,
+    "warm_window": 120, "cold_after": 600, "type_ms": 35, "warm_cap": 25,
+    "split2_pct": 15, "split_gap_min": 1, "split_gap_max": 3,
+    "catchup_min": 30, "scan_interval": 25,
+}
 PRESETS = [
     {"debounce": 4, "debounce_jitter": 2, "cooldown": 20, "chat_hourly": 20, "owner_active": 45,
      "skip_ack": True, "group_need_question": True, "typing_cap": 2.5},
@@ -128,7 +139,17 @@ PRESETS = [
      "skip_ack": False, "group_need_question": False, "typing_cap": 2.5},
     {"debounce": 6, "debounce_jitter": 3, "cooldown": 60, "chat_hourly": 6, "owner_active": 300,
      "skip_ack": True, "group_need_question": True, "typing_cap": 2.0},
+    # Live: collect a burst for 2-5 s, no hourly limits worth the name, 0-3 s between turns, owner silence 15 s
+    # (the reply is deferred, not dropped), acknowledgements answered now and then, human reply latency.
+    {"debounce": 2, "debounce_jitter": 3, "cooldown": 0, "cooldown_jitter": 3, "chat_hourly": 60,
+     "owner_active": 15, "skip_ack": True, "group_need_question": True, "typing_cap": 2.5,
+     "human_timing": True, "scan": True, "hourly_cap": 0, "daily_cap": 400, "loop_burst": 10,
+     "owner_defers": 8, "ack_reply_pct": 25},
 ]
+WARM_REPLY_SEC = 300         # 'warm' also needs a reply (ours or the owner's) at most this long ago
+SCAN_GRACE_SEC = 6           # the safety-net scan leaves messages younger than this to the event hooks
+SCAN_MAX_FOUND = 5           # at most this many missed messages per chat and scan are fed into the pipeline
+TYPING_REFRESH_SEC = 4.0     # the typing action is repeated this often while waiting
 
 EMOJI_CLS = u"[🀀-🫿☀-➿⬀-⯿️‍]"
 EMOJI_RE = re.compile(EMOJI_CLS)
@@ -157,6 +178,12 @@ SLANG = frozenset(u"""блін блин нах хз типу типа короч
 давайте спс дякую пліз плиз бро братан чувак чувачок прикол ржу тіпа типо""".split())
 SWEAR = frozenset(u"""бля блять блядь сука суки піздець пиздец пздц хуй хуйня нахуй
 нахер ебать йопта їбати гандон мудак підар дебіл""".split())
+
+
+def _jclass(name):
+    """Java class by name (chaquopy). Raises when it is not available (tests replace this function)."""
+    from java import jclass
+    return jclass(name)
 
 
 def norm_text(text):
@@ -346,6 +373,41 @@ def split_reply(text, max_parts=3):
     return merged
 
 
+def conv_kind(gap_in, gap_act, gap_reply, p):
+    """'warm' / 'medium' / 'cold' from the gaps (seconds, None = unknown) before the batch: warm = the
+    interlocutor's previous message is younger than warm_window AND somebody (bot/owner) replied recently;
+    cold = nothing at all for more than cold_after (or nothing known)."""
+    if gap_act is None or gap_act >= p["cold_after"]:
+        return "cold"
+    if (gap_in is not None and gap_in < p["warm_window"]
+            and gap_reply is not None and gap_reply < WARM_REPLY_SEC):
+        return "warm"
+    return "medium"
+
+
+def latency_seconds(rng, kind, in_len, reply_len, p):
+    """Human reply latency counted from the arrival of the first message: (total seconds, typing seconds).
+    warm: lat_warm_min..max; medium: between warm and cold; cold: lat_cold_min..max with lat_long_pct % chance
+    of lat_long_min..max. A little extra for reading (incoming length) and typing (type_ms per reply character).
+    Warm total is hard-capped at warm_cap."""
+    read_s = min(3.0, 0.02 * max(0, int(in_len))) * rng.uniform(0.8, 1.2)
+    type_s = max(0, int(reply_len)) * (float(p["type_ms"]) / 1000.0) * rng.uniform(0.85, 1.2)
+    if kind == "warm":
+        base = rng.uniform(p["lat_warm_min"], max(p["lat_warm_min"], p["lat_warm_max"]))
+        total = min(float(p["warm_cap"]), base + read_s + type_s)
+    elif kind == "cold":
+        if rng.random() * 100.0 < p["lat_long_pct"]:
+            base = rng.uniform(p["lat_long_min"], max(p["lat_long_min"], p["lat_long_max"]))
+        else:
+            base = rng.uniform(p["lat_cold_min"], max(p["lat_cold_min"], p["lat_cold_max"]))
+        total = min(240.0, base + read_s + type_s)
+    else:
+        base = rng.uniform(p["lat_warm_max"], max(p["lat_warm_max"], p["lat_cold_min"] * 1.5))
+        total = min(60.0, base + read_s + type_s)
+    total = max(0.5, total)
+    return total, min(total, type_s + rng.uniform(1.5, 4.0))
+
+
 def typing_delay_s(text, jitter=1.0, cap=MAX_TYPING_TOTAL):
     """Seconds to 'type' one message: 0.3 s + 25 ms per character, with jitter, capped."""
     cap = max(0.0, float(cap))
@@ -449,6 +511,26 @@ def context_language(own_texts, incoming_texts):
     return None
 
 
+def incoming_language(batch, recent):
+    """Language of the interlocutor: 'Ukrainian' / 'Russian' / 'English' / None (no signal). The messages being
+    answered come first, then the last 2-3 incoming ones. Texts are oldest first."""
+    for texts in (batch, recent):
+        texts = [t for t in (texts or []) if str(t or "").strip()]
+        if not texts:
+            continue
+        uk, ru, last = _side_language(texts)
+        if uk > ru:
+            return "Ukrainian"
+        if ru > uk:
+            return "Russian"
+        if uk and last:
+            return last
+        joined = " ".join(texts)
+        if not re.search(u"[\u0400-\u04ff]", joined) and len(re.findall(r"[A-Za-z]", joined)) >= 6:
+            return "English"
+    return None
+
+
 LANG_RULES = {
     "Ukrainian": u"Відповідай українською, як пише власник у цьому чаті. Write only in Ukrainian.",
     "Russian": u"Отвечай по-русски, как пишет владелец в этом чате. Write only in Russian.",
@@ -456,9 +538,33 @@ LANG_RULES = {
 }
 
 
-def lang_rule(lang):
-    return ("LANGUAGE OF THIS REPLY (this overrides every other language rule above): %s. %s"
-            % (lang, LANG_RULES.get(lang, LANG_RULES["Ukrainian"])))
+def lang_rule(lang, follow_other=False):
+    out = ("LANGUAGE OF THIS REPLY (this overrides every other language rule above): %s. %s"
+           % (lang, LANG_RULES.get(lang, LANG_RULES["Ukrainian"])))
+    if follow_other:
+        out += (u" Відповідай тією мовою, якою написав співрозмовник (його останнє повідомлення). "
+                u"Answer in the language the other person wrote in.")
+    return out
+
+
+def sticker_emojis(text):
+    """Set of emoji characters (without variation selectors) found in a text."""
+    return set(ch for ch in EMOJI_RE.findall(str(text or "")) if ch not in u"\ufe0f\u200d")
+
+
+def choose_sticker(rng, stickers, recent_ids, want_emoji=()):
+    """One sticker dict from the list: not one of the last recent_ids when possible, with an emoji matching
+    want_emoji when possible, else random. None for an empty list."""
+    pool = [s for s in stickers if isinstance(s, dict) and s.get("id")]
+    if not pool:
+        return None
+    fresh = [s for s in pool if s["id"] not in recent_ids] or pool
+    want = set(want_emoji or ())
+    if want:
+        hit = [s for s in fresh if sticker_emojis(s.get("emoji")) & want]
+        if hit:
+            return rng.choice(hit)
+    return rng.choice(fresh)
 
 
 def banned_hits(text, extra=()):
@@ -569,7 +675,7 @@ S = {
                      "Черновик готов в поле ввода (переоткройте чат, если не видите)"),
     # decision log
     "log_none": ("No decisions yet.", "Рішень ще немає.", "Решений пока нет."),
-    "log_copy": ("Copy log (last 20)", "Копіювати журнал (останні 20)", "Копировать журнал (последние 20)"),
+    "log_copy": ("Copy log (last 40)", "Копіювати журнал (останні 40)", "Копировать журнал (последние 40)"),
     "log_clear": ("Clear log", "Очистити журнал", "Очистить журнал"),
     "o_sent": ("sent", "надіслано", "отправлено"),
     "o_draft": ("draft written", "чернетку записано", "черновик записан"),
@@ -590,14 +696,14 @@ S = {
                "Авто берёт язык телефона, если плагин его видит (украинский или русский), иначе украинский. "
                "Тексты пунктов меню меняются после перезагрузки плагина."),
     "preset": ("Preset", "Пресет", "Пресет"),
-    "preset_s": ("Balanced: waits ~5 s and answers a batch once, 20 s between replies, max 20 replies/hour "
+    "preset_s": ("Live (default): human-like - answers a burst after 2-5 s with a human delay, monitors the chats, almost no hourly limits, silent only 15 s after you wrote (the reply is deferred). Balanced: waits ~5 s and answers a batch once, 20 s between replies, max 20 replies/hour "
                  "per chat, skips plain 'ok/thanks', stays silent while you are writing yourself. Chatty: "
                  "answers more often. Quiet: rarely. Fields below with a value override the preset; empty = preset.",
-                 "Збалансований: чекає ~5 с і відповідає на пачку одним разом, 20 с між відповідями, до 20 "
+                 "Жива людина (типово): як людина - відповідає на пачку через 2-5 с із людською затримкою, стежить за чатами, майже без годинних лімітів, мовчить лише 15 с після вашого повідомлення (відповідь відкладається). Збалансований: чекає ~5 с і відповідає на пачку одним разом, 20 с між відповідями, до 20 "
                  "відповідей на годину в чаті, пропускає прості «ок/дякую», мовчить, поки ви пишете самі. "
                  "Балакучий: відповідає частіше. Тихий: рідко. Поля нижче зі значенням мають пріоритет над "
                  "пресетом; порожньо = пресет.",
-                 "Сбалансированный: ждёт ~5 с и отвечает на пачку один раз, 20 с между ответами, до 20 ответов "
+                 "Живой человек (по умолчанию): как человек - отвечает на пачку через 2-5 с с человеческой задержкой, следит за чатами, почти без часовых лимитов, молчит только 15 с после вашего сообщения (ответ откладывается). Сбалансированный: ждёт ~5 с и отвечает на пачку один раз, 20 с между ответами, до 20 ответов "
                  "в час в чате, пропускает простые «ок/спасибо», молчит, пока вы пишете сами. Разговорчивый: "
                  "отвечает чаще. Тихий: редко. Поля ниже со значением приоритетнее пресета; пусто = пресет."),
     "h_decisions": ("Recent decisions", "Останні рішення", "Последние решения"),
@@ -637,7 +743,7 @@ S = {
                    "Черновик (ответ в поле ввода)"),
     "mode_cmd": ("Friend mode (the other person triggers with .ai)", "Режим друга (співрозмовник кличе через .ai)",
                  "Режим друга (собеседник зовёт через .ai)"),
-    "preset_0": ("Balanced (default)", "Збалансований (типовий)", "Сбалансированный (по умолчанию)"),
+    "preset_0": ("Balanced", "Збалансований", "Сбалансированный"),
     "preset_1": ("Chatty", "Балакучий", "Разговорчивый"),
     "preset_2": ("Quiet", "Тихий", "Тихий"),
     "tone_0": ("Neutral", "Нейтральний", "Нейтральный"),
@@ -805,16 +911,18 @@ S = {
     "st_off": ("off", "вимк.", "выкл."),
     "last_pref": ("last: %s", "останнє: %s", "последнее: %s"),
     "reply_lang": ("Reply language", "Мова відповідей", "Язык ответов"),
-    "reply_lang_s": ("Auto = the language you write in this chat (your own messages decide, a mix follows your "
-                     "latest message; Ukrainian when there is no signal). Applies to auto-replies and to .ai.",
-                     "Авто = мова, якою ви пишете в цьому чаті (вирішують ваші повідомлення, мікс — за вашим "
-                     "останнім; без сигналу — українська). Діє для автовідповідей і для .ai.",
-                     "Авто = язык, на котором вы пишете в этом чате (решают ваши сообщения, микс — по вашему "
-                     "последнему; без сигнала — украинский). Действует для автоответов и для .ai."),
-    "rl_0": ("Auto (by the chat context)", "Авто (за контекстом чату)", "Авто (по контексту чата)"),
+    "reply_lang_s": ("The other person's language (default) = the language of the message being answered (then their "
+                     "last 2-3 messages, then your own, then Ukrainian). Auto = the language you write in this chat. "
+                     "Applies to auto-replies and to .ai.",
+                     "Мова співрозмовника (типово) = мова повідомлення, на яке відповідаємо (далі його останні 2-3, потім "
+                     "ваші, потім українська). Авто = мова, якою ви пишете в цьому чаті. Діє для автовідповідей і для .ai.",
+                     "Язык собеседника (по умолчанию) = язык сообщения, на которое отвечаем (далее его последние 2-3, "
+                     "потом ваши, потом украинский). Авто = язык, на котором вы пишете в этом чате. Действует для "
+                     "автоответов и для .ai."),
+    "rl_0": ("Auto (by the owner's context)", "Авто (за контекстом власника)", "Авто (по контексту владельца)"),
     "rl_1": ("Ukrainian", "Українська", "Украинский"),
     "rl_2": ("Russian", "Російська", "Русский"),
-    "rl_3": ("The other person's language", "Мова співрозмовника", "Язык собеседника"),
+    "rl_3": ("The other person's language (default)", "Мова співрозмовника (типово)", "Язык собеседника (по умолчанию)"),
     "rl_chat_0": ("Same as in General settings", "Як у загальних налаштуваннях", "Как в общих настройках"),
     "chat_rlang": ("Reply language in this chat", "Мова відповідей у цьому чаті", "Язык ответов в этом чате"),
     "no_last": ("no decisions yet", "рішень ще немає", "решений пока нет"),
@@ -848,6 +956,61 @@ S = {
                         "Использование: .ai mode auto | draft | friend"),
     "bl_adm_private": ("Only private chats with a person: %s", "Лише особисті чати з людиною: %s",
                        "Только личные чаты с человеком: %s"),
+    # 0.3.6: Live preset, timing, reading, stickers
+    "preset_3": ("Live (human-like, default)", "Жива людина (типовий)", "Живой человек (по умолчанию)"),
+    "h_live": ("Live: monitoring and human timing", "Live: моніторинг і людський темп",
+               "Live: мониторинг и человеческий темп"),
+    "live_note": ("Empty field = the value of the current preset (Live: reply 2-9 s in a warm talk, 8-40 s after a "
+                  "pause of 10+ minutes; typing indicator; the chats are also scanned every ~25 s for messages the "
+                  "events missed).",
+                  "Порожнє поле = значення поточного пресету (Live: відповідь за 2-9 с у жвавій розмові, 8-40 с після "
+                  "паузи понад 10 хв; індикатор набору; чати ще й перевіряються кожні ~25 с на пропущені події "
+                  "повідомлення).",
+                  "Пустое поле = значение текущего пресета (Live: ответ за 2-9 с в живой беседе, 8-40 с после паузы "
+                  "больше 10 мин; индикатор набора; чаты ещё и проверяются каждые ~25 с на пропущенные событиями "
+                  "сообщения)."),
+    "human_timing": ("Human reply timing", "Людський темп відповідей", "Человеческий темп ответов"),
+    "scan_on": ("Safety-net scan of the chats", "Страхувальне сканування чатів", "Страховочное сканирование чатов"),
+    "scan_on_s": ("Finds incoming messages that no event delivered (app resumed, missed updates). Never answers mail older than the catch-up window.",
+                  "Знаходить вхідні, яких не доставила жодна подія (застосунок відновився, пропущені оновлення). Не відповідає на пошту старішу за вікно догонки.",
+                  "Находит входящие, которых не доставило ни одно событие (приложение возобновилось, пропущенные обновления). Не отвечает на почту старше окна догонки."),
+    "show_typing": ("Show typing…", "Показувати набір тексту", "Показывать набор текста"),
+    "show_typing_s": ("Sends the 'typing' action while the bot waits before replying (needs network.requests; off if ghost mode hides typing).",
+                      "Надсилає дію «друкує…», поки бот чекає перед відповіддю (потрібен network.requests; не діє, якщо ghost-режим ховає набір).",
+                      "Отправляет действие «печатает…», пока бот ждёт перед ответом (нужен network.requests; не работает, если ghost-режим скрывает набор)."),
+    "read_msgs": ("Mark messages as read", "Позначати повідомлення прочитаними", "Помечать сообщения прочитанными"),
+    "read_msgs_s": ("Before replying (1-6 s after receiving in a warm talk; right before typing in a cold one). Private chats only. Blocked by ghost mode 'do not read'.",
+                    "Перед відповіддю (через 1-6 с після отримання в жвавій розмові; у холодній — перед початком набору). Лише особисті чати. Блокується ghost-режимом «не читати».",
+                    "Перед ответом (через 1-6 с после получения в живой беседе; в холодной — перед началом набора). Только личные чаты. Блокируется ghost-режимом «не читать»."),
+    "read_always": ("Read even when the bot does not reply", "Читати, навіть коли бот не відповідає", "Читать, даже когда бот не отвечает"),
+    "stickers": ("Stickers", "Стікери", "Стикеры"),
+    "stickers_s": ("Now and then the bot sends one of your recent stickers (only after short emotional/acknowledgement messages, never to questions).",
+                   "Інколи бот надсилає один з ваших недавніх стікерів (лише після коротких емоційних/підтверджувальних повідомлень, ніколи на питання).",
+                   "Иногда бот отправляет один из ваших недавних стикеров (только после коротких эмоциональных/подтверждающих сообщений, никогда на вопросы)."),
+    "sticker_pct": ("Sticker chance, % per reply", "Ймовірність стікера, % на відповідь", "Вероятность стикера, % на ответ"),
+    "sticker_recent": ("Only from recent stickers", "Лише з недавніх", "Только из недавних"),
+    "lat_warm_min": ("Warm talk: reply after, min (s)", "Жвава розмова: відповідь через, мін (с)", "Живая беседа: ответ через, мин (с)"),
+    "lat_warm_max": ("Warm talk: reply after, max (s)", "Жвава розмова: відповідь через, макс (с)", "Живая беседа: ответ через, макс (с)"),
+    "lat_cold_min": ("Cold start: reply after, min (s)", "Холодний старт: відповідь через, мін (с)", "Холодный старт: ответ через, мин (с)"),
+    "lat_cold_max": ("Cold start: reply after, max (s)", "Холодний старт: відповідь через, макс (с)", "Холодный старт: ответ через, макс (с)"),
+    "lat_long_pct": ("Cold start: chance of a long wait, %", "Холодний старт: шанс довгого очікування, %", "Холодный старт: шанс долгого ожидания, %"),
+    "lat_long_min": ("Long wait min (s)", "Довге очікування, мін (с)", "Долгое ожидание, мин (с)"),
+    "lat_long_max": ("Long wait max (s)", "Довге очікування, макс (с)", "Долгое ожидание, макс (с)"),
+    "warm_window": ("A talk is warm if their previous message is younger than (s)", "Розмова жвава, якщо їхнє попереднє повідомлення молодше за (с)", "Беседа живая, если их предыдущее сообщение моложе (с)"),
+    "cold_after": ("A talk is cold after silence longer than (s)", "Розмова холодна після тиші довше за (с)", "Беседа холодная после тишины дольше (с)"),
+    "type_ms": ("Typing speed (ms per character)", "Швидкість набору (мс на символ)", "Скорость набора (мс на символ)"),
+    "warm_cap": ("Warm talk: hard cap of the whole wait (s)", "Жвава розмова: жорсткий ліміт усього очікування (с)", "Живая беседа: жёсткий лимит всего ожидания (с)"),
+    "split2_pct": ("Chance to send the reply as 2 messages, %", "Шанс надіслати відповідь двома повідомленнями, %", "Шанс отправить ответ двумя сообщениями, %"),
+    "split_gap_min": ("Pause between the 2 messages, min (s)", "Пауза між двома повідомленнями, мін (с)", "Пауза между двумя сообщениями, мин (с)"),
+    "split_gap_max": ("Pause between the 2 messages, max (s)", "Пауза між двома повідомленнями, макс (с)", "Пауза между двумя сообщениями, макс (с)"),
+    "ack_reply_pct": ("Chance to answer a plain acknowledgement, %", "Шанс відповісти на просте «ок/дякую», %", "Шанс ответить на простое «ок/спасибо», %"),
+    "loop_burst": ("Replies within 2 minutes that count as a loop", "Відповідей за 2 хвилини, що вважаються петлею", "Ответов за 2 минуты, считающихся петлёй"),
+    "owner_defers": ("How many times a reply is deferred while you write", "Скільки разів відкладати відповідь, поки ви пишете", "Сколько раз откладывать ответ, пока вы пишете"),
+    "cooldown_jitter": ("Random extra cooldown, up to (s)", "Випадкова добавка до паузи, до (с)", "Случайная добавка к паузе, до (с)"),
+    "catchup_min": ("Never answer messages older than (min)", "Не відповідати на повідомлення старші за (хв)", "Не отвечать на сообщения старше (мин)"),
+    "scan_interval": ("Scan interval (s)", "Інтервал сканування (с)", "Интервал сканирования (с)"),
+    "o_info": ("info", "інфо", "инфо"),
+    "o_defer": ("deferred", "відкладено", "отложено"),
     "o_seen": ("received", "отримано", "получено"),
     "o_cmd": ("command", "команда", "команда"),
 }
@@ -861,6 +1024,22 @@ R = {
     "polite_stop": ("hourly limit reached: sent one polite stop line",
                     "ліміт на годину вичерпано: надіслано один ввічливий рядок-зупинку",
                     "лимит в час исчерпан: отправлена одна вежливая строка-остановка"),
+    "scan_found": ("found by the safety-net scan: the message was not delivered by an event",
+                   "знайдено страхувальним скануванням: повідомлення не доставила жодна подія",
+                   "найдено страховочным сканированием: сообщение не доставило ни одно событие"),
+    "deferred_owner_active": ("you wrote here a moment ago: the reply is deferred until your silence window ends (not dropped)",
+                              "ви щойно писали тут: відповідь відкладено до кінця вашої тиші (не скасовано)",
+                              "вы только что писали здесь: ответ отложен до конца вашей тишины (не отменён)"),
+    "owner_replied": ("you already replied yourself: the bot stays silent",
+                      "ви вже відповіли самі: бот мовчить", "вы уже ответили сами: бот молчит"),
+    "latency_wait": ("waiting %s s before replying (human pace)", "чекаю %s с перед відповіддю (людський темп)",
+                     "жду %s с перед ответом (человеческий темп)"),
+    "typing_sent": ("showed the 'typing…' indicator", "показано індикатор «друкує…»", "показан индикатор «печатает…»"),
+    "read_sent": ("marked the messages as read", "повідомлення позначено прочитаними", "сообщения помечены прочитанными"),
+    "read_blocked_by_ghost": ("could not mark as read: ghost mode blocks read receipts (turn off 'do not read' in ghost mode)",
+                              "не вдалося позначити прочитаним: ghost-режим блокує прочитання (вимкніть «не читати» в ghost-режимі)",
+                              "не удалось пометить прочитанным: ghost-режим блокирует прочтение (выключите «не читать» в ghost-режиме)"),
+    "sticker_sent": ("sent a sticker", "надіслано стікер", "отправлен стикер"),
     "outgoing": ("it is your own message", "це ваше власне повідомлення", "это ваше собственное сообщение"),
     "master_off": ("the master switch is off", "головний перемикач вимкнено", "главный переключатель выключен"),
     "sender_is_bot": ("the sender is a bot", "відправник — бот", "отправитель — бот"),
@@ -1014,6 +1193,10 @@ def reason_text(lang, code):
     """Plain-language explanation of a stored reason code (unknown codes are shown as they are)."""
     code = str(code or "")
     row = R.get(code)
+    mw = re.match(r"^latency_wait_(\d+)$", code)
+    if row is None and mw:
+        base = R["latency_wait"]
+        return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % mw.group(1)
     if row is None:
         for prefix in ("ok_fallback", "process_exception"):
             if code.startswith(prefix):
@@ -1080,6 +1263,16 @@ class ChatState(object):
         self.sending = False
         self.polite_ts = 0.0
         self.defers = 0                    # times the pending batch was held back by the owner-active rule
+        self.last_in_ts = 0.0              # arrival of the latest incoming message
+        self.last_act_ts = 0.0             # latest message of anybody (incoming, our reply, owner)
+        self.last_reply_ts = 0.0           # latest reply of ours or of the owner
+        self.last_send_ts = 0.0            # latest send by the plugin (stickers have no text to recognize)
+        self.arr_ts = 0.0                  # arrival of the first message of the pending batch
+        self.b_prev = (0.0, 0.0, 0.0)      # (last_in, last_act, last_reply) just before the pending batch
+        self.cur = None                    # (arrival, prev_in, prev_act, prev_reply) of the batch being processed
+        self.read_upto = 0                 # highest message id already marked as read
+        self.ghost_note_ts = 0.0
+        self.abort = ""                    # reason when a delivery was stopped while waiting
 
 
 class Plugin(BasePlugin):
@@ -1092,6 +1285,13 @@ class Plugin(BasePlugin):
         self._rng = random.Random()
         self._testing = False
         self._testing_ts = 0.0
+        self._scan_armed = False
+        self._scan_stop = False
+        self._scan_lock = threading.Lock()
+        self._sticker_hist = deque(maxlen=6)
+        self._tl_warned = set()
+        self._marks = {}
+        self._load_marks()
         self._load_decisions()
         self._load_bot_texts()
         self._load_chats()
@@ -1123,8 +1323,11 @@ class Plugin(BasePlugin):
             condition=self.cond_show_cmd, key="ai_autoreply_cmd"))
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
                                                           PRESET_NAMES[self._preset_index()]))
+        self._ensure_scan()
 
     def on_plugin_unload(self):
+        self._scan_stop = True
+        self._scan_armed = False
         self.log("unloaded")
 
     # ------------------------------------------------------------------ helpers
@@ -1151,13 +1354,37 @@ class Plugin(BasePlugin):
     # ---- presets: an empty setting means "use the preset value"
     def _preset_index(self):
         try:
-            i = int(self.get_setting("preset", 0))
+            i = int(self.get_setting("preset", LIVE_PRESET))
         except (TypeError, ValueError):
-            i = 0
-        return i if 0 <= i < len(PRESETS) else 0
+            i = LIVE_PRESET
+        return i if 0 <= i < len(PRESETS) else LIVE_PRESET
 
     def _preset(self):
-        return PRESETS[self._preset_index()]
+        d = dict(PRESET_BASE)
+        d.update(PRESETS[self._preset_index()])
+        return d
+
+    def _live(self):
+        """Human reply timing (Live preset, or switched on by hand)."""
+        return self._pbool("human_timing")
+
+    def _timing_params(self):
+        keys = ("lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
+                "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap")
+        return {k: self._pnum(k, 0, 100000) for k in keys}
+
+    def _cooldown(self):
+        base = self._pnum("cooldown", 0, 3600)
+        jit = self._pnum("cooldown_jitter", 0, 3600)
+        if self._explicit("cooldown") is None and jit > 0:
+            base += self._rng.uniform(0, jit)
+        return base
+
+    def _max_age(self):
+        """How old an incoming message may be and still be answered (seconds)."""
+        if self._pbool("scan"):
+            return self._pnum("catchup_min", 1, 1440) * 60.0
+        return float(MAX_AGE_SEC)
 
     def _explicit(self, key):
         raw = self.get_setting(key, "")
@@ -1189,7 +1416,7 @@ class Plugin(BasePlugin):
             data = json.loads(self.get_setting("decisions", "[]") or "[]")
         except (ValueError, TypeError):
             data = []
-        self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=20)
+        self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=60)
 
     def _decide(self, key, outcome, reason, ring=True):
         """Record why a message was answered or skipped. Never raises."""
@@ -1208,7 +1435,7 @@ class Plugin(BasePlugin):
         return reason
 
     def decisions_text(self):
-        rows = list(getattr(self, "_decisions", []))[-20:]
+        rows = list(getattr(self, "_decisions", []))[-40:]
         if not rows:
             return "No decisions yet."
         out = []
@@ -1252,6 +1479,25 @@ class Plugin(BasePlugin):
         with self._lock:
             self._bot_texts.append(norm_text(text)[:160])
             self.set_setting("bot_texts", json.dumps(list(self._bot_texts), ensure_ascii=False))
+
+    def _load_marks(self):
+        try:
+            data = json.loads(self.get_setting("scan_marks", "{}") or "{}")
+        except (ValueError, TypeError):
+            data = {}
+        self._marks = {str(k): int(v) for k, v in (data.items() if isinstance(data, dict) else [])
+                       if isinstance(v, int)}
+
+    def _bump_mark(self, key, mid):
+        """Remember the highest message id of a chat that went through the pipeline (survives restarts)."""
+        if not isinstance(mid, int) or mid <= self._marks.get(key, 0):
+            return
+        with self._lock:
+            self._marks[key] = mid
+            if len(self._marks) > 200:
+                for k in list(self._marks)[:50]:
+                    self._marks.pop(k, None)
+            self.set_setting("scan_marks", json.dumps(self._marks))
 
     @staticmethod
     def chat_key(account, dialog_id):
@@ -1301,7 +1547,11 @@ class Plugin(BasePlugin):
         Debounce/cooldown/in-flight state (self._states) is deliberately kept. The event arrives as the plain
         string 'settings_changed' (PluginRuntime.dispatchAppEventTo); an enum-like object is handled too."""
         name = getattr(event, "name", None) or getattr(event, "value", None) or event
-        if str(name).strip().lower() != "settings_changed":
+        name = str(name).strip().lower()
+        if name in ("start", "resume"):
+            self._catch_up_async("app_" + name)
+            return
+        if name != "settings_changed":
             return
         try:
             with self._lock:
@@ -1313,6 +1563,7 @@ class Plugin(BasePlugin):
                     if key not in self._chats:
                         self._profiles.pop(key, None)
             self.log("settings_changed: reloaded %d chats" % len(self._chats))
+            self._ensure_scan()
         except Exception as e:
             self.error(e)
 
@@ -1498,7 +1749,10 @@ class Plugin(BasePlugin):
         text = str(m.get("text") or "")
         if st.sending or (text.strip() and self._is_bot_text(text)):
             return
+        if not text.strip() and self._now() - st.last_send_ts < 10:
+            return                               # most likely our own sticker coming back as an outgoing event
         st.owner_ts = self._now()
+        st.last_act_ts = st.last_reply_ts = st.owner_ts
 
     def handle_incoming(self, account, mo):
         m = self._to_dict(mo)
@@ -1515,7 +1769,7 @@ class Plugin(BasePlugin):
             self._recent_ids.append(ident)
         return False
 
-    def _handle_dict(self, account, did, m):
+    def _handle_dict(self, account, did, m, via_scan=False):
         if not did:
             return None
         key = self.chat_key(account, did)
@@ -1539,26 +1793,35 @@ class Plugin(BasePlugin):
         if self._dup_event(key, m.get("id")):
             self._decide(key, "skip", "duplicate", ring=False)
             return "duplicate"
-        self._decide(key, "seen", "incoming_seen")      # the owner can see that the plugin got the message
+        # the owner can see that the plugin got the message (and whether it came from the safety-net scan)
+        self._decide(key, "info" if via_scan else "seen", "scan_found" if via_scan else "incoming_seen")
         if not self.get_setting("master", True):
             self._decide(key, "skip", "master_off")
             return None
-        reason = self.accept_message(key, m)
+        reason = self.accept_message(key, m, max_age=self._max_age())
         if reason:
             self._decide(key, "skip", reason, ring=reason not in ("duplicate", "sender is bot"))
             return reason
         st = self._state(key)
         with self._lock:
+            now = self._now()
             if not st.pending:
-                st.first_ts = self._now()
+                st.first_ts = now
                 st.defers = 0
+                st.arr_ts = now
+                st.b_prev = (st.last_in_ts, st.last_act_ts, st.last_reply_ts)
             st.pending.append((m.get("id"), m.get("from_id"), self._strip_trigger(key, m["text"])))
-            st.last_ts = self._now()
+            st.last_ts = now
+            st.last_in_ts = st.last_act_ts = now
             need_timer = not st.timer
             if need_timer:
                 st.timer = True
         if need_timer:
             self._schedule(key, self._debounce(jitter=True))
+        if self._read_enabled() and self.get_setting("read_always", False) and self._chat_mode(key) != MODE_COMMAND:
+            delay = self._rng.uniform(1.0, 6.0)
+            mid = m.get("id")
+            self._run_later(delay, lambda: self._mark_read(key, mid))
         return None
 
     # Private chats (and basic groups) deliver messages as TL_updateShortMessage / TL_updateShortChatMessage
@@ -1625,8 +1888,10 @@ class Plugin(BasePlugin):
                 return text[len(t):].strip()
         return text
 
-    def accept_message(self, key, m):
+    def accept_message(self, key, m, max_age=None):
         """Safety filters for one incoming message. Returns skip reason or None (accept)."""
+        if max_age is None:
+            max_age = MAX_AGE_SEC
         st = self._state(key)
         if m.get("out"):
             return "outgoing"
@@ -1644,10 +1909,11 @@ class Plugin(BasePlugin):
                     st.seen_set.discard(st.seen[0])
                 st.seen.append(mid)
                 st.seen_set.add(mid)
+        self._bump_mark(key, mid)
         date = m.get("date")
         if date is not None:                # a missing/unparsable date is accepted, never a silent drop
             try:
-                if self._now() - float(date) > MAX_AGE_SEC:
+                if self._now() - float(date) > max_age:
                     return "too old"
             except (TypeError, ValueError):
                 pass
@@ -1661,7 +1927,7 @@ class Plugin(BasePlugin):
             if len(tail) == LOOP_SAME_TEXT and len(set(tail)) == 1:
                 return "repeated identical text"
             now = self._now()
-            if len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= LOOP_BURST_COUNT:
+            if len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= int(self._pnum("loop_burst", 1, 1000)):
                 return "reply burst (possible loop)"
         if self._chat_mode(key) == MODE_COMMAND and not low.startswith(self._trigger().lower()):
             return "no command prefix"
@@ -1701,6 +1967,7 @@ class Plugin(BasePlugin):
                     st.timer = False
                     st.inflight = True
                     batch, st.pending = st.pending, []
+                    st.cur = (st.arr_ts or now,) + tuple(st.b_prev)
             if batch is None:
                 self._schedule(key, wait + 0.05)
                 return
@@ -1721,6 +1988,123 @@ class Plugin(BasePlugin):
             with self._lock:
                 st.timer = False
 
+    # ------------------------------------------------------------------ safety-net scan
+    def _run_later(self, delay_s, fn):
+        """fn in a background worker after delay_s seconds; never blocks the caller."""
+        try:
+            client.run_on_ui(lambda: client.run_in_bg(fn), delay_ms=int(max(0.0, delay_s) * 1000))
+        except Exception as e:
+            self.log("run_later fallback: %s" % e)
+            t = threading.Timer(max(0.0, delay_s), fn)
+            t.daemon = True
+            t.start()
+
+    def _scan_enabled(self):
+        return bool(self._pbool("scan"))
+
+    def _scan_idle(self):
+        return (not self.get_setting("master", True)) or not any(
+            c.get("enabled") for c in self._chats.values())
+
+    def _ensure_scan(self):
+        """Start the periodic chain once (only while the scan is on in the current preset/settings)."""
+        try:
+            if self._scan_stop or not self._scan_enabled():
+                return
+            with self._lock:
+                if self._scan_armed:
+                    return
+                self._scan_armed = True
+            self._run_later(5.0, self._scan_tick)
+        except Exception as e:
+            self._scan_armed = False
+            self.log("scan not started: %s" % e)
+
+    def _scan_tick(self):
+        delay = 60.0
+        try:
+            if self._scan_stop or not self._scan_enabled():
+                self._scan_armed = False
+                return
+            if not self._scan_idle():
+                self._scan_all("periodic")
+                delay = self._pnum("scan_interval", 10, 600) * self._rng.uniform(0.85, 1.15)
+        except Exception as e:
+            self.log("scan failed: %s" % e)
+        finally:
+            if self._scan_armed and not self._scan_stop:
+                self._run_later(delay, self._scan_tick)
+
+    def _catch_up_async(self, why):
+        """App start/resume: look for missed messages soon (and make sure the periodic scan runs)."""
+        try:
+            if not self._scan_enabled():
+                return
+            self._ensure_scan()
+            self._run_later(1.5, lambda: self._scan_all(why))
+        except Exception as e:
+            self.log("catch-up not started: %s" % e)
+
+    def _scan_all(self, why="periodic"):
+        """One pass over the enabled chats; returns the number of messages fed into the pipeline."""
+        if not self._scan_lock.acquire(False):
+            return 0
+        found = 0
+        try:
+            if not self.get_setting("master", True):
+                return 0
+            for key, c in sorted(self._chats.items()):
+                if self._scan_stop:
+                    break
+                if not c.get("enabled"):
+                    continue
+                try:
+                    found += self._scan_chat(key, c)
+                except Exception as e:
+                    self.log("scan of %s failed: %s" % (key, e))
+        finally:
+            self._scan_lock.release()
+        return found
+
+    def _scan_chat(self, key, c):
+        """Incoming messages after the last outgoing one that no event delivered yet."""
+        did, account = int(c["dialog_id"]), int(c.get("account", 0))
+        window = self._max_age()
+        hist = client.get_recent_messages(did, limit=self._int("scan_limit", 8, 3, 30), account=account) or []
+        rows = sorted((h for h in hist if isinstance(h, dict)), key=lambda h: (h.get("date") or 0, h.get("id") or 0))
+        tail = []
+        for h in reversed(rows):                       # incoming run after the newest outgoing message
+            if h.get("out"):
+                break
+            tail.insert(0, h)
+        st = self._state(key)
+        now = self._now()
+        mark = self._marks.get(key, 0)
+        cand = []
+        for h in tail:
+            mid = h.get("id")
+            if h.get("is_service") or not str(h.get("text") or "").strip():
+                continue
+            try:
+                age = now - float(h.get("date") or 0)
+            except (TypeError, ValueError):
+                continue
+            if age > window or age < SCAN_GRACE_SEC:
+                continue
+            if isinstance(mid, int) and (mid <= mark or mid in st.seen_set or mid in st.answered):
+                continue
+            if (key, mid) in self._recent_ids:
+                continue
+            cand.append(h)
+        n = 0
+        for h in cand[-SCAN_MAX_FOUND:]:
+            m = dict(h)
+            m["out"] = False
+            m.setdefault("dialog_id", did)
+            if self._handle_dict(account, did, m, via_scan=True) is None:
+                n += 1
+        return n
+
     # ------------------------------------------------------------------ caps
     def _day(self):
         return time.strftime("%Y-%m-%d", time.localtime(self._now()))
@@ -1740,9 +2124,10 @@ class Plugin(BasePlugin):
         with self._lock:
             while self._hourly and now - self._hourly[0] > 3600:
                 self._hourly.popleft()
-            if len(self._hourly) >= self._int("hourly_cap", 30, 1, 1000):
+            cap = int(self._pnum("hourly_cap", 0, 100000))
+            if cap and len(self._hourly) >= cap:                  # 0 = no global hourly cap (Live)
                 return "hourly cap reached"
-            if self._usage()["n"].get(key, 0) >= self._int("daily_cap", 50, 1, 1000):
+            if self._usage()["n"].get(key, 0) >= int(self._pnum("daily_cap", 1, 100000)):
                 return "daily cap reached"
         return None
 
@@ -1821,12 +2206,24 @@ class Plugin(BasePlugin):
         """The owner wrote here recently: log why, and (a limited number of times) answer after the silence
         window instead of dropping the message. A reply the owner already gave is detected later
         (the last message is no longer from them)."""
-        self._skip(key, "owner active")
+        live = self._live()
+        limit = int(self._pnum("owner_defers", 0, 100)) if live else MAX_OWNER_DEFERS
+        deferred = False
         with self._lock:
-            if st.defers < MAX_OWNER_DEFERS:
+            if st.defers < limit:
+                deferred = True
                 st.defers += 1
+                if live and st.cur:
+                    if st.pending:
+                        st.arr_ts = min(st.arr_ts or st.cur[0], st.cur[0])
+                    else:
+                        st.arr_ts, st.b_prev = st.cur[0], tuple(st.cur[1:])
                 st.pending = list(batch) + st.pending
                 st.cooldown_until = max(st.cooldown_until, self._now() + max(1.0, remaining) + 1.0)
+        if live and deferred:
+            self._decide(key, "defer", "deferred_owner_active")
+        else:
+            self._skip(key, "owner active")
         return "owner active"
 
     def _polite_stop(self, key, c, st, did, batch):
@@ -1853,6 +2250,7 @@ class Plugin(BasePlugin):
         mode = self._chat_mode(key)
         auto = mode == MODE_AUTO
         humanize = self._humanize()
+        live = self._live()
         batch = [b for b in batch if b[0] is None or b[0] not in st.answered]
         if not batch:
             return self._skip(key, "already answered")
@@ -1861,11 +2259,18 @@ class Plugin(BasePlugin):
         if (humanize and self.get_setting("skip_emoji", True)
                 and all(is_emoji_only(t) for _, _, t in batch)):
             return self._skip(key, "emoji only")
+        ack_hint = False
         if auto and self._pbool("skip_ack") and all(is_ack(t) for _, _, t in batch):
-            return self._skip(key, "acknowledgement")
+            pct = self._pnum("ack_reply_pct", 0, 100)
+            if pct and self._rng.random() * 100.0 < pct:
+                ack_hint = True                      # a human answers 'ок' with 'ага' now and then
+            else:
+                return self._skip(key, "acknowledgement")
         if (auto and c.get("type") == "group" and self._pbool("group_need_question")
                 and not any(has_request(t) for _, _, t in batch)):
             return self._skip(key, "group no question")
+        if live and auto and st.cur and st.owner_ts > st.cur[0]:
+            return self._skip(key, "owner replied")      # you answered this message yourself
         window = self._pnum("owner_active", 0, 3600)
         if auto and window and self._now() - st.owner_ts < window:
             return self._defer_owner(key, st, batch, window - (self._now() - st.owner_ts))
@@ -1897,10 +2302,25 @@ class Plugin(BasePlugin):
             return self._skip(key, "context failed")
         if not messages:
             return self._skip(key, "empty context (last message is not from them)")
+        max_id = max([b[0] for b in batch if isinstance(b[0], int)] or [0])
+        kind, arrival = "warm", self._now()
+        if live and mode != MODE_DRAFT:
+            kind, arrival = self._conv_kind(st, hist, batch)
+        read_id = max_id if (mode != MODE_DRAFT and max_id and self._read_enabled()) else 0
+        cold_read = 0
+        if read_id:
+            if live and kind == "cold":
+                cold_read = read_id                  # cold start: read right before the typing starts
+            else:
+                self._mark_read(key, read_id)
         self.count_use(key)
+        extra = ""
+        if ack_hint:
+            extra = ("The other person only acknowledged something. Answer with one or two words at most "
+                     "(like 'ага', 'ок', 'ну') in their language, nothing else.")
         try:
             parts, why = self.generate(key, account, did, messages, c, st,
-                                       split=(mode != MODE_DRAFT))
+                                       split=(mode != MODE_DRAFT), extra_system=extra)
         except Exception as e:
             self._fail(key, e)
             return self._skip(key, "ai failed")
@@ -1918,7 +2338,15 @@ class Plugin(BasePlugin):
                 client.set_draft(did, "\n".join(parts))
                 st.recent.append(norm_text(" ".join(parts)))
             else:
-                self.deliver(key, c, st, did, parts, batch, humanize)
+                if live:
+                    parts = self._maybe_split2(parts)
+                sticker = self._maybe_sticker(c, did, account, batch, parts, ack_hint)
+                if sticker and sticker.get("instead"):
+                    parts = []
+                timing = self._make_timing(key, st, kind, arrival, batch, parts, cold_read) if live else None
+                ok = self.deliver(key, c, st, did, parts, batch, humanize, timing=timing, sticker=sticker)
+                if ok is False:
+                    return self._skip(key, st.abort or "disabled meanwhile")
         except Exception as e:
             self._fail(key, e)
             return self._skip(key, "send failed")
@@ -1926,7 +2354,7 @@ class Plugin(BasePlugin):
             for b in batch:
                 if b[0] is not None:
                     st.answered.append(b[0])
-            st.cooldown_until = self._now() + self._pnum("cooldown", 0, 3600)
+            st.cooldown_until = self._now() + self._cooldown()
             st.defers = 0
             upd = {"fails": 0}
             if c.get("disclosed"):
@@ -1936,36 +2364,269 @@ class Plugin(BasePlugin):
                      "ok_fallback_" + why if why else "ok")
         return "ok"
 
-    def deliver(self, key, c, st, did, parts, batch, humanize):
-        """Send the parts one by one with a short typing delay; raises on send failure."""
+    # ---- human timing
+    def _conv_kind(self, st, hist, batch):
+        """('warm' | 'medium' | 'cold', arrival time of the batch) from our own memory and the history."""
+        p = self._timing_params()
+        cur = st.cur or (self._now(), 0.0, 0.0, 0.0)
+        arr, p_in, p_act, p_rep = cur
+        ids = set(b[0] for b in batch)
+        for h in hist:
+            if h.get("id") in ids:
+                continue
+            try:
+                d = float(h.get("date") or 0)
+            except (TypeError, ValueError):
+                continue
+            if d <= 0 or d > arr + 1:
+                continue
+            p_act = max(p_act, d)
+            if h.get("out"):
+                p_rep = max(p_rep, d)
+            else:
+                p_in = max(p_in, d)
+        gap = lambda t: (arr - t) if t else None
+        return conv_kind(gap(p_in), gap(p_act), gap(p_rep), p), arr
+
+    def _make_timing(self, key, st, kind, arrival, batch, parts, read_id):
+        """How long to wait (from now) before the first part, and how much of it to show 'typing'."""
+        p = self._timing_params()
+        in_len = sum(len(b[2] or "") for b in batch)
+        reply_len = sum(len(x) for x in parts)
+        total, type_s = latency_seconds(self._rng, kind, in_len, reply_len, p)
+        wait = max(0.0, total - (self._now() - arrival))
+        if wait >= 1.0:
+            self._decide(key, "info", "latency_wait_%d" % int(round(wait)))
+        return {"wait": wait, "type": min(wait, type_s), "arr": arrival, "read_id": read_id}
+
+    def _maybe_split2(self, parts):
+        if len(parts) != 1 or not self.get_setting("split_msgs", True):
+            return parts
+        if self._rng.random() * 100.0 >= self._pnum("split2_pct", 0, 100):
+            return parts
+        two = split_reply(parts[0], 2)
+        return two if len(two) == 2 else parts
+
+    def _alive(self, key, st, arrival):
+        cur = self._chats.get(key)
+        if not cur or not cur.get("enabled") or not self.get_setting("master", True):
+            st.abort = "disabled meanwhile"
+            return False
+        if st.owner_ts > arrival:
+            st.abort = "owner replied"
+            return False
+        return True
+
+    def _live_wait(self, key, c, st, did, account, timing):
+        """Sleep the human latency in short chunks; typing indicator during the last part. False = stop."""
+        total, tsecs = float(timing["wait"]), float(timing["type"])
+        quiet = max(0.0, total - tsecs)
+        waited = 0.0
+        while waited < quiet - 1e-9:
+            ch = min(TYPING_REFRESH_SEC, quiet - waited)
+            time.sleep(ch)
+            waited += ch
+            if not self._alive(key, st, timing["arr"]):
+                return False
+        if timing.get("read_id"):
+            self._mark_read(key, timing["read_id"])
+        shown = False
+        show = bool(self.get_setting("show_typing", True))
+        while waited < total - 1e-9:
+            if show and self._send_typing(did, account):
+                shown = True
+            ch = min(TYPING_REFRESH_SEC, total - waited)
+            time.sleep(ch)
+            waited += ch
+            if not self._alive(key, st, timing["arr"]):
+                if shown:
+                    self._send_typing(did, account, cancel=True)
+                return False
+        if shown:
+            self._decide(key, "info", "typing_sent")
+        return True
+
+    # ---- reading and typing (TL through client.send_request; helpers of newer apps are preferred)
+    def _read_enabled(self):
+        return bool(self.get_setting("read_msgs", True))
+
+    def _ghost_flags(self):
+        """(no_read, no_typing) of the app's ghost mode, or (False, False) when it cannot be seen."""
+        try:
+            zc = _jclass("org.telegram.messenger.zephyr.ZephyrConfig")
+            try:
+                zc.load()
+            except Exception:
+                pass
+            return bool(zc.ghostNoRead), bool(zc.ghostNoTyping)
+        except Exception:
+            return False, False
+
+    def _tl_warn(self, what, e):
+        if what not in self._tl_warned:
+            self._tl_warned.add(what)
+            self.log("%s unavailable: %s" % (what, e))
+
+    def _mark_read(self, key, max_id):
+        """messages.readHistory for a private chat (once per message id). Returns True if requested."""
+        try:
+            st = self._state(key)
+            c = self._chats.get(key)
+            if not c or not max_id or max_id <= st.read_upto or not self._read_enabled():
+                return False
+            did, account = int(c["dialog_id"]), int(c.get("account", 0))
+            if did <= 0:
+                return False                         # private chats only
+            if self._ghost_flags()[0]:
+                if self._now() - st.ghost_note_ts > 3600:
+                    st.ghost_note_ts = self._now()
+                    self._decide(key, "info", "read_blocked_by_ghost")
+                return False
+            done = False
+            for name in ("mark_read", "read_history"):
+                fn = getattr(client, name, None)
+                if fn is not None:
+                    fn(did, int(max_id), account=account)
+                    done = True
+                    break
+            if not done:
+                mc = _jclass("org.telegram.messenger.MessagesController").getInstance(account)
+                req = _jclass("org.telegram.tgnet.TLRPC$TL_messages_readHistory")()
+                req.peer = mc.getInputPeer(did)
+                req.max_id = int(max_id)
+                client.send_request(req, None, account)
+            st.read_upto = int(max_id)
+            self._decide(key, "info", "read_sent")
+            return True
+        except Exception as e:
+            self._tl_warn("read", e)
+            return False
+
+    def _send_typing(self, did, account, cancel=False):
+        """One 'typing…' action (or cancel). Never raises."""
+        try:
+            if self._ghost_flags()[1]:
+                return False
+            for name in ("set_typing", "send_typing"):
+                fn = getattr(client, name, None)
+                if fn is not None:
+                    fn(did, account=account) if not cancel else fn(did, account=account, cancel=True)
+                    return True
+            mc = _jclass("org.telegram.messenger.MessagesController").getInstance(account)
+            req = _jclass("org.telegram.tgnet.TLRPC$TL_messages_setTyping")()
+            req.flags = 0
+            req.peer = mc.getInputPeer(int(did))
+            req.action = _jclass("org.telegram.tgnet.TLRPC$" + (
+                "TL_sendMessageCancelAction" if cancel else "TL_sendMessageTypingAction"))()
+            client.send_request(req, None, account)
+            return True
+        except Exception as e:
+            self._tl_warn("typing", e)
+            return False
+
+    # ---- stickers
+    def _maybe_sticker(self, c, did, account, batch, parts, ack_hint):
+        """{'id', 'instead': bool} or None. Only after short emotional/acknowledgement messages, never for
+        questions, never in groups; needs get_recent_stickers/send_sticker in the app."""
+        try:
+            if (not self.get_setting("stickers", True) or c.get("type") == "group"
+                    or not hasattr(client, "get_recent_stickers") or not hasattr(client, "send_sticker")):
+                return None
+            pct = self._float("sticker_pct", 12.0, 0.0, 100.0)
+            if pct <= 0:
+                return None
+            texts = [b[2] or "" for b in batch]
+            if any(has_request(t) for t in texts):
+                return None
+            allack = all(is_ack(t) or is_emoji_only(t) or LAUGH_RE.match(t.strip().lower()) for t in texts)
+            short = all(len(t) <= 20 for t in texts) and len(texts) <= 2
+            if not (ack_hint or allack or short or any(sticker_emojis(t) for t in texts)):
+                return None
+            if self._rng.random() * 100.0 >= pct:
+                return None
+            lim = 20 if self.get_setting("sticker_recent", True) else 60
+            lst = list(client.get_recent_stickers(limit=lim, account=account) or [])[:lim]
+            want = set()
+            for t in texts + list(parts):
+                want |= sticker_emojis(t)
+            low = " ".join(texts).lower()
+            if LAUGH_RE.match(low.strip()) or any(w in low for w in (u"хаха", u"лол", u"ахах", "lol", "haha")):
+                want |= set(u"😂😁😄🤣😆")
+            if any(w in low for w in (u"дяк", u"спас", "thank")):
+                want |= set(u"❤🙏👍😊")
+            s = choose_sticker(self._rng, lst, self._sticker_hist, want)
+            if not s:
+                return None
+            instead = bool(allack or sum(len(x) for x in parts) <= 8) and self._rng.random() < 0.5
+            return {"id": int(s["id"]), "instead": instead}
+        except Exception as e:
+            self._tl_warn("stickers", e)
+            return None
+
+    def _send_sticker(self, key, st, did, account, sticker, reply_to):
+        st.sending = True
+        try:
+            ok = client.send_sticker(did, sticker["id"], account=account, reply_to=reply_to)
+        finally:
+            st.sending = False
+            st.last_send_ts = self._now()
+        if ok:
+            self._sticker_hist.append(sticker["id"])
+            self._decide(key, "info", "sticker_sent")
+        return bool(ok)
+
+    def deliver(self, key, c, st, did, parts, batch, humanize, timing=None, sticker=None):
+        """Send the parts one by one with a short typing delay (or the human timing); raises on send failure.
+        Returns False when the delivery was stopped while waiting (st.abort has the reason)."""
         parts = list(parts)
         bodies = list(parts)
-        if self.get_setting("disclosure", True) and not c.get("disclosed"):
+        if parts and self.get_setting("disclosure", True) and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
         reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
+        account = int(c.get("account", 0))
         cap = self._pnum("typing_cap", 0, 15)
         budget = cap
         sent = []
-        st.sending = True
+        st.abort = ""
+        if timing is not None and not self._live_wait(key, c, st, did, account, timing):
+            return False
+        st.sending = timing is None
         try:
             for i, part in enumerate(parts):
-                if self.get_setting("typing_delay", True):
-                    d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
-                    if i == 0:
-                        d = max(d, min(MIN_TYPING_TOTAL, cap))
-                    d = max(0.0, min(budget, d))
-                    budget -= d
-                    if d > 0:
-                        time.sleep(d)
+                if timing is None:
+                    if self.get_setting("typing_delay", True):
+                        d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
+                        if i == 0:
+                            d = max(d, min(MIN_TYPING_TOTAL, cap))
+                        d = max(0.0, min(budget, d))
+                        budget -= d
+                        if d > 0:
+                            time.sleep(d)
+                elif i:
+                    gap = self._rng.uniform(self._pnum("split_gap_min", 0, 60),
+                                            max(self._pnum("split_gap_min", 0, 60), self._pnum("split_gap_max", 0, 60)))
+                    if self.get_setting("show_typing", True):
+                        self._send_typing(did, account)
+                    time.sleep(gap)
                 if i:
                     cur = self._chats.get(key)
                     if not cur or not cur.get("enabled") or not self.get_setting("master", True):
                         break
-                self.send(did, part, reply_to if i == 0 else None)
+                self._remember_bot_text(bodies[i])     # before sending: our own outgoing event must be recognized
+                st.sending = True
+                try:
+                    self.send(did, part, reply_to if i == 0 else None)
+                finally:
+                    st.sending = timing is None
+                st.last_send_ts = self._now()
                 sent.append(part)
-                self._remember_bot_text(bodies[i])
                 with self._lock:
                     c["disclosed"] = True
+            if sticker:
+                if sent and timing is not None:
+                    time.sleep(self._rng.uniform(1.0, 3.0))
+                if self._send_sticker(key, st, did, account, sticker, reply_to if not sent else None):
+                    sent.append(u"[sticker]")
         finally:
             st.sending = False
             if sent:
@@ -1973,7 +2634,11 @@ class Plugin(BasePlugin):
                     now = self._now()
                     st.replies.append(now)
                     st.sent_h.append(now)
-                    st.recent.append(norm_text(" ".join(sent)))
+                    st.last_act_ts = st.last_reply_ts = now
+                    texts = [x for x in sent if x != u"[sticker]"]
+                    if texts:
+                        st.recent.append(norm_text(" ".join(texts)))
+        return True
 
     def send(self, did, text, reply_to):
         if reply_to is not None:
@@ -2103,9 +2768,10 @@ class Plugin(BasePlugin):
         last_in = LABEL_RE.sub("", str(messages[-1].get("content") or "")) if messages else ""
         if lang_text is not None:
             last_in = str(lang_text)
-        lang = self.pick_reply_lang(key, account, did, last_in)
+        batch_in, recent_in = self._incoming_texts(messages, lang_text)
+        lang = self.pick_reply_lang(key, account, did, last_in, batch=batch_in, recent=recent_in)
         system = self.build_system(key, profile) + ("\n\n" + extra_system if extra_system else "") + (
-            "\n\n" + lang_rule(lang))
+            "\n\n" + lang_rule(lang, follow_other=self._reply_lang_mode(key) == 3))
         temp = self._float("temperature", 0.95, 0.0, 2.0)
         limit = self._int("max_reply", 300, 40, MAX_REPLY_CHARS)
         style = (profile or {}).get("style") or {}
@@ -2147,6 +2813,19 @@ class Plugin(BasePlugin):
         usable.sort(key=lambda cd: (any(p in ("ai-tell", "wrong-lang") for p in cd[1]), len(cd[1])))
         return usable[0][0], "fallback"
 
+    @staticmethod
+    def _incoming_texts(messages, lang_text=None):
+        """(texts being answered = the trailing user messages, last 3 user texts), oldest first."""
+        users = [LABEL_RE.sub("", str(m.get("content") or "")) for m in (messages or []) if m.get("role") == "user"]
+        tail = []
+        for m in reversed(messages or []):
+            if m.get("role") != "user":
+                break
+            tail.insert(0, LABEL_RE.sub("", str(m.get("content") or "")))
+        if lang_text is not None:
+            tail = [str(lang_text)]
+        return tail, users[-3:]
+
     def reply_problems(self, text, st, last_in="", extra=()):
         """List of problems: 'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat' (same as our last reply)."""
         out = []
@@ -2166,7 +2845,7 @@ class Plugin(BasePlugin):
         n = norm_text(text)
         if st is not None and len(n) >= 12 and st.recent:
             prev = st.recent[-1]
-            if prev == n or difflib.SequenceMatcher(None, prev, n).ratio() >= 0.95:
+            if prev == n or (not self._live() and difflib.SequenceMatcher(None, prev, n).ratio() >= 0.95):
                 out.append("repeat")
         return out
 
@@ -2325,7 +3004,7 @@ class Plugin(BasePlugin):
         label = self.t("o_" + outcome) if ("o_" + outcome) in S else outcome
         if outcome in ("sent", "draft") and code == "ok":
             return label
-        if outcome in ("seen", "cmd"):
+        if outcome in ("seen", "cmd", "info"):
             return self.rt(code)
         return "%s: %s" % (label, self.rt(code))
 
@@ -2338,13 +3017,13 @@ class Plugin(BasePlugin):
             return "?"
 
     def decision_rows(self):
-        """[(title, sentence, record)] newest first, at most 20. Title like '21:45:30 · Cherish'."""
-        rows = list(getattr(self, "_decisions", []))[-20:][::-1]
+        """[(title, sentence, record)] newest first, at most 40. Title like '21:45:30 · Cherish'."""
+        rows = list(getattr(self, "_decisions", []))[-40:][::-1]
         return [("%s · %s" % (self._stamp(r.get("t", 0)), self._chat_title(r.get("chat"))),
                  self.decision_sentence(r), r) for r in rows]
 
     def log_for_clipboard(self):
-        rows = list(getattr(self, "_decisions", []))[-20:][::-1]
+        rows = list(getattr(self, "_decisions", []))[-40:][::-1]
         out = []
         for r in rows:
             out.append("%s · %s — %s [%s/%s]" % (self._stamp(r.get("t", 0), True), self._chat_title(r.get("chat")),
@@ -2678,12 +3357,12 @@ class Plugin(BasePlugin):
         if per in (1, 2, 3, 4):
             return per - 1
         try:
-            g = int(self.get_setting("reply_lang", 0))
+            g = int(self.get_setting("reply_lang", 3))
         except (TypeError, ValueError):
-            g = 0
-        return g if g in (0, 1, 2, 3) else 0
+            g = 3
+        return g if g in (0, 1, 2, 3) else 3
 
-    def pick_reply_lang(self, key, account, did, last_in=""):
+    def pick_reply_lang(self, key, account, did, last_in="", batch=None, recent=None):
         """'Ukrainian' / 'Russian' / 'English' to answer in. Auto: from the last ~15 messages of the chat
         (the owner's own count most), cached 10 minutes per chat; no signal: the language of last_in,
         Ukrainian by default."""
@@ -2692,8 +3371,19 @@ class Plugin(BasePlugin):
             return "Ukrainian"
         if mode == 2:
             return "Russian"
-        if mode == 3:
-            return detect_lang(last_in)
+        if mode == 3:                                # the other person's language, the current message first
+            found = incoming_language(batch if batch is not None else [last_in],
+                                      recent if recent is not None else [last_in])
+            if found:
+                return found
+            try:
+                hist = self._load_history(key, account, did, 15)
+                own = [str(h.get("text") or "") for h in hist
+                       if h.get("out") and not h.get("is_service") and not self._is_bot_text(h.get("text"))]
+                found = context_language(own, [])
+            except Exception as e:
+                self.log("language detection failed for %s: %s" % (key, e))
+            return found or detect_lang(last_in)
         now = self._now()
         ent = self._lang_cache.get(key)
         if ent and now - ent[0] < 600:
@@ -2879,9 +3569,9 @@ class Plugin(BasePlugin):
             Header(text=t("h_general")),
             Switch(key="master", text=t("master"), default=True, subtext=t("master_s")),
             Selector(key="ui_lang", text=t("lang"), items=list(LANG_NAMES), default=0, subtext=t("lang_s")),
-            Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(3)], default=0,
+            Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(4)], default=LIVE_PRESET,
                      subtext=t("preset_s")),
-            Selector(key="reply_lang", text=t("reply_lang"), items=[t("rl_%d" % i) for i in range(4)], default=0,
+            Selector(key="reply_lang", text=t("reply_lang"), items=[t("rl_%d" % i) for i in range(4)], default=3,
                      subtext=t("reply_lang_s")),
             Header(text=t("h_modes")),
             note(t("modes_help")),
@@ -2923,8 +3613,23 @@ class Plugin(BasePlugin):
             Input(key="quiet_hours", text=t("quiet"), default="", subtext=t("quiet_s")),
             Switch(key="skip_ack", text=t("skip_ack"), default=True, subtext=t("until_touch")),
             Switch(key="group_need_question", text=t("group_q"), default=True, subtext=t("until_touch")),
-            Input(key="daily_cap", text=t("daily_cap"), default="50"),
-            Input(key="hourly_cap", text=t("hourly_cap"), default="30"),
+            Input(key="daily_cap", text=t("daily_cap"), default="", subtext=t("until_touch")),
+            Input(key="hourly_cap", text=t("hourly_cap"), default="", subtext=t("until_touch")),
+            Header(text=t("h_live")),
+            note(t("live_note")),
+            Switch(key="human_timing", text=t("human_timing"), default=True, subtext=t("until_touch")),
+            Switch(key="scan", text=t("scan_on"), default=True, subtext=t("scan_on_s")),
+            Switch(key="show_typing", text=t("show_typing"), default=True, subtext=t("show_typing_s")),
+            Switch(key="read_msgs", text=t("read_msgs"), default=True, subtext=t("read_msgs_s")),
+            Switch(key="read_always", text=t("read_always"), default=False),
+            Switch(key="stickers", text=t("stickers"), default=True, subtext=t("stickers_s")),
+            Input(key="sticker_pct", text=t("sticker_pct"), default="12"),
+            Switch(key="sticker_recent", text=t("sticker_recent"), default=True),
+        ] + [Input(key=k, text=t(k), default="", subtext=t("until_touch")) for k in (
+            "lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
+            "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap", "split2_pct", "split_gap_min",
+            "split_gap_max", "ack_reply_pct", "loop_burst", "owner_defers", "cooldown_jitter", "catchup_min",
+            "scan_interval")] + [
             Header(text=t("h_test")),
         ]
         if DialogPicker is not None:

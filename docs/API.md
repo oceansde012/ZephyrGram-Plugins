@@ -36,8 +36,8 @@ Keep the file <= 512 KB, LF line endings, no BOM.
 |---|---|
 | `network.requests` | `add_request_hook`, `client.send_request` (Telegram API requests/responses) |
 | `updates.read` | `add_update_hook`, `add_on_new_message_hook` (incoming updates/messages) |
-| `messages.send` | `add_on_send_message_hook`, `client.send_text`, `client.set_draft` |
-| `chat.read` | `client.get_recent_messages`, `client.get_dialog_info`, `client.search_dialogs` (cached chat data), `client.resolve_username` (may use the network) |
+| `messages.send` | `add_on_send_message_hook`, `client.send_text`, `client.send_sticker`, `client.set_draft` |
+| `chat.read` | `client.get_recent_messages`, `client.get_recent_stickers`, `client.get_dialog_info`, `client.search_dialogs` (cached chat data), `client.resolve_username` (may use the network) |
 | `ai.complete` | `client.ai_complete` (the user's configured AI server; the token is never exposed) |
 | `ui.menu` | `add_menu_item` |
 | `internet` | `client.http_get` (outside Telegram) |
@@ -212,6 +212,8 @@ client.set_draft(dialog_id, text, account=None)             # messages.send
 client.ai_complete(messages, system=None, model=None, temperature=None, timeout=60) -> str   # ai.complete
 client.get_recent_messages(dialog_id, limit=20, account=None) -> list[dict]   # chat.read
 client.get_dialog_info(dialog_id, account=None) -> dict                       # chat.read
+client.get_recent_stickers(limit=30, account=None) -> list[dict]              # chat.read
+client.send_sticker(dialog_id, sticker_id, account=None, reply_to=None) -> bool   # messages.send
 client.search_dialogs(query, limit=20, account=None) -> list[dict]            # chat.read
 client.resolve_username(username, account=None) -> dict | None                # chat.read, network
 client.message_to_dict(message_object) -> dict   # also zephyr.message_to_dict; no permission needed
@@ -249,6 +251,19 @@ fraction of a second ago may not be stored yet. `limit` is clamped to 1..100. Bl
 (short disk read): worker thread only. Each dict: `id, dialog_id, from_id (user id, negative
 chat/channel id), out (bool), date (unix seconds), text (caption for media, "" if none),
 is_bot, is_secret, is_service, reply_to (message id or None), has_media`.
+
+**`get_recent_stickers(limit=30, account=None) -> list[dict]`** (`chat.read`)
+Recent stickers, newest first (favorites are appended after them, duplicates removed). Served
+from the in-memory cache, never blocks on the network. If the cache is not loaded yet, a
+background load starts and the list may be empty: retry a moment later. `limit` is clamped to
+1..100. Each dict: `id` (document id, int), `emoji` (associated emoji or ""), `set_title`
+(sticker set title if the set is cached, else ""), `mime`, `is_animated` (bool).
+
+**`send_sticker(dialog_id, sticker_id, account=None, reply_to=None) -> bool`** (`messages.send`)
+Sends the sticker whose document `id` is `sticker_id`, looked up among recent, favorite and
+installed stickers. Returns `True` if queued, `False` if not found or the chat is a secret chat.
+Marked like `send_text` (plugin hooks are skipped for it; ghost mode still applies) and, like
+`send_text`, returns no message id. `reply_to` is a message id in the same dialog. Worker thread only.
 
 **`get_dialog_info(dialog_id, account=None) -> dict`**
 `{id, title, type: 'user'|'group'|'channel'|'secret', is_bot, username (None if absent)}`
@@ -398,18 +413,21 @@ set `enabled`.
 | `rlang_<sk>` | int, *new* | reply language for this chat: `0` as global, `1` Auto, `2` Ukrainian, `3` Russian, `4` the other person's language |
 
 **Global settings of interest:** `master` (bool, default true; false = the bot is silent everywhere),
-`reply_lang` (int, *new*: `0` Auto by the chat context, `1` Ukrainian, `2` Russian, `3` the other person's
-language), `preset` (int: `0` Balanced, `1` Chatty, `2` Quiet), `owner_active` (string, seconds the bot stays
+`reply_lang` (int, *new*: `0` Auto by the owner's context, `1` Ukrainian, `2` Russian, `3` the other person's
+language; since 0.3.6 a missing value means `3`), `preset` (int: `0` Balanced, `1` Chatty, `2` Quiet, `3` Live; since
+0.3.6 a missing value means `3` Live, an explicit `0..2` stays), `owner_active` (string, seconds the bot stays
 silent after the owner wrote in the chat; empty = preset, Balanced 45), `chat_hourly` (string; empty = preset,
 Balanced 20), `ui_lang` (int: `0` auto, `1` uk, `2` ru, `3` en).
 
-**`decisions`** (string, JSON array, at most 20, oldest first, no message text):
+**`decisions`** (string, JSON array, at most 60 since 0.3.6 (20 before), oldest first, no message text):
 `{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}`.
 `o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`
 (reason `incoming_seen`: a message from the other person reached the plugin; consecutive ones of a chat are
 collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, `admin_status`, `admin_list`,
-`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`). The last real decision of a chat is the
-newest entry of that chat whose `o` is not `seen` or `cmd`.
+`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`). Since 0.3.6 also `info` (timing and
+side actions: `scan_found`, `latency_wait_<seconds>`, `typing_sent`, `read_sent`, `read_blocked_by_ghost`,
+`sticker_sent`) and `defer` (`deferred_owner_active`: the reply is postponed, not dropped). The last real decision of
+a chat is the newest entry of that chat whose `o` is not `seen`, `cmd` or `info`.
 
 To list active chats: parse `chats`, keep entries with `enabled == true`, show `title`, mode from `mode_<sk>`.
 To add or remove a chat from the core side, write the same JSON back (keep unknown fields) and set `mode_<sk>`
@@ -422,3 +440,57 @@ keys (`mode_`, `keep_`, `rlang_`, `prompt_`) and `master` are read from the stor
 **In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
 `.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`. They are intercepted by the send hook;
 the command words (default `.ai`, `.аі`) are the `cmd_triggers` setting and the whole feature is `cmd_enable`.
+
+## 11. ai_autoreply 0.3.6: Live preset, scan, human timing, read marks, stickers
+
+Preset `3` **Live** is the default when `preset` is missing (new installs and settings without an explicit choice);
+Balanced/Chatty/Quiet (`0..2`) behave as before. Every number below is an optional string setting; empty = the value
+of the current preset (Live column), a value overrides it. Switches (`human_timing`, `scan`) behave the same: unset =
+preset (on in Live, off in the others).
+
+| setting | Live default | meaning |
+|---|---|---|
+| `debounce`, `cooldown` | 2-5 s, 0-3 s (`cooldown_jitter`) | burst collection and pause between conversational turns |
+| `owner_active` / `owner_defers` | 15 s / 8 | silence after the owner's own message; the reply is **deferred** (retried up to `owner_defers` times), not dropped. If the owner wrote after the incoming message arrived, the bot stays silent (`owner_replied`) |
+| `chat_hourly`, `hourly_cap`, `daily_cap` | 60, 0 (= none), 400 | per-chat hourly, global hourly and per-chat daily limits |
+| `loop_burst` | 10 | own replies within 2 min that count as a ping-pong loop (others: 4) |
+| `ack_reply_pct` | 25 | chance to answer a plain acknowledgement ("ок", "дякую"); questions are always answered; emoji-only messages are still skipped |
+| `lat_warm_min/max` | 2 / 9 s | reply latency (from the arrival of the first message) when the interlocutor's previous message is younger than `warm_window` (120 s) and somebody replied within 5 min |
+| `lat_cold_min/max` | 8 / 40 s | latency after more than `cold_after` (600 s) of silence; `lat_long_pct` (10 %) of them take `lat_long_min/max` (60-120 s) |
+| `type_ms`, `warm_cap` | 35 ms/char, 25 s | typing time per reply character is added to the latency; the whole warm latency is capped |
+| `split2_pct`, `split_gap_min/max` | 15 %, 1-3 s | chance to send a reply with a natural break as 2 messages, and the pause between them |
+| `catchup_min`, `scan_interval` | 30 min, 25 s | maximum age of a message to answer; period of the safety-net scan |
+| `show_typing`, `read_msgs`, `read_always`, `stickers`, `sticker_pct`, `sticker_recent` | on, on, off, on, 12, on | independent of the preset |
+
+**Safety-net scan.** Besides `on_new_message` and the two short-update hooks, a timer (`client.run_on_ui` +
+`client.run_in_bg`, one chain) runs every `scan_interval` s (+-15 %): for each enabled chat it reads
+`client.get_recent_messages(dialog_id, limit=8)`, takes the incoming run after the newest outgoing message that is not
+younger than 6 s (the events own those), not older than `catchup_min`, above the chat's last handled id (`scan_marks`)
+and not already seen/answered, and feeds at most 5 of them into the normal pipeline (reason `scan_found`; the same
+de-duplication as the events). With no enabled chat or `master` off the interval backs off to 60 s; the chain stops
+when the scan is switched off and restarts on `settings_changed`, app `START`/`RESUME` (which also run one pass after
+1.5 s). Nothing in it sleeps.
+
+**Typing and read marks use Telegram requests.** `client.send_request` (permission `network.requests`, added in 0.3.6)
+needs a TLRPC object. As `zephyr.client` has no typing/read helper yet, the plugin builds
+`TL_messages_setTyping` (`TL_sendMessageTypingAction` / `TL_sendMessageCancelAction`) and `TL_messages_readHistory`
+(private chats only, `max_id` = newest answered message) with `java.jclass` and `MessagesController.getInputPeer`.
+If the client ever gets `set_typing(dialog_id, account=None, cancel=False)` or `mark_read(dialog_id, max_id,
+account=None)` (also `send_typing` / `read_history`), the plugin calls those first. Everything is wrapped in
+try/except: when Java access or a helper is missing the plugin silently works without typing/read marks.
+`ZephyrGhost.intercept` drops `messages.readHistory` (ghostNoRead) and answers typing with a fake `true`
+(ghostNoTyping) without telling the caller, so the plugin reads `ZephyrConfig.ghostNoRead/ghostNoTyping` first: reading
+is skipped and logged as `read_blocked_by_ghost` (once an hour per chat; turn off "do not read" in ghost mode to get
+read marks), typing is skipped silently.
+
+**Stickers** need `client.get_recent_stickers(limit, account)` and `client.send_sticker(dialog_id, sticker_id,
+account, reply_to)` (section 6; missing = no stickers). With probability `sticker_pct` per reply, and only after short
+(<= 20 characters), emotional or acknowledgement messages in private chats (never for questions), the plugin sends a
+random one of the first 20 recent stickers (`sticker_recent` off: first 60), not one of the last 6 used, preferring an
+`emoji` that occurs in the reply/incoming text (laughter and thanks map to a few emoji); either after the text or, for
+acknowledgements and tiny replies, instead of it (`sticker_sent`).
+
+**Language.** `reply_lang = 3` (default): the language of the messages being answered decides (distinctive letters
+ы э ъ ё / і ї є ґ and everyday words), then the last 2-3 incoming messages, then the owner's own messages, then
+Ukrainian; the prompt says to answer in the language the other person wrote in. Storage additions: `scan_marks`
+(JSON object chat key -> highest handled message id).

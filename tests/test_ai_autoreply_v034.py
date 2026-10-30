@@ -503,7 +503,7 @@ class TestReplyLanguage(Cmd):
     def test_settings_have_language_selectors(self):
         sk = self.p._sk(self.key())
         keys = {getattr(i, "key", None): i for i in self.p.create_settings()}
-        self.assertEqual(keys["reply_lang"].default, 0)
+        self.assertEqual(keys["reply_lang"].default, 3)
         self.assertEqual(len(keys["reply_lang"].items), 4)
         self.p._open_key = self.key()
         keys = {getattr(i, "key", None): i for i in self.p.create_settings()}
@@ -514,7 +514,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.3.5"\n__version_code__ = 8') == 1)
+                        .count('__version__ = "0.3.6"\n__version_code__ = 9') == 1)
 
 
 if __name__ == "__main__":

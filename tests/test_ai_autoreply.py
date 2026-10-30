@@ -140,6 +140,8 @@ class Base(unittest.TestCase):
         self.p = mod.Plugin()
         self.p._now = lambda: self.clock[0]
         self.p.settings["ui_lang"] = 3            # English: the older tests assert English texts
+        self.p.settings["preset"] = 0             # Balanced + owner-context language: what the pre-0.3.6 tests exercise
+        self.p.settings["reply_lang"] = 0
         self.p.on_plugin_load()
         self.p.settings["debounce"] = "3"
         self.p._rng.seed(1)

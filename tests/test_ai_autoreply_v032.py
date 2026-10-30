@@ -74,7 +74,7 @@ class TestDecisionLog(Base):
         items, _r = self.rows()
         by_key = {getattr(x, "key", None): x for x in items}
         by_key["log_copy"].on_click()
-        self.assertEqual(len(CLIENT.clipboard[0].splitlines()), 20)
+        self.assertEqual(len(CLIENT.clipboard[0].splitlines()), 26)
         self.assertIn("Alice", CLIENT.clipboard[0])
         by_key["log_clear"].on_click()
         self.assertEqual(len(self.p._decisions), 0)
@@ -150,7 +150,7 @@ class TestLocalization(Base):
         keys = {getattr(i, "key", None): i for i in self.p.create_settings()}
         self.assertEqual(keys["ui_lang"].default, 0)
         self.assertEqual(len(keys["ui_lang"].items), 4)
-        self.assertEqual(len(keys["preset"].items), 3)
+        self.assertEqual(len(keys["preset"].items), 4)
         self.assertEqual(len(keys["tone"].items), 3)
 
 

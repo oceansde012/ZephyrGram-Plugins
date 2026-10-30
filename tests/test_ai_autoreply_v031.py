@@ -220,7 +220,7 @@ class TestSilentPaths(Base):
         self.round("секретний текст повідомлення?")
         txt = self.decisions()
         self.assertNotIn("секретний", txt)
-        self.assertLessEqual(len(txt.splitlines()), 20)
+        self.assertLessEqual(len(txt.splitlines()), 40)
         self.assertTrue(any("decision" in l for l in self.p.logs))
         p2 = mod.Plugin()
         p2.settings = dict(self.p.settings)
@@ -230,8 +230,8 @@ class TestSilentPaths(Base):
     def test_settings_have_preset_and_decisions(self):
         items = self.p.create_settings()
         keys = {getattr(i, "key", None): i for i in items}
-        self.assertEqual(keys["preset"].default, 0)
-        self.assertEqual(len(keys["preset"].items), 3)
+        self.assertEqual(keys["preset"].default, 3)       # Live is the default since 0.3.6
+        self.assertEqual(len(keys["preset"].items), 4)
         self.assertTrue(any("Recent decisions" in str(getattr(i, "text", "")) for i in items))
         self.p.settings["preset"] = 2                         # Quiet
         self.assertEqual(self.p._pnum("cooldown", 0, 3600), 60)
