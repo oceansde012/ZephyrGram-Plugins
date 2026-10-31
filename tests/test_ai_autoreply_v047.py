@@ -1,5 +1,5 @@
 """0.4.6: forms of address follow the other person's gender; pauses between parts follow their length."""
-from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_autoreply import Base, CLIENT, DID, chats_screen, mod
 
 
 class TestDetectGender(Base):
@@ -68,7 +68,7 @@ class TestGenderInPrompt(Base):
 
     def test_chat_options_have_the_selector(self):
         self.p._open_key = self.key()
-        keys = [getattr(i, "key", None) for i in self.p.create_settings()]
+        keys = [getattr(i, "key", None) for i in chats_screen(self.p)]
         self.assertIn("gender_" + self.sk, keys)
 
 

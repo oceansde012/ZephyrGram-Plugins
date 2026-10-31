@@ -123,10 +123,30 @@ _loader.exec_module(mod)
 DID = 42
 
 
-def all_settings(p):
-    """The settings screen with every collapsible group opened (0.4.1 folds most settings into groups)."""
-    p._open_groups = set(mod.Plugin.SETTINGS_GROUPS)
+def screen(p, section):
+    """The settings screen showing one section (0.4.9: the 'Section' selector ui_section picks what is shown)."""
+    p.settings["ui_section"] = mod.Plugin.UI_SECTIONS.index(section)
     return p.create_settings()
+
+
+def chats_screen(p):
+    return screen(p, "chats")
+
+
+def all_settings(p):
+    """Every section of the settings screen, one after another; the section shown before is kept."""
+    missing = object()
+    before = p.settings.get("ui_section", missing)
+    try:
+        items = []
+        for sid in mod.Plugin.UI_SECTIONS:
+            items += screen(p, sid)
+        return items
+    finally:
+        if before is missing:
+            p.settings.pop("ui_section", None)
+        else:
+            p.settings["ui_section"] = before
 
 
 class Base(unittest.TestCase):
@@ -229,13 +249,13 @@ class TestAllowlist(Base):
 
     def test_settings_list_enabled_chat_titles(self):
         self.enable()
-        texts = [getattr(i, "text", "") for i in self.p.create_settings()]
+        texts = [getattr(i, "text", "") for i in chats_screen(self.p)]
         self.assertIn("▸ Alice", texts)
 
 
 class TestAddChatSettings(Base):
     def items(self):
-        return {getattr(i, "key", None): i for i in self.p.create_settings() if getattr(i, "key", None)}
+        return {getattr(i, "key", None): i for i in chats_screen(self.p) if getattr(i, "key", None)}
 
     def test_add_section_has_picker_and_username(self):
         it = self.items()
@@ -248,7 +268,7 @@ class TestAddChatSettings(Base):
         self.p.on_chat_added(DID, "Alice")
         self.p._open_key = self.key()                       # modes are explained at the chat's Mode selector
         texts = " ".join(str(getattr(i, "subtext", "") or "") + str(getattr(i, "text", ""))
-                         for i in self.p.create_settings())
+                         for i in chats_screen(self.p))
         self.assertIn("the other person asks", texts)
         self.assertIn(".ai", texts)
 

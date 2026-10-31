@@ -7,7 +7,7 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_autoreply import Base, CLIENT, DID, chats_screen, mod, screen
 from test_ai_autoreply_v033 import RealParams
 
 
@@ -180,39 +180,37 @@ class TestSettingsScreen(Cmd):
         return [(type(i).__name__, getattr(i, "text", "")) for i in self.p.create_settings()]
 
     def test_order_main_chats_add_groups_decisions_last(self):
-        # 0.4.1: main block, then the chats, adding a chat right below them, then folded groups, the log last
+        # 0.4.9: the section selector first; Main by default, the chats with adding a chat right below them in
+        # their own section, the log is the last section
         self.p.chat_on(0, DID, "Alice", "user")
         self.incoming(text="привіт")
         items = self.p.create_settings()
-        self.assertEqual((type(items[0]).__name__, items[0].text), ("Header", "Main"))
+        self.assertEqual((type(items[0]).__name__, items[0].key), ("Selector", "ui_section"))
+        self.assertEqual(items[0].items, ["Main", "Chats", "Style", "Timing and pauses", "Limits", "Commands",
+                                          "Media and memory", "Prompts and model", "Style test", "Log"])
+        self.assertEqual(items[0].default, 0)
+        self.assertIn("master", [getattr(i, "key", None) for i in items])
+        self.assertFalse(any(str(getattr(it, "key", "")).startswith("chat_") for it in items))
+        items = chats_screen(self.p)
         kinds = [type(i).__name__ for i in items]
         pos = lambda pred: next(i for i, it in enumerate(items) if pred(it))
         chats = pos(lambda it: str(getattr(it, "text", "")).startswith("Chats with the bot"))
         add = pos(lambda it: getattr(it, "text", "") == "Add chat")
         row = pos(lambda it: getattr(it, "key", "") == "chat_" + self.p._sk(self.key()))
-        more = pos(lambda it: getattr(it, "text", "") == "More settings")
-        self.assertLess(pos(lambda it: getattr(it, "key", "") == "master"), chats)
+        self.assertLess(0, chats)
         self.assertLess(chats, row)
         self.assertLess(row, add)
         self.assertEqual(kinds[add + 1:add + 3], ["DialogPicker", "UsernameInput"])
-        self.assertLess(add, more)
-        groups = [it for it in items[more + 1:] if str(getattr(it, "key", "")).startswith("grp_")]
-        self.assertEqual([g.key for g in groups], ["grp_" + g for g in mod.Plugin.SETTINGS_GROUPS])
-        self.assertEqual(groups[-1].text, "▸ Recent decisions")
-        self.assertIs(items[-1], groups[-1])                   # folded log: nothing after it
-        self.assertEqual(kinds[more + 1:], ["Text"] * len(mod.Plugin.SETTINGS_GROUPS))
-        # opened, the log is still the last thing on the screen
-        self.p._open_groups = set(mod.Plugin.SETTINGS_GROUPS)
-        items = self.p.create_settings()
-        log = next(i for i, it in enumerate(items) if getattr(it, "key", "") == "grp_log")
-        self.assertTrue(all(not str(getattr(it, "key", "")).startswith("grp_") for it in items[log + 1:]))
+        self.assertNotIn("master", [getattr(i, "key", None) for i in items])
+        self.assertEqual(mod.Plugin.UI_SECTIONS[-1], "log")
+        items = screen(self.p, "log")
         self.assertEqual(items[-1].text, "Newest first. No message text is stored.")
 
     def test_row_has_mode_state_and_last_decision(self):
         self.p.chat_on(0, DID, "Alice", "user")
         self.incoming(text="привіт, як справи")
         self.fire_timers()
-        row = next(i for i in self.p.create_settings() if getattr(i, "key", "") == "chat_" + self.p._sk(self.key()))
+        row = next(i for i in chats_screen(self.p) if getattr(i, "key", "") == "chat_" + self.p._sk(self.key()))
         self.assertIn("Alice", row.text)
         self.assertIn("Auto", row.subtext)
         self.assertIn("on", row.subtext)
@@ -222,16 +220,17 @@ class TestSettingsScreen(Cmd):
     def test_tap_opens_options_with_existing_keys_and_closes(self):
         self.p.chat_on(0, DID, "Alice", "user")
         sk = self.p._sk(self.key())
-        keys = lambda: {getattr(i, "key", None) for i in self.p.create_settings()}
+        keys = lambda: {getattr(i, "key", None) for i in chats_screen(self.p)}
         self.assertNotIn("mode_" + sk, keys())
-        next(i for i in self.p.create_settings() if getattr(i, "key", "") == "chat_" + sk).on_click()
-        self.assertTrue({"mode_" + sk, "prompt_" + sk, "keep_" + sk, "remove_" + sk, "test_" + sk} <= keys())
-        next(i for i in self.p.create_settings() if getattr(i, "key", "") == "chat_" + sk).on_click()
+        next(i for i in chats_screen(self.p) if getattr(i, "key", "") == "chat_" + sk).on_click()
+        self.assertTrue({"mode_" + sk, "prompt_" + sk, "keep_" + sk, "remove_" + sk, "test_" + sk,
+                         "react_" + sk} <= keys())
+        next(i for i in chats_screen(self.p) if getattr(i, "key", "") == "chat_" + sk).on_click()
         self.assertNotIn("mode_" + sk, keys())
 
     def test_title_refreshed_from_dialog_info(self):
         self.p.chat_on(0, DID, str(DID), "user")
-        row = next(i for i in self.p.create_settings() if getattr(i, "key", "") == "chat_" + self.p._sk(self.key()))
+        row = next(i for i in chats_screen(self.p) if getattr(i, "key", "") == "chat_" + self.p._sk(self.key()))
         self.assertIn("Alice", row.text)
         # 0.4.5: drawing the screen never writes; the missing title is stored on load / after a core edit
         self.p.on_app_event("settings_changed")
@@ -517,7 +516,7 @@ class TestReplyLanguage(Cmd):
         self.assertEqual(keys["reply_lang"].default, 3)
         self.assertEqual(len(keys["reply_lang"].items), 4)
         self.p._open_key = self.key()
-        keys = {getattr(i, "key", None): i for i in self.p.create_settings()}
+        keys = {getattr(i, "key", None): i for i in chats_screen(self.p)}
         self.assertEqual(len(keys["rlang_" + sk].items), 5)
 
 
@@ -525,7 +524,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.4.9"\n__version_code__ = 21') == 1)
+                        .count('__version__ = "0.5.0"\n__version_code__ = 22') == 1)
 
 
 if __name__ == "__main__":

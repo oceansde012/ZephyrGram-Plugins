@@ -1,7 +1,7 @@
 """Per-chat media opt-in, account isolation and cancellation regression tests; no real network."""
 import json
 
-from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_autoreply import Base, CLIENT, DID, chats_screen, mod
 
 
 class TestScopedAttachments(Base):
@@ -155,7 +155,7 @@ class TestScopedAttachments(Base):
 
     def test_per_chat_switches_are_exposed_off_by_default(self):
         self.p._open_key = self.key()
-        settings = {getattr(item, "key", None): item for item in self.p.create_settings()}
+        settings = {getattr(item, "key", None): item for item in chats_screen(self.p)}
         self.assertFalse(settings["see_media_" + self.sk].default)
         self.assertFalse(settings["transcribe_voice_" + self.sk].default)
         self.assertNotIn("see_media", settings)

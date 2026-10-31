@@ -1,10 +1,10 @@
-"""0.4.1 tests: the settings screen (main block, compact chat list, collapsible groups).
+"""0.4.1 tests: the settings screen (main block, compact chat list); since 0.4.9 one section at a time.
 
 Run: python -m unittest discover -s tests -v
 """
 import unittest
 
-from test_ai_autoreply import Base, CLIENT, DID, all_settings, mod
+from test_ai_autoreply import Base, CLIENT, DID, all_settings, chats_screen, mod, screen
 
 # Every global setting of the 0.4.0 screen: key -> (row type, default). Keys, types and defaults must not change.
 GLOBAL = {
@@ -28,6 +28,7 @@ GLOBAL = {
     "hourly_cap": ("Input", ""), "human_timing": ("Switch", True), "scan": ("Switch", True),
     "show_typing": ("Switch", True), "read_msgs": ("Switch", True), "read_always": ("Switch", False),
     "stickers": ("Switch", True), "sticker_pct": ("Input", "12"), "sticker_recent": ("Switch", True),
+    "reactions": ("Selector", 0),                                 # 0.4.9
 }
 for _k in ("lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
            "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap", "split2_pct", "split_gap_min",
@@ -35,8 +36,9 @@ for _k in ("lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_
            "scan_interval"):
     GLOBAL[_k] = ("Input", "")
 BUTTONS = {"add_pick": "DialogPicker", "add_username": "UsernameInput", "test_pick": "DialogPicker"}
-TOP = ["master", "reply_all", "all_accounts", "skip_links", "short_msgs", "lore", "lore_learn", "revive", "reply_lang", "tone", "preset",
-       "ui_lang"]
+# 0.4.9: the Main section (the section selector first); the tone moved to the Style section
+TOP = ["ui_section", "master", "reply_all", "all_accounts", "skip_links", "short_msgs", "lore", "lore_learn", "revive",
+       "reply_lang", "preset", "reactions", "ui_lang"]
 
 
 def by_key(items):
@@ -46,6 +48,10 @@ def by_key(items):
 class Screen(Base):
     def tap(self, key):
         by_key(self.p.create_settings())[key].on_click()
+
+    def section_keys(self):
+        """section id -> keys shown in it (the section selector itself left out)."""
+        return {sid: set(by_key(screen(self.p, sid))) - {"ui_section"} for sid in mod.Plugin.UI_SECTIONS}
 
 
 class TestAllSettingsReachable(Screen):
@@ -58,27 +64,29 @@ class TestAllSettingsReachable(Screen):
         for key, kind in BUTTONS.items():
             self.assertEqual(type(rows[key]).__name__, kind, key)
 
-    def test_folded_keys_appear_only_after_opening_their_group(self):
-        folded = set(by_key(self.p.create_settings()))
-        opened = set(by_key(all_settings(self.p)))
-        self.assertTrue(set(TOP) <= folded)
-        hidden = set(GLOBAL) - set(TOP)
-        self.assertEqual(hidden & folded, set())                 # everything else waits in a group
-        self.assertTrue(hidden <= opened)
-        # each group reveals its own keys
-        seen = set()
-        for gid in mod.Plugin.SETTINGS_GROUPS:
-            self.p._open_groups = {gid}
-            seen |= set(by_key(self.p.create_settings())) - folded
-        self.assertTrue(hidden <= seen)
+    def test_each_global_key_is_in_exactly_one_section(self):
+        sections = self.section_keys()
+        for key in list(GLOBAL) + list(BUTTONS):
+            where = [sid for sid, keys in sections.items() if key in keys]
+            self.assertEqual(len(where), 1, (key, where))
+        self.assertEqual(set(TOP) - {"ui_section"}, sections["main"] & set(GLOBAL))
+
+    def test_section_selector_is_first_everywhere(self):
+        for sid in mod.Plugin.UI_SECTIONS:
+            items = screen(self.p, sid)
+            self.assertEqual((type(items[0]).__name__, items[0].key, items[0].default), ("Selector", "ui_section", 0))
+            self.assertEqual(len(items[0].items), len(mod.Plugin.UI_SECTIONS))
+            self.assertTrue(items[0].subtext, sid)
+            self.assertEqual(sum(1 for it in items if getattr(it, "key", None) == "ui_section"), 1)
 
     def test_per_chat_options_unchanged(self):
         self.enable()
         sk = self.p._sk(self.key())
         self.p._open_key = self.key()
-        rows = by_key(self.p.create_settings())
+        rows = by_key(chats_screen(self.p))
         self.assertEqual((rows["mode_" + sk].default, len(rows["mode_" + sk].items)), (mod.MODE_AUTO, 3))
         self.assertEqual((rows["rlang_" + sk].default, len(rows["rlang_" + sk].items)), (0, 5))
+        self.assertEqual((rows["react_" + sk].default, len(rows["react_" + sk].items)), (0, 3))
         self.assertTrue(rows["keep_" + sk].default)
         for k in ("memory_", "see_media_", "transcribe_voice_"):
             self.assertFalse(rows[k + sk].default, k)
@@ -88,17 +96,23 @@ class TestAllSettingsReachable(Screen):
 
 
 class TestMainBlock(Screen):
-    def test_top_block_order(self):
-        items = self.p.create_settings()
-        self.assertEqual(items[0].text, "Main")
-        keys = [getattr(i, "key", None) for i in items]
-        chats = next(i for i, it in enumerate(items) if str(getattr(it, "text", "")).startswith("Chats with the bot"))
-        self.assertEqual([k for k in keys[:chats] if k], TOP)
+    def test_default_shows_only_a_short_main_section(self):
+        items = self.p.create_settings()                         # nothing stored: Main
+        self.assertLessEqual(len(items), 14)
+        self.assertEqual([getattr(i, "key", None) for i in items if getattr(i, "key", None)], TOP)
+        self.assertEqual(items[0].items[0], "Main")
+        self.p.settings["master"] = False                         # with the 'master off' note too
+        self.assertLessEqual(len(self.p.create_settings()), 14)
+        for _ in range(20):
+            self.p.chat_on(0, 2000 + _, "C%d" % _, "user")
+        keys = set(by_key(self.p.create_settings()))
+        self.assertFalse(any(k.startswith("chat_") for k in keys))  # chats live in their own section
 
     def test_first_run_tells_what_to_do(self):
         texts = lambda: [str(getattr(i, "text", "")) for i in self.p.create_settings()]
         self.assertIn(self.p.t("start_note"), texts()[:2])
-        self.assertIn(self.p.t("no_chats"), texts())
+        self.assertIn(self.p.t("no_chats"), [str(getattr(i, "text", "")) for i in chats_screen(self.p)])
+        screen(self.p, "main")
         self.p.settings["reply_all"] = True
         self.assertNotIn(self.p.t("start_note"), texts())
         self.p.settings["reply_all"] = False
@@ -115,48 +129,78 @@ class TestMainBlock(Screen):
         self.assertEqual([getattr(i, "key", None) for i in hits], ["mode_" + self.p._sk(self.key())])
 
 
-class TestGroups(Screen):
-    def test_collapsed_by_default_and_toggle(self):
-        rows = by_key(self.p.create_settings())
-        for gid in mod.Plugin.SETTINGS_GROUPS:
-            self.assertTrue(rows["grp_" + gid].text.startswith("▸ "), gid)
-            self.assertTrue(rows["grp_" + gid].subtext, gid)
-        self.assertNotIn("lat_warm_min", rows)
-        self.tap("grp_live")
-        rows = by_key(self.p.create_settings())
-        self.assertTrue(rows["grp_live"].text.startswith("▾ "))
-        self.assertIn("lat_warm_min", rows)
-        self.assertNotIn("humanize", rows)                      # other groups stay closed
-        self.tap("grp_style")
-        rows = by_key(self.p.create_settings())
-        self.assertIn("lat_warm_min", rows)
-        self.assertIn("humanize", rows)
-        self.tap("grp_live")
-        rows = by_key(self.p.create_settings())
-        self.assertNotIn("lat_warm_min", rows)
-        self.assertIn("humanize", rows)
+class TestSections(Screen):
+    def test_changing_the_section_changes_the_content(self):
+        seen = {}
+        for i, sid in enumerate(mod.Plugin.UI_SECTIONS):
+            self.p.settings["ui_section"] = i                     # what PluginSettingsModel.setValue stores
+            seen[sid] = [getattr(it, "key", None) or getattr(it, "text", None) for it in self.p.create_settings()][1:]
+        self.assertEqual(len({tuple(v) for v in seen.values()}), len(mod.Plugin.UI_SECTIONS))
+        self.assertIn("lat_warm_min", seen["live"])
+        self.assertNotIn("lat_warm_min", seen["main"])
+        self.assertIn("humanize", seen["style"])
+        self.assertIn("tone", seen["style"])
+        self.assertIn("add_pick", seen["chats"])
+        self.assertIn("cmd_triggers", seen["cmd"])
+        self.assertIn("stickers", seen["media"])
+        self.assertIn("default_prompt", seen["prompts"])
+        self.assertIn("test_pick", seen["test"])
+        self.assertIn("log_report", seen["log"])
 
-    def test_open_state_is_not_stored(self):
-        before = dict(self.p.settings)
-        for gid in mod.Plugin.SETTINGS_GROUPS:
-            self.tap("grp_" + gid)
-        self.p.create_settings()
-        added = set(self.p.settings) - set(before)
-        self.assertEqual(added, set())
+    def test_nothing_is_folded_inside_a_section(self):
+        for sid in mod.Plugin.UI_SECTIONS:
+            for it in screen(self.p, sid):
+                self.assertFalse(str(getattr(it, "text", "")).startswith(("▸ ", "▾ ")), (sid, it.text))
+                self.assertFalse(str(getattr(it, "key", "")).startswith("grp_"), sid)
+        live = set(by_key(screen(self.p, "live")))
+        for k in ("lat_warm_min", "split_gap_max", "revive_daily", "read_always"):
+            self.assertIn(k, live)
+
+    def test_section_kept_between_redraws_and_reloads(self):
+        self.p.settings["ui_section"] = mod.Plugin.UI_SECTIONS.index("limits")
+        for _ in range(3):
+            self.assertIn("quiet_hours", by_key(self.p.create_settings()))
         p2 = mod.Plugin()
         p2.settings = dict(self.p.settings)
         p2.on_plugin_load()
-        self.assertNotIn("lat_warm_min", by_key(p2.create_settings()))
+        self.assertIn("quiet_hours", by_key(p2.create_settings()))
+        self.assertEqual(by_key(p2.create_settings())["ui_section"].items[self.p.settings["ui_section"]], "Limits")
 
-    def test_titles_localized(self):
+    def test_bad_stored_section_falls_back_to_main(self):
+        for bad in (99, -1, "x", None):
+            self.p.settings["ui_section"] = bad
+            self.assertIn("master", by_key(self.p.create_settings()))
+
+    def test_log_is_the_last_section(self):
+        self.assertEqual(mod.Plugin.UI_SECTIONS[-1], "log")
+        self.assertEqual(by_key(self.p.create_settings())["ui_section"].items[-1], "Log")
+        self.p.settings["ui_lang"] = 1
+        self.assertEqual(by_key(self.p.create_settings())["ui_section"].items[-1], "Журнал")
+        self.p.settings["ui_lang"] = 2
+        self.assertEqual(by_key(self.p.create_settings())["ui_section"].items[-1], "Журнал")
+
+    def test_section_names_localized(self):
         for lang in (1, 2, 3):
             self.p.settings["ui_lang"] = lang
-            rows = by_key(self.p.create_settings())
-            for gid in mod.Plugin.SETTINGS_GROUPS:
-                title = rows["grp_" + gid].text[2:]
-                self.assertNotIn(title, mod.S, gid)              # a real text, not a missing key
-        self.p.settings["ui_lang"] = 1
-        self.assertEqual(by_key(self.p.create_settings())["grp_style"].text, "▸ Стиль і людяність")
+            names = by_key(self.p.create_settings())["ui_section"].items
+            for sid, name in zip(mod.Plugin.UI_SECTIONS, names):
+                self.assertNotIn(name, mod.S, sid)                # a real text, not a missing key
+        self.p.settings["ui_lang"] = 2
+        self.assertEqual(by_key(self.p.create_settings())["ui_section"].items,
+                         ["Главное", "Чаты", "Стиль", "Время и паузы", "Лимиты", "Команды", "Медиа и память",
+                          "Промпты и модель", "Тест стиля", "Журнал"])
+
+    def test_only_the_section_is_stored(self):
+        self.enable()
+        before = dict(self.p.settings)
+        for i in range(len(mod.Plugin.UI_SECTIONS)):
+            self.p.settings["ui_section"] = i
+            self.p.create_settings()
+        self.p.settings["ui_section"] = mod.Plugin.UI_SECTIONS.index("chats")
+        self.tap("chat_" + self.p._sk(self.key()))              # an expanded chat lives in memory only
+        self.assertIn("mode_" + self.p._sk(self.key()), by_key(self.p.create_settings()))
+        added = set(self.p.settings) - set(before)
+        self.assertEqual(added, {"ui_section"})
 
     def test_empty_fields_show_the_current_preset_value(self):
         self.p.settings["preset"] = 3                            # Live
@@ -176,19 +220,17 @@ class TestGroups(Screen):
         self.p.settings["answer_detail"] = 0
         self.assertEqual(by_key(all_settings(self.p))["max_reply"].subtext, "Empty = 400 (by answer detail)")
 
-    def test_log_is_last_and_shows_ten_rows(self):
+    def test_log_section_shows_ten_rows(self):
         self.enable()
         for i in range(25):
             self.clock[0] += 1
             self.p._decide(self.key(), "skip", "quiet hours")
         n = len(self.p._decisions)
-        rows = by_key(self.p.create_settings())
-        self.assertEqual(rows["grp_log"].subtext, "%d entries" % n)
-        self.assertNotIn("log_copy", rows)
-        self.p._open_groups = {"log"}
-        items = self.p.create_settings()
-        i = next(n for n, it in enumerate(items) if getattr(it, "key", "") == "grp_log")
-        tail = items[i + 1:]
+        self.assertEqual(by_key(self.p.create_settings())["ui_section"].subtext, self.p.t("gs_main"))
+        self.assertNotIn("log_copy", by_key(self.p.create_settings()))
+        items = screen(self.p, "log")
+        self.assertEqual(items[0].subtext, "%d entries" % n)
+        tail = items[1:]
         self.assertEqual(sum(1 for it in tail if type(it).__name__ == "Header"), mod.Plugin.LOG_SHOWN)
         by_key(tail)["log_copy"].on_click()
         self.assertGreater(len(CLIENT.clipboard[0].splitlines()), mod.Plugin.LOG_SHOWN)   # the copy is complete
@@ -198,6 +240,10 @@ class TestChatList(Screen):
     def add_chats(self, n):
         for i in range(n):
             self.p.chat_on(0, 1000 + i, "Chat %02d" % i, "user")
+
+    def setUp(self):
+        super().setUp()
+        self.p.settings["ui_section"] = mod.Plugin.UI_SECTIONS.index("chats")
 
     def chat_rows(self):
         return [it for it in self.p.create_settings() if str(getattr(it, "key", "")).startswith("chat_")]
