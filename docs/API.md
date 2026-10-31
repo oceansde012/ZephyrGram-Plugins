@@ -412,6 +412,7 @@ set `enabled`.
 | `prompt_<sk>` | string | extra system prompt for this chat, empty = default |
 | `keep_<sk>` | bool | mirror of `enabled` for the settings switch; whoever changes `enabled` writes it too (the plugin since 0.4.5 also for error pauses and auto-resume; older mismatches are repaired on load) |
 | `rlang_<sk>` | int, *new* | reply language for this chat: `0` as global, `1` Auto, `2` Ukrainian, `3` Russian, `4` the other person's language |
+| `react_<sk>` | int, 0.4.9 | emoji reactions in this chat: `0` as the global `reactions`, `1` off, `2` on (= "instead" plus "sometimes"). Missing = `0`; removed together with the chat |
 
 **Global settings of interest:** `master` (bool, default true; false = the bot is silent everywhere),
 `reply_lang` (int, *new*: `0` Auto by the owner's context, `1` Ukrainian, `2` Russian, `3` the other person's
@@ -435,6 +436,21 @@ facts the AI may state), `lore_learn` (bool, default false: the AI keeps short n
 `lore_<sk>` (string, owner's facts about this chat's person) and `learned_<sk>` (string, lines `- note`, written by the
 plugin, editable; removed together with the chat).
 
+**0.4.9 additions.** `ui_section` (int, default `0`: which section the settings screen shows; `0` Main, `1` Chats,
+`2` Style, `3` Timing and pauses, `4` Limits, `5` Commands, `6` Media and memory, `7` Prompts and model, `8` Style test,
+`9` Log; an unknown value shows Main). It is written only by the app's Selector (the screen is redrawn after it
+changes), never by `create_settings`; no other key changed. `reactions` (int, default `0`): `0` off, `1` instead of a
+text reply the bot puts an emoji reaction on plain acknowledgements, thanks, laughter, emoji-only messages and
+stickers, `2` that and, with about 15 % chance, an extra reaction on a regular message it has just answered (not on
+messages with a link, at most one per chat in 30 minutes). Only private chats, only mode Auto, only when the chat and
+`master` are on; not in quiet hours, not while the owner is active in the chat, not in ghost mode with "do not read"
+(a reaction would show the message was read). At most 12 reactions per chat and hour and 60 per day in all chats
+(in memory, reset by a restart). The emoji is picked by fixed rules from 👍 ❤ 🔥 😁 🥰 👏 🙏 😢 🤔 (no AI call). The request is
+`messages.sendReaction` (`TLRPC.TL_messages_sendReaction`: `peer`, `msg_id`, `reaction` = one `TL_reactionEmoji`
+with `emoticon`, `flags |= 1`) through `client.send_request`; its `Updates` answer is passed to
+`MessagesController.processUpdates`, as the app's own `SendMessagesHelper.sendReaction` does. A failed reaction is
+logged and the message is handled as without reactions; it never counts as a chat failure.
+
 **`decisions`** (string, JSON array, at most 400 since 0.4.4 (60 since 0.3.6, 20 before), oldest first, no message
 text; since 0.4.4 written at most every 5 s, plus on unload, copy, clear and report, so the stored value can lag a
 few seconds behind the plugin):
@@ -446,7 +462,9 @@ collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, 
 `admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`; 0.4.5: `core_mode_auto|draft|friend`,
 `settings_mode_auto|draft|friend`). Since 0.3.6 also `info` (timing and
 side actions: `scan_found`, `latency_wait_<seconds>`, `typing_sent`, `read_sent`, `read_blocked_by_ghost`,
-`sticker_sent`) and `defer` (`deferred_owner_active`: the reply is postponed, not dropped). The last real decision of
+`sticker_sent`; 0.4.9: `reaction_skipped_hour_cap|day_cap|ghost|error|link|gap`) and `defer`
+(`deferred_owner_active`: the reply is postponed, not dropped). 0.4.9: a reaction is `o = sent`, `r = reaction_sent`
+with the emoji in `x`. The last real decision of
 a chat is the newest entry of that chat whose `o` is not `seen`, `cmd` or `info`.
 
 To list active chats: parse `chats`, keep entries with `enabled == true`, show `title`, mode from `mode_<sk>`.

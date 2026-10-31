@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import uuid
 
-from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_autoreply import Base, CLIENT, DID, chats_screen, mod
 
 
 class TestCompactMemory(Base):
@@ -61,7 +61,7 @@ class TestCompactMemory(Base):
         self.assertEqual(self.calls,[])
         self.assertEqual(list(self.root.iterdir()),[])
         self.p._open_key=self.key()
-        setting=next(item for item in self.p.create_settings() if getattr(item,"key",None)=="memory_"+self.sk)
+        setting=next(item for item in chats_screen(self.p) if getattr(item,"key",None)=="memory_"+self.sk)
         self.assertFalse(setting.default)
         self.assertIn("AI server",setting.subtext)
 

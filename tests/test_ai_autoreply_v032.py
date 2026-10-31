@@ -5,7 +5,7 @@ Run: python -m unittest discover -s tests -v
 import re
 import unittest
 
-from test_ai_autoreply import Base, CLIENT, DID, PLUGIN, all_settings, mod, own_history
+from test_ai_autoreply import Base, CLIENT, DID, PLUGIN, all_settings, mod, own_history, screen
 
 
 class Params(object):
@@ -26,11 +26,10 @@ class TestDecisionLog(Base):
         CLIENT.get_dialog_info = default_info
 
     def rows(self):
-        self.p._open_groups = {"log"}                      # 0.4.1: the log is a collapsible group, last
-        items = self.p.create_settings()
-        i = [n for n, x in enumerate(items) if getattr(x, "key", "") == "grp_log"][0]
-        self.assertEqual(items[i].text, "\u25be Recent decisions")
-        return items, items[i + 1:]
+        items = screen(self.p, "log")                      # 0.4.9: the log is its own section, the last one
+        self.assertEqual(items[0].key, "ui_section")
+        self.assertEqual(items[0].items[self.p.settings["ui_section"]], "Log")
+        return items, items[1:]
 
     def test_one_row_per_decision_newest_first_with_full_reason(self):
         self.p._decide(self.key(), "skip", "chat hourly cap")
@@ -54,10 +53,9 @@ class TestDecisionLog(Base):
     def test_ukrainian_plain_language(self):
         self.p.settings["ui_lang"] = 1
         self.p._decide(self.key(), "skip", "chat hourly cap")
-        self.p._open_groups = {"log"}
-        items = self.p.create_settings()
-        i = [n for n, x in enumerate(items) if getattr(x, "text", "") == "\u25be Останні рішення"][0]
-        self.assertTrue(items[i + 2].text.startswith("пропущено: співрозмовник пише швидше"))
+        items = screen(self.p, "log")
+        self.assertEqual(items[0].items[-1], "Журнал")
+        self.assertTrue(items[2].text.startswith("пропущено: співрозмовник пише швидше"))
 
     def test_title_falls_back_to_id(self):
         CLIENT.get_dialog_info = lambda did, account=None: {"title": ""}
@@ -88,7 +86,7 @@ class TestDecisionLog(Base):
         self.assertEqual(len(CLIENT.clipboard), 1)               # nothing to copy
 
     def test_explanations_are_not_clickable_rows(self):
-        for it in self.p.create_settings():
+        for it in all_settings(self.p):
             if type(it).__name__ == "Text":
                 self.assertTrue(callable(getattr(it, "on_click", None)), it.text)
 
@@ -143,16 +141,17 @@ class TestLocalization(Base):
                          for i in all_settings(self.p))
         self.assertIn("Головний перемикач", texts)
         self.assertIn("Тригер режиму друга", texts)
-        self.assertIn("Більше налаштувань", texts)
+        self.assertIn("Розділ", texts)
+        self.assertIn("Час і паузи", texts)
         self.assertNotIn("Master switch", texts)
-        self.assertNotIn("More settings", texts)
+        self.assertNotIn("Timing and pauses", texts)
         self.p.settings["ui_lang"] = 2
         CLIENT.bulletins[:] = []
         self.p.on_enable_click({"account": 0, "dialog_id": DID})
         self.assertIn("включён", CLIENT.bulletins[-1])
 
     def test_selector_values_stay_index_based(self):
-        keys = {getattr(i, "key", None): i for i in self.p.create_settings()}
+        keys = {getattr(i, "key", None): i for i in all_settings(self.p)}
         self.assertEqual(keys["ui_lang"].default, 0)
         self.assertEqual(len(keys["ui_lang"].items), 4)
         self.assertEqual(len(keys["preset"].items), 4)

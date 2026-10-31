@@ -234,7 +234,7 @@ class TestSilentPaths(Base):
         keys = {getattr(i, "key", None): i for i in items}
         self.assertEqual(keys["preset"].default, 3)       # Live is the default since 0.3.6
         self.assertEqual(len(keys["preset"].items), 4)
-        self.assertTrue(any("Recent decisions" in str(getattr(i, "text", "")) for i in items))
+        self.assertEqual(keys["ui_section"].items[-1], "Log")        # 0.4.9: the decision log is the last section
         self.p.settings["preset"] = 2                         # Quiet
         self.assertEqual(self.p._pnum("cooldown", 0, 3600), 60)
 
