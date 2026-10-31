@@ -22,6 +22,14 @@ class TestMemoryDoesNotDelayReplies(MemBase):
                                        blocking=False)
         self.assertIn("untrusted_chat_memory_json", block)
 
+    def test_background_refresh_survives_a_chat_epoch_bump(self):
+        self.opt_in()
+        self.p._chat_epochs[self.key()] = 3                      # e.g. the owner changed this chat's mode meanwhile
+        self.p._memory_context(self.key(), 0, DID, messages=[{"role": "user", "content": "actual text 7"}], blocking=False)
+        self.fire_timers()
+        summaries = [c for c in self.calls if c[1].get("system", "").startswith("Summarize only")]
+        self.assertEqual(len(summaries), 1)
+
     def test_only_one_background_refresh_at_a_time(self):
         self.opt_in()
         for _ in range(3):

@@ -393,10 +393,10 @@ for example `"0:123456789"`. Value:
 | `enabled` | bool | the bot answers in this chat. `false` = paused (switched off in the menu or settings) |
 | `account` | int | account index |
 | `dialog_id` | int | dialog id (same as in the key) |
-| `title` | string | chat title when it was added (refreshed from dialog info when the settings screen opens) |
+| `title` | string | chat title when it was added (a missing title, or one that is only the id, is filled from dialog info when the plugin loads and after `settings_changed`; since 0.4.5 never while the settings screen is drawn) |
 | `type` | string | `"user"` (private chat) or `"group"`; channels, bots and secret chats are never stored |
 | `fails` | int | consecutive AI/send failures (reset on success; at 5 the chat is auto-paused) |
-| `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes |
+| `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes. Only a running chat gets it; the owner's own on/off (core tab, settings switch, menu) removes it, otherwise a chat the owner switched off would come back on (0.4.5) |
 | `disclosed` | bool, optional | the AI disclosure prefix was already sent in this chat |
 
 "Active" chat = `enabled == true`. `.ai off` removes the entry, the chat-menu toggle and the "Enabled" switch only
@@ -409,7 +409,7 @@ set `enabled`.
 |---|---|---|
 | `mode_<sk>` | int | `0` Auto (answers by itself), `1` Draft (writes into the input field), `2` Friend (the other person triggers with `.ai `). Missing = `0` |
 | `prompt_<sk>` | string | extra system prompt for this chat, empty = default |
-| `keep_<sk>` | bool | mirror of `enabled` for the settings switch |
+| `keep_<sk>` | bool | mirror of `enabled` for the settings switch; whoever changes `enabled` writes it too (the plugin since 0.4.5 also for error pauses and auto-resume; older mismatches are repaired on load) |
 | `rlang_<sk>` | int, *new* | reply language for this chat: `0` as global, `1` Auto, `2` Ukrainian, `3` Russian, `4` the other person's language |
 
 **Global settings of interest:** `master` (bool, default true; false = the bot is silent everywhere),
@@ -442,7 +442,8 @@ few seconds behind the plugin):
 (reason `incoming_seen`: a message from the other person reached the plugin; consecutive ones of a chat are
 collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, `admin_status`, `admin_list`,
 `admin_log` (0.4.4),
-`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`). Since 0.3.6 also `info` (timing and
+`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`; 0.4.5: `core_mode_auto|draft|friend`,
+`settings_mode_auto|draft|friend`). Since 0.3.6 also `info` (timing and
 side actions: `scan_found`, `latency_wait_<seconds>`, `typing_sent`, `read_sent`, `read_blocked_by_ghost`,
 `sticker_sent`) and `defer` (`deferred_owner_active`: the reply is postponed, not dropped). The last real decision of
 a chat is the newest entry of that chat whose `o` is not `seen`, `cmd` or `info`.
@@ -454,6 +455,19 @@ the app event `settings_changed` (see section 3), so after a core-side edit call
 `PluginManager.notifySettingsChanged("ai_autoreply")`. The plugin's own writes are reload-merge-save: it re-reads
 `chats`, changes only the one chat field(s) it owns and writes back, so concurrent core edits are not lost. Per-chat
 keys (`mode_`, `keep_`, `rlang_`, `prompt_`) and `master` are read from the store on every use and need no reload.
+
+**Sync rules (0.4.5).** (1) Core code rewrites `chats` / `all_skip` while holding `PluginSettingsModel.lock("ai_autoreply")`,
+the lock every plugin write (`putRaw`, `remove`) takes too. (2) The plugin rewrites `chats` / `all_skip` with
+`PluginSettingsModel.putRawIf(id, key, expectedRaw, newRaw)` (compare-and-set of the stored JSON text, read with
+`getRaw`): when a core write landed in between it re-reads and applies its change again (up to 8 tries, then a plain
+write). On an app without `putRawIf` it falls back to a plain write. (3) Screens that show these values listen to the
+store (`SharedPreferences.OnSharedPreferenceChangeListener` on `zephyr_plugin_ai_autoreply`, keys `chats`, `master`,
+`mode_*`, `keep_*`), so the plugin's own changes (a chat added by "answer everyone", an error pause, the auto-resume)
+appear while the screen is open. (4) `settings_changed` cancels a reply that is being prepared only in the chats whose
+`enabled`/identity/mode/consent changed; when nothing chat-specific changed (or `master` did) every running reply is
+re-checked as before. A mode change made on the core screen is logged as decision `cmd` / `core_mode_auto|draft|friend`,
+one made with the settings screen's selector as `settings_mode_*`. (5) Drawing the settings screen (`create_settings`)
+writes nothing.
 
 **In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
 `.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`, `.ai start` (0.4.3), `.ai log` (0.4.4,
