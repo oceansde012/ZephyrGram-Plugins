@@ -419,6 +419,16 @@ language; since 0.3.6 a missing value means `3`), `preset` (int: `0` Balanced, `
 silent after the owner wrote in the chat; empty = preset, Balanced 45), `chat_hourly` (string; empty = preset,
 Balanced 20), `ui_lang` (int: `0` auto, `1` uk, `2` ru, `3` en).
 
+**0.4.0 additions.** `reply_all` (bool, default false: a private chat that is not in `chats` is added automatically when
+its person writes; never groups, channels, bots, secret chats, listed chats or chats in `all_skip`), `all_accounts`
+(string of 1-based account numbers, empty = all), `all_skip` (JSON text of a list of chat keys the owner removed;
+written by the plugin on removal and by the core screen's remove; cleared for a key when it is added again),
+`skip_links` (bool, default true: incoming messages with a link are not answered), `short_msgs` (bool, default true: the
+answer is written as 1-4 short separate messages, `max_parts` string, default 4), `revive` (bool, default false: a
+quiet conversation in an Auto chat is restarted with a fitting topic), `revive_after` / `revive_window` /
+`revive_daily` (minutes of silence, hours after which the chat counts as finished, revivals per chat per day),
+`revive_marks` (JSON text of {chat key: [timestamps]}, internal).
+
 **`decisions`** (string, JSON array, at most 60 since 0.3.6 (20 before), oldest first, no message text):
 `{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}` (0.3.7: plus an optional `"x"`, a short extra such as an emoji).
 `o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`

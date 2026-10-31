@@ -1,5 +1,5 @@
 """Recent-context, answer-detail and style isolation tests; no AI server or Telegram network."""
-from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_autoreply import Base, CLIENT, DID, all_settings, mod
 
 
 class TestContextV039(Base):
@@ -131,7 +131,7 @@ class TestContextV039(Base):
     def test_context_detail_settings_are_localized_and_have_safe_defaults(self):
         for lang in [1, 2, 3]:
             self.p.settings["ui_lang"] = lang
-            rows = {getattr(i, "key", None): i for i in self.p.create_settings()}
+            rows = {getattr(i, "key", None): i for i in all_settings(self.p)}
             self.assertEqual(rows["context_n"].default, "40")
             self.assertEqual(rows["context_chars"].default, "16000")
             self.assertEqual(rows["answer_detail"].default, 1)
