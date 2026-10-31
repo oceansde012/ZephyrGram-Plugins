@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.9
+- Added per-chat opt-in local SQLite memory: compact summaries of older text, separated by Telegram owner/account/chat, with bounded storage and cancellation checks. Full histories, audio and images are not copied into the memory database. Recent questions stay in ordinary context; old summaries are untrusted background, not instructions.
+- A sticker-only incoming batch in an enabled auto-reply chat uses a dedicated sticker-only response route. No random sticker percentage or AI-decline gate applies. It chooses a recent sticker or queues the incoming sticker through the native outbox, with no text fallback. Explicit draft/command-only modes, disabled chats, cancellation and loop/rate guards still apply.
+- Recent conversation context defaults to 40 messages and can be increased to 100, within the app's local-history API limit. A configurable character budget defaults to 16000 (range 2000-48000). Current questions are reserved first, then recent history; oversized content is explicitly marked as trimmed. Messages from other chats/accounts, service messages and secret-chat rows are excluded.
+- Current multi-part message batches are merged chronologically with cached history without changing who said what. A message already answered by the owner is not moved to the end as a new question. Existing explicit context sizes remain unchanged.
+- Added Short / Balanced / Detailed answer settings. Balanced is the default and allows enough explanation to answer the actual question and every relevant part. The forced 3-12-word/two-sentence/no-explanation instruction is removed. With an empty maximum-length field, the modes allow 400 / 1200 / 3000 characters; an existing explicit limit remains effective (clear a saved 300 limit to use the new mode default).
+- Style examples are explicitly labelled as tone/rhythm guidance, never factual memory about the current chat. Borrowing examples from other enabled chats is now off by default and requires a separate opt-in; even with consent it never reads another Telegram account. Up to 100 local style samples can be used, while the prompt includes at most 24 bounded examples.
+
 ## 0.3.8
 - Added separate per-chat opt-ins for incoming images/stickers/GIF frames and voice transcription. Both default to off. The former global See media setting does not grant permission in any chat.
 - Only incoming attachment IDs from the current enabled chat and current batch are fetched, using its explicit Telegram account. At most two bounded images are attached to the reply model. Voice audio uses the configured AI server's transcription endpoint; unsupported/403 failures produce a decision-log entry, no fabricated transcript, and do not disable the chat.

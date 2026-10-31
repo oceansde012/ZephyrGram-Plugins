@@ -607,3 +607,47 @@ and drafts is allowed only when the intended account is currently selected.
 secret or unknown dialogs return false; `mark_read` also requires a positive message ID.
 Channel read requests are supported. The auto-reply plugin prefers these helpers and
 retains its older-app fallback.
+
+
+## 15. AI auto-reply 0.3.9: context size and answer detail
+
+Plugin settings now expose `context_n` (default 40, range 1-100) and `context_chars`
+(default 16000, range 2000-48000). The app's `get_recent_messages` API returns at most
+100 cached messages; this is a recent local context window, not unlimited history or
+model training. The plugin filters rows by dialog/account, preserves chronological
+order and speaker roles, de-duplicates history IDs, and gives current question parts
+priority before older history. If a single current message exceeds the budget, its
+start and end remain with an explicit `[context trimmed]` marker. The character budget
+covers conversation messages; system instructions, style samples and separately
+retrieved memory have their own limits.
+
+`answer_detail` is 0 Short, 1 Balanced (default), or 2 Detailed. When `max_reply` is empty,
+the respective character limits are 400, 1200 and 3000 (hard maximum 4000). Existing
+explicit values are preserved: for example, clear an old saved `max_reply=300` to use
+the new detail-dependent default. This changes how much useful explanation the prompt
+requests; it does not promise factual knowledge missing from the selected context.
+
+Style learning reads only the current account/chat by default. `style_share=false`
+is the default; setting it to true permits examples from other enabled chats of the
+same account, never another account. The shared examples are labelled STYLE ONLY and
+must not be treated as facts about the current conversation. `learn_n` allows 5-100
+samples, with at most 24 examples of up to 200 characters included in the system prompt.
+
+
+## 16. Local chat memory (ai_autoreply 0.3.9)
+
+The per-chat **Local chat memory** switch (`memory_<account>_<dialog>`) is off by default. Enabling it permits bounded older text from that exact chat to be sent to the configured AI service for summarization. Only compact summaries are persisted under the plugin's private `data_dir/memory/<Telegram-owner-id>/`; no full message archive or media/audio is duplicated. SQLite is already bundled with app 0.1.5.
+
+The most recent 12 messages and current questions remain ordinary conversation context. At least 10 eligible older messages are required for a new summary; only 100 recent local-history rows are examined, so this does not import a chat's entire archive. Summary input is bounded to 16000 characters, stored summaries to 6000 characters, and the append-only database to 16 MiB / 4096 revisions per chat. Reaching a storage limit stops new memory writes, while ordinary replies continue. Files and old revisions are never deleted by this feature.
+
+Owner identity, account slot, dialog, consent and task epoch are checked before and after model calls and before the optimistic write. Service/secret/forwarded messages are excluded. Summaries are explicitly marked as potentially incomplete, untrusted background; the latest conversation takes precedence. Turning memory off stops its use and updates without deleting saved files.
+
+## 17. Mandatory sticker-only replies (ai_autoreply 0.3.9)
+
+For an enabled auto-reply chat, a current incoming batch consisting only of genuine Telegram stickers uses a dedicated path without text generation. The ordinary sticker chance, including 0%, does not suppress this route. A recent sticker is preferred; when unavailable the original incoming document is queued using Telegram's native `SendMessagesHelper` outbox. No image upload, transcription or AI text is needed for this path.
+
+Mixed text/sticker batches keep the normal reply behavior. Explicit draft or command-only mode, master-off/disabled chats, account/epoch cancellation and anti-loop/rate guards remain effective. The rule guarantees deterministic selection/attempt rather than a probabilistic 12% gate; connectivity, Telegram permissions and a valid document reference still determine actual delivery. Failures are logged rather than replaced by text. This has unit/mock coverage; actual device testing is still required.
+
+### Upgrade settings
+
+The context defaults are 40 messages / 16000 characters; up to 100 messages are supported by app 0.1.5. Answer detail is Short / Balanced / Detailed, with default character budgets 400 / 1200 / 3000. Previously explicitly saved `context_n` and `max_reply` values remain in force: increase a saved context of 10 manually, and clear a saved reply limit of 300 to use the chosen detail mode's default. Local memory must be enabled separately for each chat.

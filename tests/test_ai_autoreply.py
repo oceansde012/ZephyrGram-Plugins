@@ -622,7 +622,8 @@ class TestHumanize(Base):
         CLIENT.ai_result = lambda m, **kw: "Звісно. Це перше. Це друге."
         self.round("привіт")
         self.assertEqual(len(CLIENT.sent), 1)
-        self.assertEqual(CLIENT.ai_calls[0]["system"], mod.DEFAULT_PROMPT)
+        self.assertTrue(CLIENT.ai_calls[0]["system"].startswith(mod.DEFAULT_PROMPT))
+        self.assertIn("Balanced answer", CLIENT.ai_calls[0]["system"])
         self.assertIsNone(CLIENT.ai_calls[0]["temperature"])
 
     def test_disclosure_rule_in_prompt(self):
