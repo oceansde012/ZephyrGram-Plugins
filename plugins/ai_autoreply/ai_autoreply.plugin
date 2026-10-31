@@ -1,9 +1,9 @@
 __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
-__description__ = "Answers incoming messages with the app's AI in chats you explicitly add, in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
+__description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.3.9"
-__version_code__ = 12
+__version__ = "0.4.0"
+__version_code__ = 13
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -41,7 +41,8 @@ MODES_HELP = (
 MAX_AGE_SEC = 180            # ignore messages older than this (offline catch-up)
 MAX_FAILURES = 5             # consecutive AI/send failures before a chat is disabled
 MAX_REPLY_CHARS = 4000
-LOOP_SAME_TEXT = 3           # same sender, same text N times in a row -> loop
+LOOP_SAME_TEXT = 3           # same sender, same text N times in a row ...
+LOOP_SAME_REPLIES = 3        # ... AND we already answered this many times within LOOP_BURST_SEC -> loop
 LOOP_BURST_COUNT = 4         # our replies within LOOP_BURST_SEC -> ping-pong, pause
 LOOP_BURST_SEC = 120
 ROBOT = "\U0001F916"
@@ -110,6 +111,28 @@ DISCLOSE_RULE = "If the other person asks directly whether this is a bot, honest
 NO_DISCLOSE_RULE = ("Do not bring up being an AI on your own and never claim to be a human; "
                     "if asked directly, deflect briefly.")
 
+SHORT_RULE = (
+    "Message format (this overrides any advice about paragraphs above): write the way people really text. "
+    "Split your answer into 1-4 SHORT separate chat messages, each on its own line: every line is sent as its own "
+    "message. One thought per message, usually 3-10 words, simple sentences. NEVER build one long sentence out of "
+    "several clauses: no chains with 'потому что / тому що / который / який / чтобы / хоча / однако', no semicolons, "
+    "no dashes joining ideas, no long enumerations with commas. If you have two ideas, write two messages. "
+    "No line longer than about 15 words. Do not number or bullet the lines."
+)
+REVIVE_RULES = (
+    "The conversation has gone quiet and YOU restart it on the owner's behalf, in their own voice. Output only the "
+    "text of the message(s), nothing else. Never invent facts, plans, names or events that are not in the "
+    "conversation above. Never mention that the other person is silent or did not answer, never apologise for "
+    "writing, never say you are an AI. A line in square brackets at the end is the owner's private instruction "
+    "to you, not something the other person said; never quote it."
+)
+REVIVE_INSTR = (
+    "The other person has not answered for a while. Write the next message from me to restart the conversation. "
+    "If something in the conversation above is left hanging (a question, a plan, a topic they cared about), pick it "
+    "up. Otherwise bring up one casual, natural, harmless topic or question that fits how we talk. Keep it short: "
+    "one to three short messages."
+)
+
 MIN_STATS = 8                # fewer own messages than this: no style rules, no post-style
 MIN_OWN = 12                 # cross-chat style borrowing only with explicit style_share consent
 MAX_EXAMPLE_CHARS = 200
@@ -120,6 +143,14 @@ MAX_OWNER_DEFERS = 2         # a batch held back by the owner-active rule is ret
 MAX_DEBOUNCE_TOTAL = 20.0    # a batch is answered at the latest this long after its first message
 AUTH_RESUME_SEC = 1800       # a chat auto-disabled by errors is re-enabled after this long
 POLITE_STOP_TEXT = u"ок, я трохи зайнятий, напишу пізніше"
+DEFAULT_MAX_PARTS = 4        # 'short messages' mode: one answer goes out as at most this many separate messages
+SHORT_SPLIT_CHARS = 45       # in that mode even a one-line answer longer than this is split at sentence ends
+SHORT_MAX_WORDS = 20         # in that mode a sentence with more words than this counts as too complex
+REVIVE_AFTER_MIN = 20        # silence of the other person (minutes) before the bot may restart the conversation
+REVIVE_WINDOW_H = 3          # ... but only within this many hours after the last message (older chats are finished)
+REVIVE_DAILY = 2             # at most this many revivals per chat and day
+REVIVE_CHECK_SEC = 300       # one chat's history is looked at for a revival at most this often
+REVIVE_PER_PASS = 3          # at most this many chats are examined per scan pass
 
 PRESET_NAMES = ["Balanced", "Chatty", "Quiet", "Live (human-like, default)"]
 LIVE_PRESET = 3              # used when no preset is stored (new installs and settings without an explicit choice)
@@ -349,6 +380,23 @@ def apply_style(text, st):
     if st["period_end"] <= 0.15 and out.endswith(".") and not out.endswith(".."):
         out = out[:-1].rstrip()
     return out or t
+
+
+SENT_SPLIT_RE = re.compile(u"(?<=[.!?…])\\s+")
+
+
+def has_link(text):
+    """True when the message contains a link (scheme, www, t.me or a bare domain)."""
+    return bool(URL_RE.search(str(text or "")))
+
+
+def longest_sentence_words(text):
+    """Word count of the longest sentence (a line break also ends a sentence)."""
+    best = 0
+    for line in re.split(r"\n+", str(text or "")):
+        for sent in SENT_SPLIT_RE.split(line):
+            best = max(best, len(WORD_RE.findall(sent)))
+    return best
 
 
 def split_reply(text, max_parts=3):
@@ -894,6 +942,53 @@ S = {
                  "генерується ще раз, далі все одно надсилається.",
                  "Встроенный список (звісно, безумовно, розумію, дійсно...) всегда действует; ответ с ними "
                  "генерируется ещё раз, затем всё равно отправляется."),
+    "h_all": ("Reply to everyone", "Відповідати всім", "Отвечать всем"),
+    "reply_all": ("Answer everyone in private chats", "Відповідати всім в особистих чатах",
+                  "Отвечать всем в личных чатах"),
+    "reply_all_s": ("When someone writes in a private chat that is not in the list, it is added automatically "
+                    "(mode Auto). Bots, groups, channels and secret chats are never added. A chat you paused or "
+                    "removed stays as you left it.",
+                    "Коли хтось пише в особистий чат, якого немає в списку, його додано автоматично (режим Авто). "
+                    "Боти, групи, канали й секретні чати не додаються. Чат, який ви призупинили або видалили, "
+                    "лишається як є.",
+                    "Когда кто-то пишет в личный чат, которого нет в списке, он добавляется автоматически "
+                    "(режим Авто). Боты, группы, каналы и секретные чаты не добавляются. Чат, который вы "
+                    "приостановили или удалили, остаётся как есть."),
+    "all_accounts": ("Accounts for this (numbers, e.g. 1,2; empty = all)",
+                     "Акаунти для цього (номери, напр. 1,2; порожньо = усі)",
+                     "Аккаунты для этого (номера, напр. 1,2; пусто = все)"),
+    "all_accounts_s": ("Numbers as in the chat list headers (Account 1, Account 2...).",
+                       "Номери, як у заголовках списку чатів (Акаунт 1, Акаунт 2...).",
+                       "Номера, как в заголовках списка чатов (Аккаунт 1, Аккаунт 2...)."),
+    "skip_links": ("Do not answer messages with links", "Не відповідати на повідомлення з посиланнями",
+                   "Не отвечать на сообщения со ссылками"),
+    "skip_links_s": ("Applies to every chat. A message with http(s), www, t.me or a bare domain is ignored.",
+                     "Діє в усіх чатах. Повідомлення з http(s), www, t.me чи голим доменом ігнорується.",
+                     "Действует во всех чатах. Сообщение с http(s), www, t.me или голым доменом игнорируется."),
+    "revive": ("Revive a quiet conversation", "Оживляти розмову, що затихла", "Оживлять затихший разговор"),
+    "revive_s": ("If the other person stopped answering, the bot throws in a fitting topic (or a natural new one). "
+                 "At most once per silence and a few times a day per chat. Only chats in mode Auto.",
+                 "Якщо співрозмовник перестав відповідати, бот підкидає доречну тему (або природну нову). "
+                 "Не частіше разу за мовчання й кілька разів на добу в чаті. Лише чати в режимі Авто.",
+                 "Если собеседник перестал отвечать, бот подкидывает уместную тему (или естественную новую). "
+                 "Не чаще раза за молчание и несколько раз в сутки в чате. Только чаты в режиме Авто."),
+    "revive_after": ("Silence before reviving, minutes", "Тиша перед оживленням, хвилин",
+                     "Тишина перед оживлением, минут"),
+    "revive_window": ("Give up after, hours", "Облишити через, годин", "Бросить через, часов"),
+    "revive_daily": ("Revivals per chat per day", "Оживлень на чат за добу", "Оживлений на чат в сутки"),
+    "short_msgs": ("Short messages instead of one long sentence",
+                   "Короткі повідомлення замість одного довгого речення",
+                   "Короткие сообщения вместо одного длинного предложения"),
+    "short_msgs_s": ("The AI writes 1-4 short separate messages in simple sentences; they are sent one after "
+                     "another like a person typing.",
+                     "ШІ пише 1-4 коротких окремих повідомлення простими реченнями; вони йдуть одне за одним, "
+                     "як у людини.",
+                     "ИИ пишет 1-4 коротких отдельных сообщения простыми предложениями; они уходят одно за "
+                     "другим, как у человека."),
+    "max_parts": ("Max messages per answer (1-6)", "Макс. повідомлень у відповіді (1-6)",
+                  "Макс. сообщений в ответе (1-6)"),
+    "acc_header": ("Account %d \u00b7 on: %d of %d", "Акаунт %d \u00b7 увімк.: %d з %d",
+                   "Аккаунт %d \u00b7 вкл.: %d из %d"),
     "skip_emoji": ("Skip emoji-only messages", "Пропускати повідомлення лише з емодзі", "Пропускать сообщения только из эмодзи"),
     "max_reply": ("Max reply length (characters)", "Макс. довжина відповіді (символів)", "Макс. длина ответа (символов)"),
     "temperature": ("Temperature (0-2)", "Температура (0-2)", "Температура (0-2)"),
@@ -1168,6 +1263,21 @@ R = {
                          "на эти сообщения уже ответили"),
     "quiet_hours": ("quiet hours", "тихі години", "тихие часы"),
     "emoji_only": ("only emoji in the message", "у повідомленні лише емодзі", "в сообщении только эмодзи"),
+    "link": ("the message contains a link: not answered", "у повідомленні посилання: не відповідаю",
+             "в сообщении ссылка: не отвечаю"),
+    "auto_added": ("new private chat added automatically (answer everyone)",
+                   "новий особистий чат додано автоматично (відповідати всім)",
+                   "новый личный чат добавлен автоматически (отвечать всем)"),
+    "revived": ("the conversation had gone quiet: sent a message to restart it",
+                "розмова затихла: надіслано повідомлення, щоб її оживити",
+                "разговор затих: отправлено сообщение, чтобы его оживить"),
+    "revive_empty": ("revival: the AI wrote nothing", "оживлення: ШІ нічого не написав",
+                     "оживление: ИИ ничего не написал"),
+    "revive_cancelled": ("revival cancelled: the other person wrote meanwhile",
+                         "оживлення скасовано: співрозмовник написав за цей час",
+                         "оживление отменено: собеседник написал за это время"),
+    "revive_ai_failed": ("revival: the AI request failed", "оживлення: запит до ШІ не вдався",
+                         "оживление: запрос к ИИ не удался"),
     "acknowledgement": ("plain acknowledgement (ok / thanks / lol), nothing to answer",
                         "проста реакція (ок / дякую / лол), відповідати нічого",
                         "простая реакция (ок / спасибо / лол), отвечать нечего"),
@@ -1605,6 +1715,8 @@ class ChatState(object):
         self.ghost_note_ts = 0.0
         self.abort = ""                    # reason when a delivery was stopped while waiting
         self.last_sticker = (0, "")        # (id, set title) of the last sticker sent in this chat
+        self.revive_chk = 0.0              # when this chat's history was last looked at for a revival
+        self.revive_busy = False           # a revival is scheduled or running
 
 
 class Plugin(BasePlugin):
@@ -1629,6 +1741,9 @@ class Plugin(BasePlugin):
         self._tl_warned = set()
         self._marks = {}
         self._load_marks()
+        self._auto_neg = {}                # chat key -> time a reply-all check refused the chat (cached 10 min)
+        self._revive_marks = {}            # chat key -> timestamps of our revivals
+        self._load_revive_marks()
         self._load_decisions()
         self._load_bot_texts()
         self._load_chats()
@@ -2015,6 +2130,7 @@ class Plugin(BasePlugin):
         """Add or re-enable a chat. A new chat starts in mode Auto. Stored format: see docs/API.md."""
         key = self.chat_key(account, did)
         sk = self._sk(key)
+        self._skip_drop(key)
         with self._lock:
             new = key not in self._read_chats()
             c = self._commit(key, set={"enabled": True, "account": int(account), "dialog_id": int(did),
@@ -2041,6 +2157,7 @@ class Plugin(BasePlugin):
                 self._commit(key, remove=True)
                 self._states.pop(key, None)
                 self._profiles.pop(key, None)
+                self._skip_add(key)
             else:
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
@@ -2067,6 +2184,227 @@ class Plugin(BasePlugin):
         if t not in ("user", "group"):
             return "unsupported chat type"
         return None
+
+    # ------------------------------------------------------------------ reply to everyone
+    def _all_accounts(self):
+        """Account indexes where reply-all works (the setting holds 1-based numbers; empty = every account)."""
+        out = set()
+        for x in re.split(r"[,\s;]+", str(self.get_setting("all_accounts", "") or "")):
+            if x.isdigit() and int(x) >= 1:
+                out.add(int(x) - 1)
+        return out
+
+    def _all_skip(self):
+        """Chat keys the owner removed from the list: reply-all never brings them back."""
+        try:
+            data = json.loads(self.get_setting("all_skip", "[]") or "[]")
+        except (ValueError, TypeError):
+            data = []
+        return set(str(x) for x in data) if isinstance(data, list) else set()
+
+    def _skip_add(self, key):
+        with self._lock:
+            keys = self._all_skip()
+            keys.add(key)
+            self.set_setting("all_skip", json.dumps(sorted(keys)[-500:]))
+
+    def _skip_drop(self, key):
+        with self._lock:
+            keys = self._all_skip()
+            if key in keys:
+                keys.discard(key)
+                self.set_setting("all_skip", json.dumps(sorted(keys)))
+
+    def _auto_add(self, account, did, key, m):
+        """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto).
+        Never groups/channels/bots/secret chats, never a chat that is already listed (even paused) or that the
+        owner removed. Returns True when the chat is now enabled."""
+        if not self.get_setting("reply_all", False) or not self.get_setting("master", True):
+            return False
+        try:
+            did, account = int(did), int(account or 0)
+        except (TypeError, ValueError):
+            return False
+        if did <= 0 or did == 777000 or m.get("is_bot"):
+            return False
+        accounts = self._all_accounts()
+        if accounts and account not in accounts:
+            return False
+        now = self._now()
+        with self._lock:
+            if key in self._read_chats() or key in self._all_skip():
+                return False
+            if now - self._auto_neg.get(key, -1e9) < 600:
+                return False
+        try:
+            info = client.get_dialog_info(did, account=account)
+        except TypeError:
+            info = client.get_dialog_info(did)
+        except Exception as e:
+            self.log("reply-all: no info for %s: %s" % (key, e))
+            info = None
+        if not isinstance(info, dict) or info.get("type") != "user" or self.check_info(info) is not None:
+            self._auto_neg[key] = now
+            return False
+        self.chat_on(account, did, info.get("title") or str(did), "user")
+        self._decide(key, "info", "auto_added")
+        return True
+
+    # ------------------------------------------------------------------ revive a quiet conversation
+    def _revive_on(self):
+        return bool(self.get_setting("revive", False))
+
+    def _load_revive_marks(self):
+        try:
+            data = json.loads(self.get_setting("revive_marks", "{}") or "{}")
+        except (ValueError, TypeError):
+            data = {}
+        out = {}
+        for k, v in (data.items() if isinstance(data, dict) else []):
+            if isinstance(v, list):
+                out[str(k)] = [float(x) for x in v if isinstance(x, (int, float))][-6:]
+        self._revive_marks = out
+
+    def _revive_mark(self, key):
+        with self._lock:
+            lst = self._revive_marks.setdefault(key, [])
+            lst.append(self._now())
+            del lst[:-6]
+            if len(self._revive_marks) > 300:
+                for k in sorted(self._revive_marks, key=lambda x: self._revive_marks[x][-1:] or [0])[:60]:
+                    self._revive_marks.pop(k, None)
+            self.set_setting("revive_marks", json.dumps(self._revive_marks))
+
+    def _revive_check(self, key, hist):
+        """None = the conversation went quiet and may be restarted now, otherwise the reason it must not be."""
+        if not hist:
+            return "no_history"
+        now = self._now()
+        last = hist[-1]
+        if not last.get("out"):
+            return "their_turn"                      # they wrote last: the normal reply path owns it
+        try:
+            age = now - float(last.get("date") or 0)
+            if float(last.get("date") or 0) <= 0:
+                return "no_date"
+            inc = [float(h.get("date") or 0) for h in hist if not h.get("out")]
+        except (TypeError, ValueError):
+            return "no_date"
+        window = self._int("revive_window", REVIVE_WINDOW_H, 1, 72) * 3600
+        if age < self._int("revive_after", REVIVE_AFTER_MIN, 2, 1440) * 60:
+            return "too_soon"
+        if age > window:
+            return "too_old"
+        if len(inc) < 2:
+            return "no_conversation"                 # a real exchange first, not a dead or one-sided chat
+        if now - max(inc) > 2 * window:
+            return "too_old"
+        marks = self._revive_marks.get(key, [])
+        if marks and max(inc) <= marks[-1]:
+            return "already_revived"                 # they did not answer the previous revival
+        if len([t for t in marks if now - t < 86400]) >= self._int("revive_daily", REVIVE_DAILY, 1, 10):
+            return "daily_limit"
+        return None
+
+    def _revive_pass(self):
+        """Called by the periodic scan: examine a few chats per pass and schedule a revival where it is due."""
+        if (not self._revive_on() or not self.get_setting("master", True) or self._in_quiet_hours()
+                or self._scan_stop):
+            return 0
+        now = self._now()
+        due = []
+        for key, c in list(self._chats.items()):
+            if not c.get("enabled") or c.get("type", "user") != "user" or self._chat_mode(key) != MODE_AUTO:
+                continue
+            st = self._state(key)
+            if st.inflight or st.pending or st.revive_busy or now - st.revive_chk < REVIVE_CHECK_SEC:
+                continue
+            if now - st.owner_ts < 120:
+                continue
+            due.append((st.revive_chk, key))
+        due.sort()
+        n = 0
+        for _, key in due[:REVIVE_PER_PASS]:
+            c = self._chats.get(key)
+            st = self._state(key)
+            st.revive_chk = now
+            try:
+                hist = self._load_history(key, int(c.get("account", 0)), int(c["dialog_id"]), 12)
+                why = self._revive_check(key, hist)
+            except Exception as e:
+                self.log("revive check of %s failed: %s" % (key, e))
+                continue
+            if why:
+                continue
+            st.revive_busy = True
+            self._run_later(self._rng.uniform(2.0, 25.0), lambda k=key: self._revive_run(k))
+            n += 1
+        return n
+
+    def _revive_run(self, key):
+        st = self._state(key)
+        previous = getattr(self._work_context, "task", None)
+        self._work_context.task = (key, self._config_epoch)
+        self._work_context.images = []
+        try:
+            self._revive_send(key, st)
+        except Exception as e:
+            self.error(e)
+            self._decide(key, "error", "revive_exception_%s" % type(e).__name__)
+        finally:
+            self._work_context.task = previous
+            self._work_context.images = []
+            st.revive_busy = False
+            with self._lock:
+                st.inflight = False
+                again = bool(st.pending) and not st.timer
+                if again:
+                    st.timer = True
+                    st.first_ts = self._now()
+            if again:
+                self._schedule(key, self._debounce(jitter=True))
+
+    def _revive_send(self, key, st):
+        c = self._chats.get(key)
+        if (not c or not c.get("enabled") or not self.get_setting("master", True) or not self._revive_on()
+                or self._chat_mode(key) != MODE_AUTO):
+            return
+        did, account = int(c["dialog_id"]), int(c.get("account", 0))
+        with self._lock:
+            if st.inflight or st.pending:
+                return
+            st.inflight = True
+        started = self._now()
+        if started - st.owner_ts < 120 or self.caps_ok(key) or not self.chat_hourly_ok(st):
+            return
+        if self.check_info(self._info(key, did)):
+            return
+        hist = self._load_history(key, account, did, 15)
+        if self._revive_check(key, hist):
+            return
+        msgs = self._hist_messages(c, hist)
+        if not msgs:
+            return
+        incoming = [str(h["text"]) for h in hist if not h.get("out")]
+        msgs = msgs + [{"role": "user", "content": "[private instruction from me, not from them: %s]" % REVIVE_INSTR}]
+        self.count_use(key)
+        try:
+            parts, why = self.generate(key, account, did, msgs, c, st, split=True, extra_system=REVIVE_RULES,
+                                       lang_text=incoming[-1] if incoming else None)
+        except Exception as e:
+            self._fail(key, e)
+            return self._decide(key, "error", "revive_ai_failed")
+        if not parts:
+            return self._decide(key, "skip", "revive_empty")
+        if st.pending or st.last_in_ts > started or not self._task_alive(key, account, did):
+            return self._decide(key, "skip", "revive_cancelled")   # they wrote while the AI was thinking
+        ok = self.deliver(key, c, st, did, parts, [], self._humanize(), timing=None)
+        if ok is False:
+            return self._decide(key, "skip", st.abort or "disabled meanwhile")
+        self._revive_mark(key)
+        with self._lock:
+            st.cooldown_until = self._now() + self._cooldown()
+        self._decide(key, "sent", "revived")
 
     # ------------------------------------------------------------------ incoming
     def on_new_message(self, account, message_object):
@@ -2125,7 +2463,8 @@ class Plugin(BasePlugin):
                 self.error(e)
             return None
         if not self.is_enabled(key):
-            return None
+            if m.get("out") or not self._auto_add(account, did, key, m):
+                return None
         if m.get("out"):
             self._note_owner(key, m)
             try:
@@ -2267,12 +2606,17 @@ class Plugin(BasePlugin):
         prefix = str(self.get_setting("disclosure_text", ROBOT + " ") or "").strip().lower()
         if any(mk in low for mk in AUTO_MARKERS) or (prefix and low.startswith(prefix)):
             return "looks like an auto-reply"
+        if self.get_setting("skip_links", True) and has_link(text):
+            return "link"
         with self._lock:
             st.incoming.append((m.get("from_id"), norm_text(text)))
             tail = list(st.incoming)[-LOOP_SAME_TEXT:]
-            if len(tail) == LOOP_SAME_TEXT and len(set(tail)) == 1:
-                return "repeated identical text"
             now = self._now()
+            # The same text three times is only a loop when we keep answering it (two bots echoing each other).
+            # A person who repeats 'алло' without getting an answer must still be answered.
+            if (len(tail) == LOOP_SAME_TEXT and len(set(tail)) == 1
+                    and len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= LOOP_SAME_REPLIES):
+                return "repeated identical text"
             if len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= int(self._pnum("loop_burst", 1, 1000)):
                 return "reply burst (possible loop)"
         if self._chat_mode(key) == MODE_COMMAND and not low.startswith(self._trigger().lower()):
@@ -2346,7 +2690,13 @@ class Plugin(BasePlugin):
             t.start()
 
     def _scan_enabled(self):
-        return bool(self._pbool("scan"))
+        return bool(self._pbool("scan")) or self._revive_on()
+
+    def _scan_toggle(self, _value=None):
+        try:
+            self._ensure_scan()
+        except Exception as e:
+            self.error(e)
 
     def _scan_idle(self):
         return (not self.get_setting("master", True)) or not any(
@@ -2402,12 +2752,13 @@ class Plugin(BasePlugin):
             for key, c in sorted(self._chats.items()):
                 if self._scan_stop:
                     break
-                if not c.get("enabled"):
+                if not c.get("enabled") or not self._pbool("scan"):
                     continue
                 try:
                     found += self._scan_chat(key, c)
                 except Exception as e:
                     self.log("scan of %s failed: %s" % (key, e))
+            self._revive_pass()
         finally:
             self._scan_lock.release()
         return found
@@ -3633,6 +3984,8 @@ class Plugin(BasePlugin):
             tone = 0
         parts = [HUMAN_PROMPT, self._detail_rule(), TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
                  DISCLOSE_RULE if self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
+        if self.get_setting("short_msgs", True):
+            parts.append(SHORT_RULE)
         c = self._chats.get(key) or {}
         if c.get("type") == "group":
             parts.append("This is a group chat; messages are labelled [user ID] only so you can "
@@ -3743,7 +4096,10 @@ class Plugin(BasePlugin):
         limit = self._reply_limit()
         style = (profile or {}).get("style") or {}
         extra = self._banned_extra()
-        split_min = int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min") else SPLIT_MIN_CHARS
+        short = bool(self.get_setting("short_msgs", True))
+        max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6) if short else 2
+        split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")
+                     else (SHORT_SPLIT_CHARS if short else SPLIT_MIN_CHARS))
         cands = []                                  # (parts, problems)
         problems = []
         for attempt in range(2):
@@ -3755,12 +4111,15 @@ class Plugin(BasePlugin):
                     "\n\nYour previous attempt was rejected (%s). Write a clearly different, complete, "
                     "more casual message in %s, plain everyday words, without any of the banned words "
                     "and phrases." % (", ".join(problems) or "too formal", lang))
+                if "long" in problems:
+                    kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
+                                         "every message on its own line.")
             reply = clean_humanized(self._complete_for_chat(key, account, did, messages, **kwargs), limit)
             if not reply:
                 problems = ["empty"]
                 continue
-            if split and self.get_setting("split_msgs", True) and len(reply) > split_min:
-                raw = split_reply(reply, 2)
+            if split and self.get_setting("split_msgs", True) and (len(reply) > split_min or (short and "\n" in reply)):
+                raw = split_reply(reply, max_parts)
             else:
                 raw = [reply]
             parts = [p for p in (apply_style(p, style) for p in raw) if p]
@@ -3768,6 +4127,8 @@ class Plugin(BasePlugin):
                 problems = ["empty"]
                 continue
             problems = self.reply_problems(" ".join(parts), st, last_in, extra)
+            if short and any(longest_sentence_words(p) > SHORT_MAX_WORDS for p in parts):
+                problems = problems + ["long"]
             cands.append((parts, problems))
             if not problems:
                 return parts, ""
@@ -3953,6 +4314,15 @@ class Plugin(BasePlugin):
             date = known.get(mid, future_known[0] if future_known else self._now())
             rows.append({"id": mid, "from_id": fid, "out": False, "date": date, "text": text, "_current": True})
         rows.sort(key=self._history_order)
+        # They may write while we are still sending the parts of a previous answer: their message is then dated
+        # before our last part. Our own (bot) rows after the current batch are moved in front of it, otherwise
+        # the context would end with our message and the new message would never be answered. A message the
+        # owner typed after the batch is NOT moved: the owner answered, the bot stays silent.
+        cur_idx = [i for i, r in enumerate(rows) if r.get("_current")]
+        if cur_idx and not rows[-1].get("_current"):
+            after = rows[cur_idx[-1] + 1:]
+            if after and all(r.get("out") and self._is_bot_text(r.get("text")) for r in after):
+                rows = rows[:cur_idx[0]] + after + rows[cur_idx[0]:cur_idx[-1] + 1]
         group = (self._chats.get(key) or {}).get("type") == "group"
         out, required = [], []
         for row in rows:
@@ -4614,7 +4984,18 @@ class Plugin(BasePlugin):
             items.append(note(t("no_chats")))
         if self._open_key not in self._chats:
             self._open_key = None
-        for key, c in sorted(self._chats.items(), key=lambda kv: (not kv[1].get("enabled"), kv[0])):
+        accounts = {}
+        for c in self._chats.values():
+            a = int(c.get("account", 0))
+            n_on, n_all = accounts.get(a, (0, 0))
+            accounts[a] = (n_on + (1 if c.get("enabled") else 0), n_all + 1)
+        last_acc = None
+        for key, c in sorted(self._chats.items(),
+                             key=lambda kv: (int(kv[1].get("account", 0)), not kv[1].get("enabled"), kv[0])):
+            acc = int(c.get("account", 0))
+            if len(accounts) > 1 and acc != last_acc:
+                items.append(Header(text=t("acc_header", acc + 1, accounts[acc][0], accounts[acc][1])))
+            last_acc = acc
             sk = self._sk(key)
             title = self._fresh_title(key, c)
             self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
@@ -4657,6 +5038,14 @@ class Plugin(BasePlugin):
                      subtext=t("preset_s")),
             Selector(key="reply_lang", text=t("reply_lang"), items=[t("rl_%d" % i) for i in range(4)], default=3,
                      subtext=t("reply_lang_s")),
+            Header(text=t("h_all")),
+            Switch(key="reply_all", text=t("reply_all"), default=False, subtext=t("reply_all_s")),
+            Input(key="all_accounts", text=t("all_accounts"), default="", subtext=t("all_accounts_s")),
+            Switch(key="skip_links", text=t("skip_links"), default=True, subtext=t("skip_links_s")),
+            Switch(key="revive", text=t("revive"), default=False, subtext=t("revive_s"), on_change=self._scan_toggle),
+            Input(key="revive_after", text=t("revive_after"), default=str(REVIVE_AFTER_MIN)),
+            Input(key="revive_window", text=t("revive_window"), default=str(REVIVE_WINDOW_H)),
+            Input(key="revive_daily", text=t("revive_daily"), default=str(REVIVE_DAILY)),
             Header(text=t("h_modes")),
             note(t("modes_help")),
             Header(text=t("h_cmd")),
@@ -4674,6 +5063,8 @@ class Plugin(BasePlugin):
             Input(key="style_cache_min", text=t("relearn"), default="30"),
             Selector(key="tone", text=t("tone"), items=[t("tone_%d" % i) for i in range(3)], default=0,
                      subtext=t("tone_s")),
+            Switch(key="short_msgs", text=t("short_msgs"), default=True, subtext=t("short_msgs_s")),
+            Input(key="max_parts", text=t("max_parts"), default=str(DEFAULT_MAX_PARTS)),
             Switch(key="split_msgs", text=t("split"), default=True, subtext=t("split_s")),
             Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
             Input(key="typing_cap", text=t("typing_cap"), default="", subtext=t("typing_cap_s")),

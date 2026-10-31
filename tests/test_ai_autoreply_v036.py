@@ -299,6 +299,7 @@ class TestLiveFlow(LiveBase):
 
     def test_split_into_two_with_a_pause(self):
         self.enable()
+        self.p.settings["short_msgs"] = False      # the random 2-part split of the older mode
         self.p.settings["split2_pct"] = "100"
         CLIENT.ai_result = lambda messages, **kw: u"ну дивись, там вроде все гаразд. потім напишу тобі точно"
         self.incoming(text=u"що там")
@@ -818,8 +819,8 @@ class TestLanguage(LiveBase):
 
 class TestMeta(unittest.TestCase):
     def test_header(self):
-        self.assertEqual(mod.__version__, "0.3.9")
-        self.assertEqual(mod.__version_code__, 12)
+        self.assertEqual(mod.__version__, "0.4.0")
+        self.assertEqual(mod.__version_code__, 13)
         self.assertIn("network.requests", mod.__permissions__)
         self.assertEqual(len(mod.PRESET_NAMES), len(mod.PRESETS))
 

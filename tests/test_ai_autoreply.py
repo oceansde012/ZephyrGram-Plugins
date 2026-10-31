@@ -336,7 +336,17 @@ class TestLoops(Base):
         Base.setUp(self)
         self.enable()
 
-    def test_identical_repeats(self):
+    def test_identical_repeats_are_still_answered(self):
+        # a person repeating the same word must not stop the chat
+        self.assertIsNone(self.incoming(text="ping"))
+        self.assertIsNone(self.incoming(text="ping"))
+        self.assertIsNone(self.incoming(text="Ping "))
+
+    def test_identical_repeats_while_we_keep_answering_is_a_loop(self):
+        st = self.p._state(self.key())
+        for _ in range(3):
+            st.replies.append(self.clock[0] - 10)
+        self.p.settings["loop_burst"] = "50"
         self.assertIsNone(self.incoming(text="ping"))
         self.assertIsNone(self.incoming(text="ping"))
         self.assertEqual(self.incoming(text="Ping "), "repeated identical text")
