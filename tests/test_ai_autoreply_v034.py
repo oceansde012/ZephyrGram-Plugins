@@ -179,25 +179,34 @@ class TestSettingsScreen(Cmd):
     def titles(self):
         return [(type(i).__name__, getattr(i, "text", "")) for i in self.p.create_settings()]
 
-    def test_order_chats_first_add_next_decisions_last(self):
+    def test_order_main_chats_add_groups_decisions_last(self):
+        # 0.4.1: main block, then the chats, adding a chat right below them, then folded groups, the log last
         self.p.chat_on(0, DID, "Alice", "user")
         self.incoming(text="привіт")
         items = self.p.create_settings()
-        self.assertEqual((type(items[0]).__name__, items[0].text), ("Header", "Chats with the bot"))
+        self.assertEqual((type(items[0]).__name__, items[0].text), ("Header", "Main"))
         kinds = [type(i).__name__ for i in items]
-        add = next(i for i, it in enumerate(items) if getattr(it, "text", "") == "Add chat")
-        row = next(i for i, it in enumerate(items) if getattr(it, "key", "") == "chat_" + self.p._sk(self.key()))
+        pos = lambda pred: next(i for i, it in enumerate(items) if pred(it))
+        chats = pos(lambda it: str(getattr(it, "text", "")).startswith("Chats with the bot"))
+        add = pos(lambda it: getattr(it, "text", "") == "Add chat")
+        row = pos(lambda it: getattr(it, "key", "") == "chat_" + self.p._sk(self.key()))
+        more = pos(lambda it: getattr(it, "text", "") == "More settings")
+        self.assertLess(pos(lambda it: getattr(it, "key", "") == "master"), chats)
+        self.assertLess(chats, row)
         self.assertLess(row, add)
         self.assertEqual(kinds[add + 1:add + 3], ["DialogPicker", "UsernameInput"])
-        self.assertTrue(all(getattr(it, "key", "") != "master" for it in items[:add]))   # advanced is below
-        hdrs = [it.text for it in items if type(it).__name__ == "Header"]
-        self.assertIn("Limits", hdrs)
-        self.assertEqual([it.text for it in items if getattr(it, "text", "") == "Recent decisions"][0],
-                         "Recent decisions")
-        dec = next(i for i, it in enumerate(items) if getattr(it, "text", "") == "Recent decisions")
-        for name in ("General settings", "Humanize", "Prompts and model", "Limits"):
-            self.assertLess(next(i for i, it in enumerate(items) if getattr(it, "text", "") == name), dec)
-        self.assertEqual(items[-1].text, "Newest first: time, chat and what happened. No message text is stored.")
+        self.assertLess(add, more)
+        groups = [it for it in items[more + 1:] if str(getattr(it, "key", "")).startswith("grp_")]
+        self.assertEqual([g.key for g in groups], ["grp_" + g for g in mod.Plugin.SETTINGS_GROUPS])
+        self.assertEqual(groups[-1].text, "▸ Recent decisions")
+        self.assertIs(items[-1], groups[-1])                   # folded log: nothing after it
+        self.assertEqual(kinds[more + 1:], ["Text"] * len(mod.Plugin.SETTINGS_GROUPS))
+        # opened, the log is still the last thing on the screen
+        self.p._open_groups = set(mod.Plugin.SETTINGS_GROUPS)
+        items = self.p.create_settings()
+        log = next(i for i, it in enumerate(items) if getattr(it, "key", "") == "grp_log")
+        self.assertTrue(all(not str(getattr(it, "key", "")).startswith("grp_") for it in items[log + 1:]))
+        self.assertEqual(items[-1].text, "Newest first. No message text is stored.")
 
     def test_row_has_mode_state_and_last_decision(self):
         self.p.chat_on(0, DID, "Alice", "user")
