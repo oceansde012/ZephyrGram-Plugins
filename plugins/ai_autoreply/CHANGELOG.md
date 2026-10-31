@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.9
+- **The bot keeps answering while the phone sleeps (needs app 0.2.0 or newer).** The app's background service keeps the process alive, but with the screen off the CPU suspends and the plugin's timers and sleeps (debounce of a few seconds, the human-pace pause, typing waits) stand still until something wakes the phone, for example the owner opening the app; that looked like "the bot does nothing until I come in". The plugin now asks the app to keep the CPU awake (`client.keep_awake`, at most 3 minutes per request, a longer hold is never cut by a shorter one) while it has real work: a message is waiting for its debounce, the AI writes the answer (150 s), the answer is being typed and sent in parts, a revival is being written. The idle safety-net scan never holds the CPU. Older apps without `keep_awake` work as before.
+
 ## 0.4.8
 - **Gender: it now actually works without setting anything.** Detection no longer needs two self-references from the other person: it also reads how YOU addressed them in the chat history (ти була / ты сделала, красуня, or ти був / братан) and the real history, not only the part that fits into the prompt. Two or more hits = a firm rule; one hit with nothing against it = a hedged rule ("earlier messages suggest ..."). The bot's own earlier lines are never used as evidence.
 - **No more masculine by default.** When nothing is known about the other person, the prompt now says so and tells the bot to avoid gender-marked forms (ти зробив/зробила, ты был/была, рад/рада) and rephrase neutrally instead of assuming a man; it also tells the bot not to copy wrong forms from earlier messages. A firm rule overrides earlier wrong forms in the chat.
