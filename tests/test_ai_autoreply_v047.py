@@ -38,8 +38,11 @@ class TestGenderInPrompt(Base):
         system = self.system(u"а ти що робив")
         self.assertIn("The other person is a woman", system)
 
-    def test_no_gender_line_without_evidence(self):
-        self.assertNotIn("GENDER", self.system())
+    def test_without_evidence_the_bot_is_told_not_to_assume_a_man(self):
+        system = self.system()
+        self.assertIn("NOT known", system)
+        self.assertNotIn("The other person is a woman", system)
+        self.assertNotIn("The other person is a man", system)
 
     def test_name_alone_gives_only_a_hedged_hint(self):
         self.p._commit(self.key(), set={"title": u"Надя"})

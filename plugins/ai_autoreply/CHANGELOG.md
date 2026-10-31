@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.8
+- **Gender: it now actually works without setting anything.** Detection no longer needs two self-references from the other person: it also reads how YOU addressed them in the chat history (ти була / ты сделала, красуня, or ти був / братан) and the real history, not only the part that fits into the prompt. Two or more hits = a firm rule; one hit with nothing against it = a hedged rule ("earlier messages suggest ..."). The bot's own earlier lines are never used as evidence.
+- **No more masculine by default.** When nothing is known about the other person, the prompt now says so and tells the bot to avoid gender-marked forms (ти зробив/зробила, ты был/была, рад/рада) and rephrase neutrally instead of assuming a man; it also tells the bot not to copy wrong forms from earlier messages. A firm rule overrides earlier wrong forms in the chat.
+- **`.ai gender woman | man | auto`** (also `.ai стать жінка`, `.ai пол мужчина`, `.ai gender f|m`): typed in the chat (not sent), sets the other person's gender for this chat.
+- **Clearer settings names.** "My own gender (for "I" forms)" in the style group is about the OWNER; the other person's gender is "Her/his gender (for "you" forms)" in the chat's options, and the hint under the first one says where it is.
+- **Not the same number of lines every time.** New switch "Vary the number of messages" (on, short-messages mode): neighbouring lines are randomly joined, so an answer goes out as 1 message (40 %), 2 (38 %), 3 (16 %) or more, like a real person, instead of always one line per sentence.
+
 ## 0.4.7
 - **No more big messages in a row without pauses.** Without a timing preset (Balanced, Chatty, Quiet or Live with human timing off) the typing pause was one shared budget of 2.5 s for the whole answer, so three long parts went out almost at once. Now every part takes as long as a person needs to type it (35 ms per character, jitter, 0.8-20 s per part) with "typing..." refreshed while waiting. Setting "Typing pause cap" by hand still gives the old behaviour (one total budget), and the "Typing pause" switch still turns pauses off.
 - **Big single messages are rewritten.** In short-messages mode an answer containing one message longer than 200 characters is rejected once and rewritten with "every message under about 120 characters, one idea per line".
