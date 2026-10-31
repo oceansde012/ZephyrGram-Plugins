@@ -123,6 +123,12 @@ _loader.exec_module(mod)
 DID = 42
 
 
+def all_settings(p):
+    """The settings screen with every collapsible group opened (0.4.1 folds most settings into groups)."""
+    p._open_groups = set(mod.Plugin.SETTINGS_GROUPS)
+    return p.create_settings()
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         c = CLIENT
@@ -238,9 +244,11 @@ class TestAddChatSettings(Base):
         self.assertEqual(it["add_username"].on_resolved, self.p.on_chat_added)
 
     def test_friend_mode_described(self):
+        self.p.on_chat_added(DID, "Alice")
+        self.p._open_key = self.key()                       # modes are explained at the chat's Mode selector
         texts = " ".join(str(getattr(i, "subtext", "") or "") + str(getattr(i, "text", ""))
                          for i in self.p.create_settings())
-        self.assertIn("OTHER person", texts)
+        self.assertIn("the other person asks", texts)
         self.assertIn(".ai", texts)
 
     def test_picked_chat_enabled_and_listed(self):
@@ -662,10 +670,10 @@ class TestStyleTest(Base):
         self.assertFalse(self.p._testing)
 
     def test_settings_expose_humanize_controls(self):
-        keys = {getattr(i, "key", None) for i in self.p.create_settings()}
+        keys = {getattr(i, "key", None) for i in all_settings(self.p)}
         for k in ("humanize", "learn_style", "learn_n", "split_msgs", "typing_delay", "tone", "test_pick"):
             self.assertIn(k, keys)
-        text = " ".join(str(getattr(i, "subtext", "") or "") for i in self.p.create_settings())
+        text = " ".join(str(getattr(i, "subtext", "") or "") for i in all_settings(self.p))
         self.assertIn("your own AI server", text)
 
 

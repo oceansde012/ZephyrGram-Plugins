@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 (settings screen)
+- The settings screen is reorganized for a narrow phone screen. On top, **Main**: master switch, answer everyone (+ accounts), do not answer links, short messages, revive quiet conversations, reply language, tone, preset, interface language. A new user also sees one line on how to start.
+- Then the chat list (per account as before) and **Add chat**. With more than 15 chats only the first 15 are shown plus **Show all chats (N)**; an opened chat stays visible. The modes (Auto / Draft / Friend) are explained once, under the chat's Mode selector.
+- Everything else is under **More settings** in collapsible groups (tap ▸ / ▾): Style and humanity, Timing and pauses (Live), Limits and protection, Command .ai, Stickers and media, Prompts and model, Style test, Recent decisions (last; shows the 10 newest entries, "Copy log" still copies the last 40). Which group is open is kept in memory only, not in the settings.
+- Number fields whose empty value means "use the preset" now show the current preset's value ("Empty = 15"); preset switches show the preset's on/off. Explanations are shortened.
+- No setting was removed or renamed: keys, types, defaults and meaning are unchanged, so saved settings keep working.
+
 ## 0.4.0
 - **Answer everyone** (`reply_all`, off by default): a private chat that is not in the list is added automatically (mode Auto) as soon as its person writes. Bots, groups, channels, secret chats and Telegram service chats are never added; a chat you paused or removed stays as you left it (removals are remembered in `all_skip`, also when removed from the app's chats screen). `all_accounts` limits it to some accounts (1-based numbers).
 - **Messages with links are not answered** (`skip_links`, on by default, every chat). Logged as "link".
