@@ -1,7 +1,7 @@
 """0.4.5: the app's Auto-reply tab (ZephyrAutoReplyStore, Java) and the plugin stay in sync."""
 import json
 
-from test_ai_autoreply import Base, CLIENT, DID, mod, all_settings
+from test_ai_autoreply import Base, CLIENT, DID, mod, all_settings, chats_screen
 
 OTHER = 43
 
@@ -273,7 +273,7 @@ class TestBothSides(SyncBase):
     def test_settings_mode_selector_is_logged(self):
         self.enable()
         self.p._open_key = self.key()
-        sel = next(i for i in self.p.create_settings() if getattr(i, "key", "") == "mode_" + self.sk())
+        sel = next(i for i in chats_screen(self.p) if getattr(i, "key", "") == "mode_" + self.sk())
         self.p.settings["mode_" + self.sk()] = mod.MODE_COMMAND     # PluginSettingsModel.setValue, then on_change
         sel.on_change(mod.MODE_COMMAND)
         self.assertIn("settings_mode_friend", self.p.decisions_text())

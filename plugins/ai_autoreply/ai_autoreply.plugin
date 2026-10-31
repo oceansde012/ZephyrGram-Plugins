@@ -694,6 +694,64 @@ def has_request(text):
     return any(w in QUESTION_WORDS for w in _words(t))
 
 
+# ---------------------------------------------------------------------- reactions (0.4.9)
+# Emoji reactions the bot may put on the other person's message. Only standard reactions every chat allows.
+REACT_SET = (u"\U0001F44D", u"\u2764", u"\U0001F525", u"\U0001F601", u"\U0001F970", u"\U0001F44F",
+             u"\U0001F64F", u"\U0001F622", u"\U0001F914")          # 👍 ❤ 🔥 😁 🥰 👏 🙏 😢 🤔
+REACT_OK, REACT_HEART, REACT_LAUGH, REACT_SAD = REACT_SET[0], REACT_SET[1], REACT_SET[3], REACT_SET[7]
+REACT_CHAT_HOURLY = 12         # reactions per chat and hour
+REACT_DAILY = 60               # reactions per day in all chats
+REACT_EXTRA_PCT = 15           # chance of an extra reaction on a regular message the bot answered, %
+REACT_EXTRA_GAP_MIN = 30       # at most one extra reaction per chat in this many minutes
+# emoji that are not in the set but mean the same thing
+REACT_EMOJI_MAP = {u"\u2665": REACT_HEART, u"\U0001F495": REACT_HEART, u"\U0001F496": REACT_HEART,
+                   u"\U0001F497": REACT_HEART, u"\U0001F498": REACT_HEART, u"\U0001F60D": REACT_HEART,
+                   u"\U0001F618": REACT_HEART, u"\U0001F602": REACT_LAUGH, u"\U0001F923": REACT_LAUGH,
+                   u"\U0001F606": REACT_LAUGH, u"\U0001F604": REACT_LAUGH, u"\U0001F605": REACT_LAUGH,
+                   u"\U0001F62D": REACT_SAD, u"\U0001F614": REACT_SAD, u"\U0001F61E": REACT_SAD,
+                   u"\U0001F97A": REACT_SAD, u"\U0001F44C": REACT_OK}
+REACT_THANKS = (u"дяк", u"спасиб", u"спасіб", u"благодар", u"мерси", u"мерсі", u"thank")     # word starts
+REACT_THANKS_W = frozenset(u"спс сенк thx ty tnx".split())
+REACT_LAUGHS = frozenset(u"лол lol lmao rofl ржу ржака ору haha hahaha хд xd".split())
+REACT_OKS = frozenset(u"ок окей окі оке ok okay k ага угу добре ясно зрозуміло зрозумів понятно понял норм "
+                      u"нормально ладно гуд good давай домовились договорились".split())
+REACT_SADS = (u"грустн", u"печал")                                       # word starts ('сумн' would hit 'сумнів')
+REACT_SADS_W = frozenset(u"сум сумно сумна сумний сумую сумненько грусть грущу шкода жаль sad".split())
+
+
+def pick_reaction(text, sticker=False):
+    """Emoji for a reaction by simple rules (no AI call): an emoji message is mirrored when the set has it,
+    thanks -> heart, laughter -> grin, sadness -> crying face, ok and everything else -> thumbs up."""
+    t = str(text or "")
+    if not sticker and is_emoji_only(t):
+        for ch in t.replace(u"\ufe0f", ""):
+            if ch in REACT_SET:
+                return ch
+            if ch in REACT_EMOJI_MAP:
+                return REACT_EMOJI_MAP[ch]
+        return REACT_OK
+    if sticker:
+        return REACT_OK
+    words = _words(t)
+    if any(w in REACT_THANKS_W or w.startswith(REACT_THANKS) for w in words):
+        return REACT_HEART
+    if any(w in REACT_LAUGHS or LAUGH_RE.match(w) for w in words):
+        return REACT_LAUGH
+    if any(w in REACT_SADS_W or w.startswith(REACT_SADS) for w in words):
+        return REACT_SAD
+    if any(w in REACT_OKS for w in words):
+        return REACT_OK
+    for ch in t.replace(u"\ufe0f", ""):            # 'круто 🔥'
+        if ch in REACT_SET:
+            return ch
+    return REACT_OK
+
+
+def reactable(text):
+    """A message a reaction can answer instead of a text: plain acknowledgement, thanks, laughter, emoji only."""
+    return is_ack(text) or (is_emoji_only(text) and bool(EMOJI_RE.search(str(text or ""))))
+
+
 def detect_lang(text):
     """'Ukrainian' / 'Russian' / 'English' of the incoming text; Ukrainian when unsure."""
     t = str(text or "")
@@ -999,9 +1057,9 @@ S = {
               "Авто = мова телефона (українська чи російська), інакше українська.",
               "Авто = язык телефона (украинский или русский), иначе украинский."),
     "preset": ("Preset", "Пресет", "Пресет"),
-    "preset_s": ("Live: answers like a person (2-9 s, typing), almost no limits. Balanced: ~5 s, up to 20 replies/h per chat. Chatty: more often. Quiet: rarely. Empty fields under “More settings” follow the preset.",
-                "Жива людина: відповідає як людина (2-9 с, набір тексту), майже без лімітів. Збалансований: ~5 с, до 20 відповідей/год у чаті. Балакучий: частіше. Тихий: рідко. Порожні поля в «Більше налаштувань» беруть значення пресету.",
-                "Живой человек: отвечает как человек (2-9 с, набор текста), почти без лимитов. Сбалансированный: ~5 с, до 20 ответов/ч в чате. Разговорчивый: чаще. Тихий: редко. Пустые поля в «Больше настроек» берут значение пресета."),
+    "preset_s": ("Live: answers like a person (2-9 s, typing), almost no limits. Balanced: ~5 s, up to 20 replies/h per chat. Chatty: more often. Quiet: rarely. Empty fields in the other sections follow the preset.",
+                "Жива людина: відповідає як людина (2-9 с, набір тексту), майже без лімітів. Збалансований: ~5 с, до 20 відповідей/год у чаті. Балакучий: частіше. Тихий: рідко. Порожні поля в інших розділах беруть значення пресету.",
+                "Живой человек: отвечает как человек (2-9 с, набор текста), почти без лимитов. Сбалансированный: ~5 с, до 20 ответов/ч в чате. Разговорчивый: чаще. Тихий: редко. Пустые поля в других разделах берут значение пресета."),
     "h_decisions": ("Recent decisions", "Останні рішення", "Последние решения"),
     "decisions_note": ("Newest first. No message text is stored.",
                       "Спочатку нові. Текст повідомлень не зберігається.",
@@ -1150,9 +1208,9 @@ S = {
     "skip_links": ("Do not answer messages with links", "Не відповідати на повідомлення з посиланнями",
                    "Не отвечать на сообщения со ссылками"),
     "revive": ("Revive a quiet conversation", "Оживляти розмову, що затихла", "Оживлять затихший разговор"),
-    "revive_s": ("Auto chats only, a few times a day at most. Timing: “More settings” → “Timing and pauses”.",
-                "Лише чати в режимі Авто, кілька разів на добу щонайбільше. Час: «Більше налаштувань» → «Час і паузи».",
-                "Только чаты в режиме Авто, несколько раз в сутки максимум. Время: «Больше настроек» → «Время и паузы»."),
+    "revive_s": ("Auto chats only, a few times a day at most. Timing: section “Timing and pauses”.",
+                "Лише чати в режимі Авто, кілька разів на добу щонайбільше. Час: розділ «Час і паузи».",
+                "Только чаты в режиме Авто, несколько раз в сутки максимум. Время: раздел «Время и паузы»."),
     "revive_after": ("Revive: silence before, minutes",
                     "Оживлення: тиша перед ним, хвилин",
                     "Оживление: тишина перед ним, минут"),
@@ -1372,12 +1430,9 @@ S = {
     "o_seen": ("received", "отримано", "получено"),
     "o_cmd": ("command", "команда", "команда"),
     # 0.4.1: settings screen
-    "h_main": ("Main",
-              "Головне",
-              "Главное"),
-    "start_note": ("To start: add a chat below or turn on “Answer everyone”. The bot answers only in chats from the list.",
-                  "Щоб почати: додайте чат нижче або ввімкніть «Відповідати всім». Бот відповідає лише в чатах зі списку.",
-                  "Чтобы начать: добавьте чат ниже или включите «Отвечать всем». Бот отвечает только в чатах из списка."),
+    "start_note": ("To start: add a chat in the “Chats” section or turn on “Answer everyone”. The bot answers only in chats from the list.",
+                  "Щоб почати: додайте чат у розділі «Чати» або ввімкніть «Відповідати всім». Бот відповідає лише в чатах зі списку.",
+                  "Чтобы начать: добавьте чат в разделе «Чаты» или включите «Отвечать всем». Бот отвечает только в чатах из списка."),
     "h_bot_chats_n": ("Chats with the bot · on: %d of %d",
                      "Чати з ботом · увімк.: %d з %d",
                      "Чаты с ботом · вкл.: %d из %d"),
@@ -1390,9 +1445,6 @@ S = {
     "chat_mode_s": ("Auto: answers by itself. Draft: puts the reply into your input field. Friend: you stay silent, the other person asks with “.ai ...”.",
                    "Авто: відповідає сам. Чернетка: кладе відповідь у ваше поле вводу. Друг: ви мовчите, співрозмовник кличе через «.ai ...».",
                    "Авто: отвечает сам. Черновик: кладёт ответ в ваше поле ввода. Друг: вы молчите, собеседник зовёт через «.ai ...»."),
-    "h_more": ("More settings",
-              "Більше налаштувань",
-              "Больше настроек"),
     "h_media": ("Stickers and media",
                "Стікери й медіа",
                "Стикеры и медиа"),
@@ -1435,6 +1487,40 @@ S = {
     "zero_none": ("0 = no limit",
                  "0 = без ліміту",
                  "0 = без лимита"),
+    # 0.4.9: sections of the settings screen, reactions
+    "ui_section": ("Section", "Розділ", "Раздел"),
+    "sec_main": ("Main", "Головне", "Главное"),
+    "sec_chats": ("Chats", "Чати", "Чаты"),
+    "sec_style": ("Style", "Стиль", "Стиль"),
+    "sec_live": ("Timing and pauses", "Час і паузи", "Время и паузы"),
+    "sec_limits": ("Limits", "Ліміти", "Лимиты"),
+    "sec_cmd": ("Commands", "Команди", "Команды"),
+    "sec_media": ("Media and memory", "Медіа й пам'ять", "Медиа и память"),
+    "sec_prompts": ("Prompts and model", "Промпти та модель", "Промпты и модель"),
+    "sec_test": ("Style test", "Тест стилю", "Тест стиля"),
+    "sec_log": ("Log", "Журнал", "Журнал"),
+    "gs_main": ("On/off, answer everyone, language, preset, reactions",
+                "Увімк./вимк., відповідати всім, мова, пресет, реакції",
+                "Вкл./выкл., отвечать всем, язык, пресет, реакции"),
+    "gs_chats": ("Chats with the bot and adding a chat",
+                 "Чати з ботом і додавання чату",
+                 "Чаты с ботом и добавление чата"),
+    "reactions": ("Reactions", "Реакції", "Реакции"),
+    "reactions_s": ("Private chats in Auto mode only. The emoji is picked by simple rules, without the AI.",
+                    "Лише особисті чати в режимі Авто. Емодзі обирається простими правилами, без ШІ.",
+                    "Только личные чаты в режиме Авто. Эмодзи выбирается простыми правилами, без ИИ."),
+    "react_mode_0": ("Off", "Вимк.", "Выкл."),
+    "react_mode_1": ("Instead of replying to 'ok / thanks / lol', emoji, stickers",
+                     "Замість відповіді на «ок / дякую / лол», емодзі, стікери",
+                     "Вместо ответа на «ок / спасибо / лол», эмодзи, стикеры"),
+    "react_mode_2": ("Also sometimes on regular messages (about 15%)",
+                     "А ще іноді на звичайні (близько 15%)",
+                     "Ещё и иногда на обычные (около 15%)"),
+    "chat_react": ("Reactions", "Реакції", "Реакции"),
+    "chat_react_0": ("As in the general settings", "Як у загальних", "Как в общих"),
+    "chat_react_1": ("Off", "Вимк.", "Выкл."),
+    "chat_react_2": ("On (instead + sometimes)", "Увімк. (замість + іноді)", "Вкл. (вместо + иногда)"),
+    "chat_react_s": ("Only in Auto mode.", "Лише в режимі Авто.", "Только в режиме Авто."),
 }
 
 # reason code (as stored in the decision log) -> (English, Ukrainian, Russian) plain-language explanation
@@ -1475,6 +1561,24 @@ R = {
     "sticker_reply_unavailable": ("no usable sticker document or native sender was available", "немає доступного документа стікера або засобу надсилання", "нет доступного документа стикера или средства отправки"),
     "sticker_only_reply": ("replied to stickers with one sticker and no text", "на стікери надіслано один стікер без тексту", "на стикеры отправлен один стикер без текста"),
 
+    "reaction_sent": ("put a reaction", "поставлено реакцію", "поставлена реакция"),
+    "reaction_skipped_hour_cap": ("no reaction: hourly reaction limit for this chat reached",
+                                  "без реакції: ліміт реакцій на годину в цьому чаті вичерпано",
+                                  "без реакции: лимит реакций в час в этом чате исчерпан"),
+    "reaction_skipped_day_cap": ("no reaction: daily reaction limit reached",
+                                 "без реакції: добовий ліміт реакцій вичерпано",
+                                 "без реакции: суточный лимит реакций исчерпан"),
+    "reaction_skipped_ghost": ("no reaction: ghost mode hides read receipts, a reaction would show the message was read",
+                               "без реакції: ghost-режим приховує прочитання, а реакція його видасть",
+                               "без реакции: ghost-режим скрывает прочтение, а реакция его выдаст"),
+    "reaction_skipped_error": ("no reaction: the request failed (the message is handled as usual)",
+                               "без реакції: запит не вдався (повідомлення оброблено як завжди)",
+                               "без реакции: запрос не удался (сообщение обработано как обычно)"),
+    "reaction_skipped_link": ("no extra reaction: the message has a link", "без додаткової реакції: у повідомленні посилання",
+                              "без дополнительной реакции: в сообщении ссылка"),
+    "reaction_skipped_gap": ("no extra reaction: there was one in this chat a short while ago",
+                             "без додаткової реакції: нещодавно вже була в цьому чаті",
+                             "без дополнительной реакции: недавно уже была в этом чате"),
     "sticker_sent": ("sent a sticker", "надіслано стікер", "отправлен стикер"),
     "sticker_decided_yes": ("the sticker picker chose a sticker", "вирішувач стікерів обрав стікер",
                             "выбиратель стикеров выбрал стикер"),
@@ -2019,6 +2123,8 @@ class ChatState(object):
         self.learn_n = 0                   # incoming messages since the last lore learning
         self.learn_ts = 0.0                # time of the last lore learning
         self.learn_busy = False
+        self.react_h = deque(maxlen=50)    # timestamps of our reactions in this chat (0.4.9)
+        self.react_ts = 0.0                # time of our latest reaction in this chat
 
 
 class Plugin(BasePlugin):
@@ -2045,6 +2151,7 @@ class Plugin(BasePlugin):
         self._scan_stop = False
         self._scan_lock = threading.Lock()
         self._sticker_hist = deque(maxlen=6)
+        self._react_day = deque()          # timestamps of reactions in all chats (0.4.9, daily cap)
         self._tl_warned = set()
         self._marks = {}
         self._load_marks()
@@ -2632,6 +2739,7 @@ class Plugin(BasePlugin):
             self.set_setting("mode_" + sk, None)
             self.set_setting("prompt_" + sk, None)
             self.set_setting("rlang_" + sk, None)
+            self.set_setting("react_" + sk, None)
             self.set_setting("lore_" + sk, None)
             self.set_setting("learned_" + sk, None)
         return title
@@ -3637,6 +3745,10 @@ class Plugin(BasePlugin):
         sticker_only = self._sticker_only_batch(key, batch)
         if auto and self._in_quiet_hours():
             return self._skip(key, "quiet hours")
+        if auto and self._react_mode(key, c, did) and self._reactable_batch(key, batch):
+            res = self._react_instead(key, c, st, did, account, batch)
+            if res is not None:
+                return res
         if (not sticker_only and humanize and self.get_setting("skip_emoji", True)
                 and all(is_emoji_only(t) for _, _, t in batch)):
             return self._skip(key, "emoji only")
@@ -3762,6 +3874,8 @@ class Plugin(BasePlugin):
             self._commit(key, set=upd)
         self._decide(key, "draft" if mode == MODE_DRAFT else "sent",
                      "ok_fallback_" + why if why else "ok")
+        if auto:
+            self._maybe_extra_reaction(key, c, st, did, account, batch)
         self._learn_tick(key, st, len(batch))
         return "ok"
 
@@ -3925,6 +4039,159 @@ class Plugin(BasePlugin):
             return True
         except Exception as e:
             self._tl_warn("typing", e)
+            return False
+
+    # ---- reactions (0.4.9): emoji reactions instead of a reply to 'ok / thanks / lol', and now and then extra
+    def _react_mode(self, key, c, did):
+        """0 off, 1 instead of replying to reaction-like messages, 2 that and sometimes on regular messages.
+        Private chats only; the chat's own selector (0 as in general, 1 off, 2 on) wins over the general one."""
+        try:
+            if int(did) <= 0 or (c or {}).get("type") not in (None, "", "user"):
+                return 0
+            per = int(self.get_setting("react_" + self._sk(key), 0) or 0)
+            if per == 1:
+                return 0
+            if per == 2:
+                return 2
+            mode = int(self.get_setting("reactions", 0) or 0)
+            return mode if mode in (1, 2) else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def _reactable_batch(self, key, batch):
+        pending = getattr(self, "_sticker_pending", {})
+        return bool(batch) and all(
+            pending.get((key, mid), {}).get("only") is True or reactable(text) for mid, _fid, text in batch)
+
+    def _reaction_target(self, key, batch):
+        """(message id, emoji) for the newest message of the batch, or None."""
+        pending = getattr(self, "_sticker_pending", {})
+        for mid, _fid, text in reversed(batch):
+            if isinstance(mid, int) and mid > 0:
+                sticker = pending.get((key, mid), {}).get("only") is True
+                return mid, pick_reaction(text, sticker=sticker), text
+        return None
+
+    def _reaction_limit(self, st):
+        """None when one more reaction is allowed, else the reason ('hour_cap' / 'day_cap'). Does not count."""
+        now = self._now()
+        with self._lock:
+            while st.react_h and now - st.react_h[0] > 3600:
+                st.react_h.popleft()
+            while self._react_day and now - self._react_day[0] > 86400:
+                self._react_day.popleft()
+            if len(st.react_h) >= REACT_CHAT_HOURLY:
+                return "hour_cap"
+            if len(self._react_day) >= REACT_DAILY:
+                return "day_cap"
+        return None
+
+    def _no_reaction(self, key, why):
+        self._decide(key, "info", "reaction_skipped_" + why)
+        return None
+
+    def _send_reaction(self, did, account, msg_id, emoji):
+        """messages.sendReaction with one standard emoji (the request the app builds in
+        SendMessagesHelper.sendReaction). True if requested. Never raises."""
+        try:
+            fn = getattr(client, "send_reaction", None)
+            if fn is not None:
+                try:
+                    return fn(int(did), int(msg_id), emoji, account=account) is not False
+                except TypeError:
+                    pass                              # another signature: build the request ourselves
+            mc = _jclass("org.telegram.messenger.MessagesController").getInstance(account)
+            req = _jclass("org.telegram.tgnet.TLRPC$TL_messages_sendReaction")()
+            req.peer = mc.getInputPeer(int(did))
+            req.msg_id = int(msg_id)
+            reaction = _jclass("org.telegram.tgnet.TLRPC$TL_reactionEmoji")()
+            reaction.emoticon = emoji
+            req.reaction.add(reaction)
+            req.flags = int(req.flags) | 1            # flag 0: the reaction list is serialized
+
+            def done(response, error):
+                # like the app: the answer is Updates with the new reaction state of the message
+                try:
+                    if error is None and response is not None:
+                        mc.processUpdates(response, False)
+                except Exception:
+                    pass
+            client.send_request(req, done, account)
+            return True
+        except Exception as e:
+            self._tl_warn("reaction", e)
+            return False
+
+    def _put_reaction(self, key, st, did, account, msg_id, emoji):
+        """Checks the caps and ghost mode, sends, counts. True when the reaction was requested."""
+        why = self._reaction_limit(st)
+        if why:
+            return self._no_reaction(key, why)
+        if self._ghost_flags()[0]:
+            # a reaction shows the message was read, which ghost mode hides
+            return self._no_reaction(key, "ghost")
+        if not self._send_reaction(did, account, msg_id, emoji):
+            return self._no_reaction(key, "error")
+        now = self._now()
+        with self._lock:
+            st.react_h.append(now)
+            st.react_ts = now
+            self._react_day.append(now)
+        self._decide(key, "sent", "reaction_sent", x=emoji)
+        return True
+
+    def _react_instead(self, key, c, st, did, account, batch):
+        """A reaction instead of a text reply. None = no reaction, go on as without reactions."""
+        target = self._reaction_target(key, batch)
+        if target is None:
+            return None
+        live = self._live()
+        if live and st.cur and st.owner_ts > st.cur[0]:
+            return None                               # the normal path logs 'owner replied'
+        window = self._pnum("owner_active", 0, 3600)
+        if window and self._now() - st.owner_ts < window:
+            return None                               # the normal path defers or skips
+        why = self._reaction_limit(st) or ("ghost" if self._ghost_flags()[0] else None)
+        if why:
+            return self._no_reaction(key, why)
+        msg_id, emoji, _text = target
+        read_id = max([b[0] for b in batch if isinstance(b[0], int)] or [0]) if self._read_enabled() else 0
+        if live:
+            kind, arrival = self._conv_kind(st, [], batch)
+            timing = self._make_timing(key, st, kind, arrival, batch, [], read_id)
+            timing["type"] = 0.0                      # a human pause, no 'typing…' for a reaction
+            if not self._live_wait(key, c, st, did, account, timing):
+                return self._skip(key, st.abort or "disabled meanwhile")
+        elif read_id:
+            self._mark_read(key, read_id)
+        if not self._task_alive(key, account, did):
+            return self._skip(key, "disabled meanwhile")
+        if not self._put_reaction(key, st, did, account, msg_id, emoji):
+            return None
+        with self._lock:
+            for b in batch:
+                if b[0] is not None:
+                    st.answered.append(b[0])
+            st.defers = 0
+            st.retries = 0
+        return "reaction"
+
+    def _maybe_extra_reaction(self, key, c, st, did, account, batch):
+        """Now and then a reaction on a regular message the bot has just answered. Never raises."""
+        try:
+            if self._react_mode(key, c, did) != 2 or not self._task_alive(key, account, did):
+                return False
+            target = self._reaction_target(key, batch)
+            if target is None or self._rng.random() * 100.0 >= REACT_EXTRA_PCT:
+                return False
+            msg_id, emoji, text = target
+            if URL_RE.search(str(text or "")):
+                return bool(self._no_reaction(key, "link"))
+            if st.react_ts and self._now() - st.react_ts < REACT_EXTRA_GAP_MIN * 60:
+                return bool(self._no_reaction(key, "gap"))
+            return bool(self._put_reaction(key, st, did, account, msg_id, emoji))
+        except Exception as e:
+            self.log("extra reaction failed: %s" % e)
             return False
 
     # ---- compact, per-chat opt-in factual memory (not owner style examples)
@@ -5211,7 +5478,7 @@ class Plugin(BasePlugin):
             return label
         if outcome in ("seen", "cmd", "info"):
             return self.rt(code) + ((" " + str(r["x"])) if r.get("x") else "")
-        return "%s: %s" % (label, self.rt(code))
+        return "%s: %s" % (label, self.rt(code)) + ((" " + str(r["x"])) if r.get("x") else "")
 
     def _stamp(self, ts, full=False):
         try:
@@ -6101,43 +6368,32 @@ class Plugin(BasePlugin):
             self._open_key = None if self._open_key == key else key
         return cb
 
-    # 0.4.1: a short main block, the chat list, then collapsible groups. Which group is open and whether the whole
-    # chat list is shown live in memory only (like _open_key), never in the stored settings.
+    # 0.4.9: the screen shows one section at a time, picked by the "Section" selector at the very top (ui_section,
+    # a stored Selector: the app redraws the screen after it changes). Inside a section nothing is folded. Whether
+    # the whole chat list is shown and which chat is expanded live in memory only, never in the stored settings.
     SETTINGS_GROUPS = ("style", "live", "limits", "cmd", "media", "prompts", "test", "log")
-    GROUP_TITLES = {"style": "h_humanize", "live": "h_live", "limits": "h_limits", "cmd": "h_cmd",
-                    "media": "h_media", "prompts": "h_prompts", "test": "h_test", "log": "h_decisions"}
+    UI_SECTIONS = ("main", "chats") + SETTINGS_GROUPS          # index = stored value of ui_section; log is last
     CHATS_SHOWN = 15             # chat rows shown before "Show all chats (N)"
-    LOG_SHOWN = 10               # decision rows in the opened log; "Copy log" gives the full one
+    LOG_SHOWN = 10               # decision rows in the log section; "Copy log" gives the full one
 
-    def _open_groups_set(self):
-        groups = getattr(self, "_open_groups", None)
-        if groups is None:
-            groups = self._open_groups = set()
-        return groups
-
-    def _toggle_group(self, gid):
-        def cb():
-            groups = self._open_groups_set()
-            if gid in groups:
-                groups.discard(gid)
-            else:
-                groups.add(gid)
-        return cb
+    def _ui_section(self):
+        try:
+            i = int(self.get_setting("ui_section", 0))
+        except (TypeError, ValueError):
+            i = 0
+        return self.UI_SECTIONS[i] if 0 <= i < len(self.UI_SECTIONS) else "main"
 
     def _toggle_all_chats(self):
         self._all_chats = not getattr(self, "_all_chats", False)
 
-    def _group_row(self, items, gid):
-        """Appends the tap-to-expand title row of a group; True when the group is open."""
-        opened = gid in self._open_groups_set()
-        if gid == "log":
+    def _section_selector(self, sid):
+        if sid == "log":
             n = len(getattr(self, "_decisions", ()))
             sub = self.t("gs_log", n) if n else self.t("log_none")
         else:
-            sub = self.t("gs_" + gid)
-        items.append(self._text_row(("▾ " if opened else "▸ ") + self.t(self.GROUP_TITLES[gid]),
-                                    "grp_" + gid, self._toggle_group(gid), sub))
-        return opened
+            sub = self.t("gs_" + sid)
+        return Selector(key="ui_section", text=self.t("ui_section"),
+                        items=[self.t("sec_" + s) for s in self.UI_SECTIONS], default=0, subtext=sub)
 
     @staticmethod
     def _fmt_num(v):
@@ -6168,9 +6424,20 @@ class Plugin(BasePlugin):
 
     def create_settings(self):
         self._load_chats()
+        sid = self._ui_section()
+        items = [self._section_selector(sid)]
+        if sid == "chats":
+            items += self._section_chats()
+        elif sid in self.SETTINGS_GROUPS:
+            items += getattr(self, "_group_" + sid)()
+        else:
+            items += self._section_main()
+        return items
+
+    def _section_main(self):
+        """What most people change. Kept short (0.4.9: the tone moved to the Style section)."""
         t = self.t
-        # 1. main block: what most people change
-        items = [Header(text=t("h_main"))]
+        items = []
         if not self.get_setting("master", True):
             items.append(note(t("master_off_note")))
         elif not self._chats and not self.get_setting("reply_all", False):
@@ -6186,12 +6453,18 @@ class Plugin(BasePlugin):
             Switch(key="revive", text=t("revive"), default=False, subtext=t("revive_s"), on_change=self._scan_toggle),
             Selector(key="reply_lang", text=t("reply_lang"), items=[t("rl_%d" % i) for i in range(4)], default=3,
                      subtext=t("reply_lang_s")),
-            Selector(key="tone", text=t("tone"), items=[t("tone_%d" % i) for i in range(3)], default=0),
             Selector(key="preset", text=t("preset"), items=[t("preset_%d" % i) for i in range(4)], default=LIVE_PRESET,
                      subtext=t("preset_s")),
+            Selector(key="reactions", text=t("reactions"), items=[t("react_mode_%d" % i) for i in range(3)],
+                     default=0, subtext=t("reactions_s")),
             Selector(key="ui_lang", text=t("lang"), items=list(LANG_NAMES), default=0, subtext=t("lang_s")),
         ]
-        # 2. chats where the bot is active, 3. adding a chat right below the list
+        return items
+
+    def _section_chats(self):
+        """Chats where the bot is active, then adding a chat right below the list."""
+        t = self.t
+        items = []
         self._settings_chats(items)
         items.append(Header(text=t("h_add")))
         if DialogPicker is not None:
@@ -6201,11 +6474,6 @@ class Plugin(BasePlugin):
         else:
             items.append(note(t("add_old")))
         items.append(note(t("add_cmds")))
-        # 4. everything else, folded; the decision log is the last group
-        items.append(Header(text=t("h_more")))
-        for gid in self.SETTINGS_GROUPS:
-            if self._group_row(items, gid):
-                items += getattr(self, "_group_" + gid)()
         return items
 
     def _settings_chats(self, items):
@@ -6249,6 +6517,9 @@ class Plugin(BasePlugin):
                 items.append(Selector(key="gender_" + sk, text=t("chat_gender"),
                                       items=[t("gender_0"), t("gender_1"), t("gender_2")], default=0,
                                       subtext=t("chat_gender_s")))
+                items.append(Selector(key="react_" + sk, text=t("chat_react"),
+                                      items=[t("chat_react_%d" % i) for i in range(3)], default=0,
+                                      subtext=t("chat_react_s")))
                 items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
                                     on_change=self._keep_cb(key)))
                 items.append(Switch(key="memory_" + sk, text=t("memory"), default=False,
@@ -6272,6 +6543,7 @@ class Plugin(BasePlugin):
     def _group_style(self):
         t = self.t
         return [
+            Selector(key="tone", text=t("tone"), items=[t("tone_%d" % i) for i in range(3)], default=0),
             Switch(key="humanize", text=t("humanize"), default=True, subtext=t("humanize_s")),
             Switch(key="learn_style", text=t("learn"), default=True, subtext=t("learn_s")),
             Input(key="learn_n", text=t("learn_n"), default="40"),
