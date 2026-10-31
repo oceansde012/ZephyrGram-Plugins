@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.4.8"
-__version_code__ = 20
+__version__ = "0.4.9"
+__version_code__ = 21
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -3009,6 +3009,7 @@ class Plugin(BasePlugin):
                 self._schedule(key, self._debounce(jitter=True))
 
     def _revive_send(self, key, st):
+        self._awake(150)
         """Runs with st.inflight held by _revive_run."""
         c = self._chats.get(key)
         if (not c or not c.get("enabled") or not self.get_setting("master", True) or not self._revive_on()
@@ -3276,7 +3277,19 @@ class Plugin(BasePlugin):
         return None
 
     # ------------------------------------------------------------------ scheduling
+    def _awake(self, seconds):
+        """Ask the app (newer builds) to keep the CPU awake for up to `seconds`: while the phone sleeps the process
+        lives on but its timers and sleeps stand still, so a debounce or a human-pace pause would only end when the
+        owner opens the app. Never raises, a no-op on older apps."""
+        try:
+            fn = getattr(client, "keep_awake", None)
+            if fn is not None:
+                fn(max(1.0, min(180.0, float(seconds))))
+        except Exception as e:
+            self._tl_warn("keep_awake", e)
+
     def _schedule(self, key, delay_s):
+        self._awake(delay_s + 45)
         try:
             client.run_on_ui(lambda: client.run_in_bg(lambda: self.tick(key)),
                              delay_ms=int(max(0.0, delay_s) * 1000))
@@ -3707,6 +3720,7 @@ class Plugin(BasePlugin):
             extra = ("The other person only acknowledged something. Answer with one or two words at most "
                      "(like 'ага', 'ок', 'ну') in their language, nothing else.")
         ai_started = self._now()
+        self._awake(150)
         try:
             parts, why = self.generate(key, account, did, messages, c, st,
                                        split=(mode != MODE_DRAFT), extra_system=extra)
@@ -3823,6 +3837,7 @@ class Plugin(BasePlugin):
     def _live_wait(self, key, c, st, did, account, timing):
         """Sleep the human latency in short chunks; typing indicator during the last part. False = stop."""
         total, tsecs = float(timing["wait"]), float(timing["type"])
+        self._awake(total + 40)
         quiet = max(0.0, total - tsecs)
         waited = 0.0
         while waited < quiet - 1e-9:
@@ -4622,6 +4637,7 @@ class Plugin(BasePlugin):
                             d = max(0.0, min(budget, d))
                             budget -= d
                             if d > 0:
+                                self._awake(d + 10)
                                 time.sleep(d)
                 elif i:
                     # every part takes as long as a person needs to type it: long messages go out later
@@ -4668,6 +4684,7 @@ class Plugin(BasePlugin):
         """Sleep `seconds`, showing 'typing...' and refreshing it while waiting (a typing action fades after ~5 s)."""
         show = bool(self.get_setting("show_typing", True))
         left = max(0.0, float(seconds))
+        self._awake(left + 15)
         while left > 1e-9:
             if show:
                 self._send_typing(did, account)

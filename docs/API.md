@@ -220,6 +220,7 @@ client.message_to_dict(message_object) -> dict   # also zephyr.message_to_dict; 
 client.current_account() -> int       # selected account index (default `account` of the helpers)
 client.run_on_ui(fn, delay_ms=0)
 client.run_in_bg(fn)
+client.keep_awake(seconds)       # newer apps only (0.2.0+): hold a partial wake lock for up to `seconds` (1..180); feature-detect with getattr
 client.bulletin(text)                  # short toast-like message (UI thread safe)
 client.copy_to_clipboard(text)         # clipboard helper
 client.http_get(url, headers=None, timeout=15) -> (status:int, body:bytes)   # internet
