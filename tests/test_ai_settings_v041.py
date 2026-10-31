@@ -10,7 +10,7 @@ from test_ai_autoreply import Base, CLIENT, DID, all_settings, mod
 GLOBAL = {
     "master": ("Switch", True), "ui_lang": ("Selector", 0), "preset": ("Selector", 3),
     "reply_lang": ("Selector", 3), "reply_all": ("Switch", False), "all_accounts": ("Input", ""),
-    "skip_links": ("Switch", True), "revive": ("Switch", False), "revive_after": ("Input", "20"),
+    "skip_links": ("Switch", True), "lore": ("Input", ""), "lore_learn": ("Switch", False), "revive": ("Switch", False), "revive_after": ("Input", "20"),
     "revive_window": ("Input", "3"), "revive_daily": ("Input", "2"),
     "cmd_enable": ("Switch", True), "cmd_triggers": ("Input", mod.DEFAULT_TRIGGERS), "cmd_mode": ("Selector", 0),
     "cmd_any_private": ("Switch", False), "cmd_openers": ("Input", ""),
@@ -35,7 +35,7 @@ for _k in ("lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_
            "scan_interval"):
     GLOBAL[_k] = ("Input", "")
 BUTTONS = {"add_pick": "DialogPicker", "add_username": "UsernameInput", "test_pick": "DialogPicker"}
-TOP = ["master", "reply_all", "all_accounts", "skip_links", "short_msgs", "revive", "reply_lang", "tone", "preset",
+TOP = ["master", "reply_all", "all_accounts", "skip_links", "short_msgs", "lore", "lore_learn", "revive", "reply_lang", "tone", "preset",
        "ui_lang"]
 
 

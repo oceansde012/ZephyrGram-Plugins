@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+- **No more 'read but never answered'.** The chat used to be marked as read right after the debounce and the bot could then stay silent (you answered yourself while it waited, the AI failed, an error). Now the read mark is sent only when the answer is ready, right before it is typed.
+- **A message is no longer lost to a passing failure.** When the AI request fails, returns nothing, or the chat info/history cannot be loaded, the messages are kept and answered a little later (up to 2 retries, 25 s and 50 s later, logged as "retry ..."). After that the batch is dropped as before and the next message is handled normally.
+- **Lore** (new): the setting "Lore: about me" is a free text where you describe yourself for chatting (who you are, what you do and like, how you talk, what is private). Every chat also has "Lore of this chat" (what you know about this person). The AI may state the facts from the lore and nothing else about you; it is told to use them only when relevant, never to recite or contradict them. It is facts, not instructions, and is applied to answers, `.ai` commands and revivals, with or without the humanize mode.
+- **Learn notes from chats** (new, off by default, `lore_learn`): after every 25 incoming messages (at most every 10 minutes per chat) the AI reads the recent messages in the background and keeps up to 12 short notes about the person in "Notes learned from this chat", which you can see and edit in the chat's options. Passwords, codes, card/bank data, numbers, links and @usernames are filtered out; the notes are marked as untrusted background in the prompt. Removing a chat deletes its lore and notes.
+- New storage keys: `lore`, `lore_learn`, `lore_<sk>`, `learned_<sk>`.
+
 ## 0.4.1 (settings screen)
 - The settings screen is reorganized for a narrow phone screen. On top, **Main**: master switch, answer everyone (+ accounts), do not answer links, short messages, revive quiet conversations, reply language, tone, preset, interface language. A new user also sees one line on how to start.
 - Then the chat list (per account as before) and **Add chat**. With more than 15 chats only the first 15 are shown plus **Show all chats (N)**; an opened chat stays visible. The modes (Auto / Draft / Friend) are explained once, under the chat's Mode selector.

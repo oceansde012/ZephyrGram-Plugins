@@ -429,6 +429,11 @@ quiet conversation in an Auto chat is restarted with a fitting topic), `revive_a
 `revive_daily` (minutes of silence, hours after which the chat counts as finished, revivals per chat per day),
 `revive_marks` (JSON text of {chat key: [timestamps]}, internal).
 
+**0.4.2 additions.** `lore` (string, the owner's description of themselves, goes into the prompt as the only personal
+facts the AI may state), `lore_learn` (bool, default false: the AI keeps short notes about each chat), per chat
+`lore_<sk>` (string, owner's facts about this chat's person) and `learned_<sk>` (string, lines `- note`, written by the
+plugin, editable; removed together with the chat).
+
 **`decisions`** (string, JSON array, at most 60 since 0.3.6 (20 before), oldest first, no message text):
 `{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}` (0.3.7: plus an optional `"x"`, a short extra such as an emoji).
 `o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`
