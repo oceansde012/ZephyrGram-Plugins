@@ -172,6 +172,7 @@ class TestSilentPaths(Base):
     def test_typing_delay_bounds_short_and_long(self):
         slept = []
         mod.time.sleep = lambda s: slept.append(s)
+        self.p.settings["typing_cap"] = "2.5"           # an explicit cap keeps the legacy total budget
         self.round("привіт, як справи")
         self.assertTrue(0.4 <= sum(slept) <= 2.5 + 1e-9, slept)
         self.assertEqual(len(CLIENT.sent), 1)
