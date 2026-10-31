@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.5.0"
-__version_code__ = 22
+__version__ = "0.5.1"
+__version_code__ = 23
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -269,6 +269,9 @@ MAX_TYPING_TOTAL = 2.5       # default cap (s) for all parts of one reply; setti
 MIN_TYPING_TOTAL = 0.4
 SPLIT_MIN_CHARS = 120        # replies up to this length are never split
 MAX_OWNER_DEFERS = 2         # a batch held back by the owner-active rule is retried this many times
+OWNER_PARTIAL_RULE = ("I (the owner) already answered their earlier messages myself: my messages are in the "
+                      "conversation above. Take them into account, do not repeat or contradict them, and answer "
+                      "only the newest message(s) that are still open.")
 MAX_DEBOUNCE_TOTAL = 20.0    # a batch is answered at the latest this long after its first message
 AUTH_RESUME_SEC = 1800       # a chat auto-disabled by errors is re-enabled after this long
 POLITE_STOP_TEXT = u"ок, я трохи зайнятий, напишу пізніше"
@@ -1545,6 +1548,9 @@ R = {
                               "вы только что писали здесь: ответ отложен до конца вашей тишины (не отменён)"),
     "owner_replied": ("you already replied yourself: the bot stays silent",
                       "ви вже відповіли самі: бот мовчить", "вы уже ответили сами: бот молчит"),
+    "owner_replied_partial": ("you answered part of it yourself: the bot answers only what came after your message and takes your message into account",
+                              "ви відповіли на частину самі: бот відповідає лише на те, що прийшло після вашого, і враховує його",
+                              "вы ответили на часть сами: бот отвечает только на то, что пришло после вашего, и учитывает его"),
     "ai_slow": ("the AI needed %s s to write the answer (slow AI server)",
                 "ШІ писав відповідь %s с (повільний ШІ-сервер)", "ИИ писал ответ %s с (медленный ИИ-сервер)"),
     "latency_wait": ("waiting %s s before replying (human pace)", "чекаю %s с перед відповіддю (людський темп)",
@@ -2101,6 +2107,8 @@ class ChatState(object):
         self.recent = deque(maxlen=5)      # normalized texts of our last replies (de-duplication)
         self.first_ts = 0.0                # time of the first message of the pending batch
         self.owner_ts = 0.0                # last time the owner wrote in this chat
+        self.owner_mid = 0                 # id of the newest owner message seen (0 = unknown)
+        self.owner_partial = False         # the owner answered part of the pending batch: tell the model
         self.answered = deque(maxlen=60)   # message ids we already replied to
         self.sent_h = deque(maxlen=200)    # timestamps of our sent replies (per-chat hourly cap)
         self.sending = False
@@ -3194,6 +3202,22 @@ class Plugin(BasePlugin):
             return                               # most likely our own sticker coming back as an outgoing event
         st.owner_ts = self._now()
         st.last_act_ts = st.last_reply_ts = st.owner_ts
+        mid = m.get("id")
+        if isinstance(mid, int) and mid > st.owner_mid:
+            st.owner_mid = mid
+
+    def _after_owner(self, st, batch):
+        """The owner answered in the middle of a batch: messages up to his reply count as answered by him, the
+        ones that came after it still need an answer. Without a known owner message id everything is dropped."""
+        mark = st.owner_mid
+        if not mark:
+            return []
+        keep = [b for b in batch if b[0] is None or (isinstance(b[0], int) and b[0] > mark)]
+        with self._lock:
+            for b in batch:
+                if b not in keep and b[0] is not None:
+                    st.answered.append(b[0])
+        return keep
 
     def handle_incoming(self, account, mo):
         m = self._to_dict(mo)
@@ -3254,6 +3278,7 @@ class Plugin(BasePlugin):
             if not st.pending:
                 st.first_ts = now
                 st.defers = 0
+                st.owner_partial = False
                 st.arr_ts = now
                 st.b_prev = (st.last_in_ts, st.last_act_ts, st.last_reply_ts)
             st.pending.append((m.get("id"), m.get("from_id"), self._strip_trigger(key, m["text"])))
@@ -3776,7 +3801,13 @@ class Plugin(BasePlugin):
                 and not any(has_request(t) for _, _, t in batch)):
             return self._skip(key, "group no question")
         if live and auto and st.cur and st.owner_ts > st.cur[0]:
-            return self._skip(key, "owner replied")      # you answered this message yourself
+            kept = self._after_owner(st, batch)          # you answered the earlier ones yourself
+            if not kept:
+                return self._skip(key, "owner replied")
+            st.owner_partial = True
+            self._decide(key, "info", "owner_replied_partial")
+            batch = kept
+            st.cur = (st.owner_ts,) + tuple(st.cur[1:])  # the open messages came after the owner's reply
         window = self._pnum("owner_active", 0, 3600)
         if auto and window and self._now() - st.owner_ts < window:
             return self._defer_owner(key, st, batch, window - (self._now() - st.owner_ts))
@@ -3827,7 +3858,7 @@ class Plugin(BasePlugin):
         # a message must not end up 'read but never answered' when the bot stays silent afterwards.
         cold_read = read_id if live else 0
         self.count_use(key)
-        extra = ""
+        extra = OWNER_PARTIAL_RULE if st.owner_partial else ""
         if ack_hint:
             extra = ("The other person only acknowledged something. Answer with one or two words at most "
                      "(like 'ага', 'ок', 'ну') in their language, nothing else.")
@@ -3882,6 +3913,7 @@ class Plugin(BasePlugin):
             st.cooldown_until = self._now() + self._cooldown()
             st.defers = 0
             st.retries = 0
+            st.owner_partial = False
             upd = {"fails": 0}
             if c.get("disclosed"):
                 upd["disclosed"] = True
