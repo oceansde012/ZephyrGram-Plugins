@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+- **`.ai start`** (also `.ai старт`, `.ai welcome`, `.ai привітання`, `.ai приветствие`): typed in a private chat (not sent), it adds the chat to the bot's list (mode Auto, or the mode the chat already has) and the bot writes the first message right away: a greeting when the chat is empty, a natural continuation of the conversation when you already talked. Refused in groups, channels, bots and secret chats.
+- **The bot no longer copies messages.** When it is switched on in a conversation that is already going, it used to repeat your last message or hers. Now every answer, `.ai` command and revival is checked against the last 12 messages of the chat: a reply that repeats (or nearly repeats, 90 %+) one of them is rejected once and rewritten with a "do not repeat or paraphrase earlier messages" rule; if it still copies, nothing is sent. Replies shorter than 10 characters are never treated as copies.
+
 ## 0.4.2
 - **No more 'read but never answered'.** The chat used to be marked as read right after the debounce and the bot could then stay silent (you answered yourself while it waited, the AI failed, an error). Now the read mark is sent only when the answer is ready, right before it is typed.
 - **A message is no longer lost to a passing failure.** When the AI request fails, returns nothing, or the chat info/history cannot be loaded, the messages are kept and answered a little later (up to 2 retries, 25 s and 50 s later, logged as "retry ..."). After that the batch is dropped as before and the next message is handled normally.

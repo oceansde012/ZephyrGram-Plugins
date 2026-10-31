@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.4.2"
-__version_code__ = 15
+__version__ = "0.4.3"
+__version_code__ = 16
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -433,6 +433,20 @@ def parse_notes(raw, limit=LEARN_MAX_NOTES):
         if len(out) >= limit:
             break
     return out if out else None
+
+
+def echoes(text, refs):
+    """True when text repeats (or nearly repeats) one of the earlier messages of the conversation."""
+    n = norm_text(text)
+    if len(n) < 10:
+        return False
+    for r in refs:
+        m = norm_text(r)
+        if len(m) < 10:
+            continue
+        if n == m or difflib.SequenceMatcher(None, n, m).ratio() >= 0.9:
+            return True
+    return False
 
 
 SENT_SPLIT_RE = re.compile(u"(?<=[.!?…])\\s+")
@@ -1072,9 +1086,9 @@ S = {
     "master_off_note": ("The master switch is OFF: the bot is silent everywhere.",
                        "Головний перемикач ВИМКНЕНО: бот ніде не відповідає.",
                        "Главный переключатель ВЫКЛЮЧЕН: бот нигде не отвечает."),
-    "add_cmds": ("Or type in a private chat (not sent): .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend.",
-                "Або напишіть в особистому чаті (не надсилається): .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend.",
-                "Или напишите в личном чате (не отправляется): .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend."),
+    "add_cmds": ("Or type in a private chat (not sent): .ai start, .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend.",
+                "Або напишіть в особистому чаті (не надсилається): .ai start, .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend.",
+                "Или напишите в личном чате (не отправляется): .ai start, .ai on, .ai off, .ai status, .ai list, .ai mode auto|draft|friend."),
     "h_prompts": ("Prompts and model", "Промпти та модель", "Промпты и модель"),
     "h_test": ("Style test", "Тест стилю", "Тест стиля"),
     "ms_0": ("Auto", "Авто", "Авто"),
@@ -1098,6 +1112,8 @@ S = {
     "bl_adm_on": ("Bot is ON in %s (mode: Auto). It answers by itself now.",
                   "Бот УВІМКНЕНО в %s (режим: Авто). Тепер відповідає сам.",
                   "Бот ВКЛЮЧЁН в %s (режим: Авто). Теперь отвечает сам."),
+    "bl_adm_start": ("Bot is ON in %s: writing the first message", "Бот УВІМКНЕНО в %s: пишу перше повідомлення",
+                     "Бот ВКЛЮЧЁН в %s: пишу первое сообщение"),
     "bl_adm_on_again": ("Bot is ON in %s (mode: %s)", "Бот УВІМКНЕНО в %s (режим: %s)", "Бот ВКЛЮЧЁН в %s (режим: %s)"),
     "bl_adm_off": ("Bot is OFF in %s: chat removed from the list", "Бот ВИМКНЕНО в %s: чат прибрано зі списку",
                    "Бот ВЫКЛЮЧЕН в %s: чат убран из списка"),
@@ -1377,6 +1393,9 @@ R = {
                       "сообщение собеседника получено"),
     "group": ("groups are not allowed for this (private chats only)", "групи тут не дозволені (лише особисті чати)",
               "группы здесь не разрешены (только личные чаты)"),
+    "admin_start": (".ai start: chat added and the bot greets / continues the conversation",
+                    ".ai start: чат додано, бот вітається або продовжує розмову",
+                    ".ai start: чат добавлен, бот здоровается или продолжает разговор"),
     "admin_on": (".ai on: bot turned on, mode Auto", ".ai on: бота увімкнено, режим Авто",
                  ".ai on: бот включён, режим Авто"),
     "admin_off": (".ai off: chat removed from the list", ".ai off: чат прибрано зі списку",
@@ -1527,7 +1546,8 @@ CMD_RULES = (
     "The owner typed a command: YOU write the next message in this chat on their behalf, in their own voice. "
     "Output only the text of that one message, nothing else. Never invent facts, plans, names or events that "
     "are not in the conversation or in the owner's instruction. Do not mention the instruction, do not say you "
-    "are an AI. A line in square brackets at the end is the owner's private instruction to you, not something "
+    "are an AI. Never repeat, quote or paraphrase any message already in the conversation, neither mine nor "
+    "theirs. A line in square brackets at the end is the owner's private instruction to you, not something "
     "the other person said; never quote it.")
 
 ADMIN_VERBS = {fold_cmd(k): v for k, v in {
@@ -1536,6 +1556,7 @@ ADMIN_VERBS = {fold_cmd(k): v for k, v in {
     "status": "status", u"статус": "status", u"стан": "status",
     "list": "list", u"список": "list",
     "mode": "mode", u"режим": "mode",
+    "start": "start", u"старт": "start", "welcome": "start", u"привітання": "start", u"приветствие": "start",
 }.items()}
 ADMIN_MODES = {fold_cmd(k): v for k, v in {
     "auto": MODE_AUTO, u"авто": MODE_AUTO, "draft": MODE_DRAFT, u"чернетка": MODE_DRAFT, u"черновик": MODE_DRAFT,
@@ -4334,6 +4355,8 @@ class Plugin(BasePlugin):
         max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6) if short else 2
         split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")
                      else (SHORT_SPLIT_CHARS if short else SPLIT_MIN_CHARS))
+        refs = [LABEL_RE.sub("", str(m.get("content") or "")) for m in (messages or [])[-12:]
+                if not str(m.get("content") or "").startswith("[private instruction")]
         cands = []                                  # (parts, problems)
         problems = []
         for attempt in range(2):
@@ -4345,6 +4368,9 @@ class Plugin(BasePlugin):
                     "\n\nYour previous attempt was rejected (%s). Write a clearly different, complete, "
                     "more casual message in %s, plain everyday words, without any of the banned words "
                     "and phrases." % (", ".join(problems) or "too formal", lang))
+                if "copy" in problems:
+                    kwargs["system"] += (" Do not repeat, quote or paraphrase any earlier message of this "
+                                         "conversation, neither the owner's nor the other person's.")
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
@@ -4363,12 +4389,14 @@ class Plugin(BasePlugin):
             problems = self.reply_problems(" ".join(parts), st, last_in, extra)
             if short and any(longest_sentence_words(p) > SHORT_MAX_WORDS for p in parts):
                 problems = problems + ["long"]
+            if any(echoes(p, refs) for p in parts):
+                problems = problems + ["copy"]
             cands.append((parts, problems))
             if not problems:
                 return parts, ""
         if not cands:
             return [], "empty"
-        usable = [cd for cd in cands if not any(p == "repeat" for p in cd[1])]
+        usable = [cd for cd in cands if not any(p in ("repeat", "copy") for p in cd[1])]
         if not usable:
             return [], "duplicate reply"
         # best available: no AI-tell / wrong language first, then fewest banned hits
@@ -4968,6 +4996,17 @@ class Plugin(BasePlugin):
                 client.bulletin(self.t("bl_adm_on", c["title"]) + master)
             else:
                 client.bulletin(self.t("bl_adm_on_again", c["title"], self._mode_label(mode)) + master)
+            return
+        if verb == "start":
+            reason = self.private_reason(info) if isinstance(info, dict) else "unknown chat"
+            if reason:
+                self._decide(key, "cmd", "admin_refused")
+                client.bulletin(self.t("bl_adm_private", self.rt(reason)))
+                return
+            c = self.chat_on(account, did, str(info.get("title") or did), "user")
+            self._decide(key, "cmd", "admin_start")
+            client.bulletin(self.t("bl_adm_start", c["title"]) + master)
+            self._start_command(account, did, key, False, "")
             return
         if verb == "off":
             title = self.chat_off(key, remove=True)
