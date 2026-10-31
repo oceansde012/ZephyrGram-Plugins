@@ -393,10 +393,10 @@ for example `"0:123456789"`. Value:
 | `enabled` | bool | the bot answers in this chat. `false` = paused (switched off in the menu or settings) |
 | `account` | int | account index |
 | `dialog_id` | int | dialog id (same as in the key) |
-| `title` | string | chat title when it was added (refreshed from dialog info when the settings screen opens) |
+| `title` | string | chat title when it was added (a missing title, or one that is only the id, is filled from dialog info when the plugin loads and after `settings_changed`; since 0.4.5 never while the settings screen is drawn) |
 | `type` | string | `"user"` (private chat) or `"group"`; channels, bots and secret chats are never stored |
 | `fails` | int | consecutive AI/send failures (reset on success; at 5 the chat is auto-paused) |
-| `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes |
+| `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes. Only a running chat gets it; the owner's own on/off (core tab, settings switch, menu) removes it, otherwise a chat the owner switched off would come back on (0.4.5) |
 | `disclosed` | bool, optional | the AI disclosure prefix was already sent in this chat |
 
 "Active" chat = `enabled == true`. `.ai off` removes the entry, the chat-menu toggle and the "Enabled" switch only
@@ -409,7 +409,7 @@ set `enabled`.
 |---|---|---|
 | `mode_<sk>` | int | `0` Auto (answers by itself), `1` Draft (writes into the input field), `2` Friend (the other person triggers with `.ai `). Missing = `0` |
 | `prompt_<sk>` | string | extra system prompt for this chat, empty = default |
-| `keep_<sk>` | bool | mirror of `enabled` for the settings switch |
+| `keep_<sk>` | bool | mirror of `enabled` for the settings switch; whoever changes `enabled` writes it too (the plugin since 0.4.5 also for error pauses and auto-resume; older mismatches are repaired on load) |
 | `rlang_<sk>` | int, *new* | reply language for this chat: `0` as global, `1` Auto, `2` Ukrainian, `3` Russian, `4` the other person's language |
 
 **Global settings of interest:** `master` (bool, default true; false = the bot is silent everywhere),
@@ -434,12 +434,16 @@ facts the AI may state), `lore_learn` (bool, default false: the AI keeps short n
 `lore_<sk>` (string, owner's facts about this chat's person) and `learned_<sk>` (string, lines `- note`, written by the
 plugin, editable; removed together with the chat).
 
-**`decisions`** (string, JSON array, at most 60 since 0.3.6 (20 before), oldest first, no message text):
+**`decisions`** (string, JSON array, at most 400 since 0.4.4 (60 since 0.3.6, 20 before), oldest first, no message
+text; since 0.4.4 written at most every 5 s, plus on unload, copy, clear and report, so the stored value can lag a
+few seconds behind the plugin):
 `{"t": <unix seconds>, "chat": "<account>:<dialog_id>", "o": "<outcome>", "r": "<reason code>"}` (0.3.7: plus an optional `"x"`, a short extra such as an emoji).
 `o` is one of `sent`, `draft`, `skip`, `error`, `disabled`, `resume`, `test`, and (*new*) `seen`
 (reason `incoming_seen`: a message from the other person reached the plugin; consecutive ones of a chat are
 collapsed into one entry) and `cmd` (in-chat commands: `admin_on`, `admin_off`, `admin_status`, `admin_list`,
-`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`). Since 0.3.6 also `info` (timing and
+`admin_log` (0.4.4),
+`admin_mode_auto|draft|friend`, `admin_refused`, `menu_on`, `menu_off`; 0.4.5: `core_mode_auto|draft|friend`,
+`settings_mode_auto|draft|friend`). Since 0.3.6 also `info` (timing and
 side actions: `scan_found`, `latency_wait_<seconds>`, `typing_sent`, `read_sent`, `read_blocked_by_ghost`,
 `sticker_sent`) and `defer` (`deferred_owner_active`: the reply is postponed, not dropped). The last real decision of
 a chat is the newest entry of that chat whose `o` is not `seen`, `cmd` or `info`.
@@ -452,8 +456,22 @@ the app event `settings_changed` (see section 3), so after a core-side edit call
 `chats`, changes only the one chat field(s) it owns and writes back, so concurrent core edits are not lost. Per-chat
 keys (`mode_`, `keep_`, `rlang_`, `prompt_`) and `master` are read from the store on every use and need no reload.
 
+**Sync rules (0.4.5).** (1) Core code rewrites `chats` / `all_skip` while holding `PluginSettingsModel.lock("ai_autoreply")`,
+the lock every plugin write (`putRaw`, `remove`) takes too. (2) The plugin rewrites `chats` / `all_skip` with
+`PluginSettingsModel.putRawIf(id, key, expectedRaw, newRaw)` (compare-and-set of the stored JSON text, read with
+`getRaw`): when a core write landed in between it re-reads and applies its change again (up to 8 tries, then a plain
+write). On an app without `putRawIf` it falls back to a plain write. (3) Screens that show these values listen to the
+store (`SharedPreferences.OnSharedPreferenceChangeListener` on `zephyr_plugin_ai_autoreply`, keys `chats`, `master`,
+`mode_*`, `keep_*`), so the plugin's own changes (a chat added by "answer everyone", an error pause, the auto-resume)
+appear while the screen is open. (4) `settings_changed` cancels a reply that is being prepared only in the chats whose
+`enabled`/identity/mode/consent changed; when nothing chat-specific changed (or `master` did) every running reply is
+re-checked as before. A mode change made on the core screen is logged as decision `cmd` / `core_mode_auto|draft|friend`,
+one made with the settings screen's selector as `settings_mode_*`. (5) Drawing the settings screen (`create_settings`)
+writes nothing.
+
 **In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
-`.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`. They are intercepted by the send hook;
+`.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`, `.ai start` (0.4.3), `.ai log` (0.4.4,
+see section 18). They are intercepted by the send hook;
 the command words (default `.ai`, `.аі`) are the `cmd_triggers` setting and the whole feature is `cmd_enable`.
 
 ## 11. ai_autoreply 0.3.6: Live preset, scan, human timing, read marks, stickers
@@ -666,3 +684,29 @@ Mixed text/sticker batches keep the normal reply behavior. Explicit draft or com
 ### Upgrade settings
 
 The context defaults are 40 messages / 16000 characters; up to 100 messages are supported by app 0.1.5. Answer detail is Short / Balanced / Detailed, with default character budgets 400 / 1200 / 3000. Previously explicitly saved `context_n` and `max_reply` values remain in force: increase a saved context of 10 manually, and clear a saved reply limit of 300 to use the chosen detail mode's default. Local memory must be enabled separately for each chat.
+
+## 18. Diagnostic report (ai_autoreply 0.4.4)
+
+For "where did the bot stall" questions the owner can copy one text report of the **last hour** and send it to the
+developer: the button **Copy report (last hour)** in the "Recent decisions" group, or the in-chat command **`.ai log`**
+(also `.ai лог`, `.ai журнал`, `.ai report`, `.ai звіт`, `.ai отчет`), which like the other admin commands is never sent
+and works in any chat. The report is collected in `client.run_in_bg` (history reads), put into the clipboard with
+`client.copy_to_clipboard` and confirmed with a bulletin (characters, entries); it is not stored anywhere.
+
+Content, at most 15 000 characters (the oldest timeline lines are dropped first; header, summary and state snapshots
+always stay):
+- header: plugin version, local time + unix time, interface language, preset, master, the effective key settings
+  (preset values for empty fields), number of listed / enabled chats, log size, AI calls in the hour;
+- summary: counts of outcome and outcome/reason in the hour, incoming -> bot reply time (avg / max, from history),
+  suspicious pauses (an incoming message followed by no message and no decision for more than 10 minutes in an enabled
+  chat while master is on; Friend-mode chats are not checked);
+- up to 12 chats (those with decisions in the hour, newest first, then enabled chats with live state or incoming
+  history): key `<account>:<dialog_id>`, type, mode, enabled, fails, auto-off; the in-memory state (pending, timer,
+  inflight, sending, revive/learn busy, retries, defers, seconds since last incoming / reply / owner / bot send,
+  cooldown left); flags `!! STUCK FLAG?` (a busy flag with no decision, incoming or send for 5 minutes),
+  `!! PENDING WITHOUT TIMER`, `!! AUTO-DISABLED`; and a merged timeline of the hour: decisions (code + plain text in
+  the owner's language) and the last 15 history rows as time, direction (`in`, `out-bot`, `out-owner`, `out-?` for an
+  outgoing row without text that cannot be attributed), length in characters, type (`text`, `media`, `text+media`,
+  `sticker` when known) and message id. A failing history read prints `history unavailable (<error type>)`.
+
+The report never contains message texts, chat titles, names, usernames or phone numbers.

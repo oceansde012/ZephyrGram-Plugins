@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.4.3"
-__version_code__ = 16
+__version__ = "0.4.5"
+__version_code__ = 17
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -133,6 +133,7 @@ REVIVE_INSTR = (
     "one to three short messages."
 )
 
+AI_SLOW_SEC = 10             # an answer that needed this long to write is noted in the decision log
 MAX_RETRIES = 2              # a batch that failed for a passing reason (AI error, empty reply) is retried this often
 RETRY_DELAY_SEC = 25.0
 LEARN_EVERY = 25             # lore learning: examine a chat after this many new incoming messages
@@ -181,6 +182,14 @@ REVIVE_WINDOW_H = 3          # ... but only within this many hours after the las
 REVIVE_DAILY = 2             # at most this many revivals per chat and day
 REVIVE_CHECK_SEC = 300       # one chat's history is looked at for a revival at most this often
 REVIVE_PER_PASS = 3          # at most this many chats are examined per scan pass
+DECISIONS_MAX = 400          # decision log depth (the settings screen shows 10, "Copy log" the last 40)
+DECISIONS_FLUSH_SEC = 5.0    # the log is written to the settings store at most this often (+ on unload / copy / clear)
+REPORT_WINDOW_SEC = 3600     # the diagnostic report covers this many seconds
+REPORT_MAX_CHARS = 15000     # ... and is at most this long (the oldest timeline lines are dropped first)
+REPORT_MAX_CHATS = 12        # chats with a state snapshot and a timeline in the report
+REPORT_HIST_MSGS = 15        # history rows per chat in the report (time, direction, length, type; never the text)
+REPORT_STUCK_SEC = 300       # a busy flag with no decision / incoming / send for this long is reported as stuck
+REPORT_PAUSE_SEC = 600       # an incoming message with no reply and no decision for this long is a suspicious pause
 
 PRESET_NAMES = ["Balanced", "Chatty", "Quiet", "Live (human-like, default)"]
 LIVE_PRESET = 3              # used when no preset is stored (new installs and settings without an explicit choice)
@@ -838,6 +847,10 @@ S = {
     "bl_copied": ("Log copied (%d)", "Журнал скопійовано (%d)", "Журнал скопирован (%d)"),
     "bl_cleared": ("Log cleared", "Журнал очищено", "Журнал очищен"),
     "bl_log_empty": ("Log is empty", "Журнал порожній", "Журнал пуст"),
+    "bl_report": ("Report copied: %d characters, %d entries", "Звіт скопійовано: %d символів, записів: %d",
+                  "Отчёт скопирован: %d символов, записей: %d"),
+    "bl_report_failed": ("Report failed: %s", "Не вдалося зібрати звіт: %s", "Не удалось собрать отчёт: %s"),
+    "bl_report_busy": ("The report is still being collected", "Звіт ще збирається", "Отчёт ещё собирается"),
     "bl_cmd_busy": ("The previous .ai command is still running", "Попередня команда .ai ще виконується",
                     "Предыдущая команда .ai ещё выполняется"),
     "bl_cmd_master": ("Command ignored: master switch is off", "Команду не виконано: головний перемикач вимкнено",
@@ -852,6 +865,7 @@ S = {
     "log_none": ("No decisions yet.", "Рішень ще немає.", "Решений пока нет."),
     "log_copy": ("Copy log (last 40)", "Копіювати журнал (останні 40)", "Копировать журнал (последние 40)"),
     "log_clear": ("Clear log", "Очистити журнал", "Очистить журнал"),
+    "log_report": ("Copy report (last hour)", "Скопіювати звіт (остання година)", "Скопировать отчёт (последний час)"),
     "o_sent": ("sent", "надіслано", "отправлено"),
     "o_draft": ("draft written", "чернетку записано", "черновик записан"),
     "o_skip": ("skipped", "пропущено", "пропущено"),
@@ -1298,6 +1312,8 @@ R = {
                               "вы только что писали здесь: ответ отложен до конца вашей тишины (не отменён)"),
     "owner_replied": ("you already replied yourself: the bot stays silent",
                       "ви вже відповіли самі: бот мовчить", "вы уже ответили сами: бот молчит"),
+    "ai_slow": ("the AI needed %s s to write the answer (slow AI server)",
+                "ШІ писав відповідь %s с (повільний ШІ-сервер)", "ИИ писал ответ %s с (медленный ИИ-сервер)"),
     "latency_wait": ("waiting %s s before replying (human pace)", "чекаю %s с перед відповіддю (людський темп)",
                      "жду %s с перед ответом (человеческий темп)"),
     "typing_sent": ("showed the 'typing…' indicator", "показано індикатор «друкує…»", "показан индикатор «печатает…»"),
@@ -1404,9 +1420,20 @@ R = {
                        ".ai off: чата не было в списке"),
     "admin_status": (".ai status shown", ".ai status показано", ".ai status показан"),
     "admin_list": (".ai list shown", ".ai list показано", ".ai list показан"),
+    "admin_log": (".ai log: diagnostic report copied", ".ai log: діагностичний звіт скопійовано",
+                  ".ai log: диагностический отчёт скопирован"),
     "admin_mode_auto": (".ai mode: Auto", ".ai mode: Авто", ".ai mode: Авто"),
     "admin_mode_draft": (".ai mode: Draft", ".ai mode: Чернетка", ".ai mode: Черновик"),
     "admin_mode_friend": (".ai mode: Friend", ".ai mode: Друг", ".ai mode: Друг"),
+    "core_mode_auto": ("app's AI auto-reply screen: mode Auto", "екран «AI-автовідповідач»: режим Авто",
+                       "экран «AI-автоответчик»: режим Авто"),
+    "core_mode_draft": ("app's AI auto-reply screen: mode Draft", "екран «AI-автовідповідач»: режим Чернетка",
+                        "экран «AI-автоответчик»: режим Черновик"),
+    "core_mode_friend": ("app's AI auto-reply screen: mode Friend", "екран «AI-автовідповідач»: режим Друг",
+                         "экран «AI-автоответчик»: режим Друг"),
+    "settings_mode_auto": ("settings: mode Auto", "налаштування: режим Авто", "настройки: режим Авто"),
+    "settings_mode_draft": ("settings: mode Draft", "налаштування: режим Чернетка", "настройки: режим Черновик"),
+    "settings_mode_friend": ("settings: mode Friend", "налаштування: режим Друг", "настройки: режим Друг"),
     "admin_mode_unlisted": (".ai mode ignored: chat is not in the list", ".ai mode проігноровано: чату немає в списку",
                             ".ai mode проигнорировано: чата нет в списке"),
     "admin_mode_bad": (".ai mode ignored: unknown mode", ".ai mode проігноровано: невідомий режим",
@@ -1515,6 +1542,10 @@ def reason_text(lang, code):
         base = R["sticker_skipped"]
         why = reason_text(lang, "sticker_why_" + ms.group(1))
         return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % why
+    ma = re.match(r"^ai_slow_(\d+)$", code)
+    if row is None and ma:
+        base = R["ai_slow"]
+        return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % ma.group(1)
     mw = re.match(r"^latency_wait_(\d+)$", code)
     if row is None and mw:
         base = R["latency_wait"]
@@ -1557,6 +1588,7 @@ ADMIN_VERBS = {fold_cmd(k): v for k, v in {
     "list": "list", u"список": "list",
     "mode": "mode", u"режим": "mode",
     "start": "start", u"старт": "start", "welcome": "start", u"привітання": "start", u"приветствие": "start",
+    "log": "log", u"лог": "log", u"журнал": "log", "report": "log", u"звіт": "log", u"отчет": "log", u"отчёт": "log",
 }.items()}
 ADMIN_MODES = {fold_cmd(k): v for k, v in {
     "auto": MODE_AUTO, u"авто": MODE_AUTO, "draft": MODE_DRAFT, u"чернетка": MODE_DRAFT, u"черновик": MODE_DRAFT,
@@ -1837,10 +1869,15 @@ class Plugin(BasePlugin):
         self._lock = threading.RLock()
         self._states = {}
         self._config_epoch = 0
+        self._chat_epochs = {}             # chat key -> epoch bumped when the core screen changed only that chat
+        self._fps = None
+        self._store_bridge()
         self._work_context = threading.local()
         self._media_pending = {}
         self._memory_stores = {}
         self._memory_attempts = {}
+        self._memory_busy = set()          # memory tokens whose refresh runs in the background right now
+        self._memory_note = {}             # memory token -> time of the last 'memory unavailable' log line
         self._hourly = deque()             # timestamps of AI calls (global)
         self._profiles = {}                # chat key -> (ts, n, {"examples": [...], "style": {...}})
         self._rng = random.Random()
@@ -1873,6 +1910,9 @@ class Plugin(BasePlugin):
         self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
         self._cmd_fallback = {}
         self._titles = {}
+        self._repair_store()
+        with self._lock:
+            self._fps = self._fingerprints()
         self.add_menu_item(MenuItem(
             menu_type=MenuType.CHAT_ACTION, text=self.t("menu_off"),
             on_click=self.on_enable_click, priority=0,
@@ -1893,6 +1933,7 @@ class Plugin(BasePlugin):
         self._scan_stop = True
         self._config_epoch += 1
         self._scan_armed = False
+        self._flush_decisions(force=True)
         self.log("unloaded")
 
     # ------------------------------------------------------------------ helpers
@@ -1981,7 +2022,26 @@ class Plugin(BasePlugin):
             data = json.loads(self.get_setting("decisions", "[]") or "[]")
         except (ValueError, TypeError):
             data = []
-        self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=60)
+        self._decisions = deque((d for d in data if isinstance(d, dict)), maxlen=DECISIONS_MAX)
+        self._dec_dirty = False
+        self._dec_flush_ts = 0.0
+
+    def _flush_decisions(self, force=False):
+        """Writes the log to the settings store when it changed: at most every DECISIONS_FLUSH_SEC seconds,
+        or right away with force=True (unload, copy, report). Never raises."""
+        try:
+            with self._lock:
+                if not getattr(self, "_dec_dirty", False):
+                    return False
+                now = self._now()
+                if not force and now - getattr(self, "_dec_flush_ts", 0.0) < DECISIONS_FLUSH_SEC:
+                    return False
+                self.set_setting("decisions", json.dumps(list(self._decisions)))
+                self._dec_dirty = False
+                self._dec_flush_ts = now
+                return True
+        except Exception:
+            return False
 
     def _decide(self, key, outcome, reason, ring=True, x=None):
         """Record why a message was answered or skipped. Never raises. x = short extra text (for example an emoji)."""
@@ -1997,7 +2057,8 @@ class Plugin(BasePlugin):
                     if x:
                         rec["x"] = str(x)[:12]
                     self._decisions.append(rec)
-                    self.set_setting("decisions", json.dumps(list(self._decisions)))
+                    self._dec_dirty = True
+                self._flush_decisions()
         except Exception:
             pass
         return reason
@@ -2075,40 +2136,154 @@ class Plugin(BasePlugin):
     def _sk(key):
         return key.replace(":", "_").replace("-", "n")
 
-    def _read_chats(self):
-        """The chats dict as currently stored (the core app screen may have edited it)."""
+    @staticmethod
+    def _parse_chats(value):
         try:
-            data = json.loads(self.get_setting("chats", "{}") or "{}")
+            data = json.loads(value or "{}") if isinstance(value, str) else value
             return data if isinstance(data, dict) else {}
         except (ValueError, TypeError):
             return {}
+
+    def _read_chats(self):
+        """The chats dict as currently stored (the core app screen may have edited it)."""
+        return self._parse_chats(self.get_setting("chats", "{}"))
 
     def _load_chats(self):
         with self._lock:
             self._chats = self._read_chats()
 
+    # 0.4.5: the core app screen (ZephyrAutoReplyStore) and the plugin both rewrite whole values ("chats",
+    # "all_skip"). An app with PluginSettingsModel.getRaw/putRawIf lets the plugin write only when the stored
+    # text is still the one it read (the core screen writes under the same Java lock), so a core edit that lands
+    # between our read and our write is never overwritten: the change is applied again to the newer value.
+    SETTINGS_CLASS = "org.telegram.messenger.zephyr.plugins.PluginSettingsModel"
+    CAS_TRIES = 8
+
+    def _store_bridge(self):
+        """PluginSettingsModel with getRaw + putRawIf, or None (older app, tests): then plain get/set."""
+        bridge = getattr(self, "_bridge", 0)
+        if bridge == 0:
+            try:
+                bridge = _jclass(self.SETTINGS_CLASS)
+                if not callable(getattr(bridge, "putRawIf", None)) or not callable(getattr(bridge, "getRaw", None)):
+                    bridge = None
+            except Exception:
+                bridge = None
+            self._bridge = bridge
+        return bridge
+
+    def _cas_update(self, key, fn, default=None):
+        """Read-modify-write of one stored value shared with the core screen. fn(stored value) returns the new
+        value, or None to write nothing; it may run more than once. Returns the value stored afterwards."""
+        with self._lock:
+            bridge = self._store_bridge()
+            for _ in range(self.CAS_TRIES if bridge is not None else 0):
+                try:
+                    raw = bridge.getRaw(self.id, key)
+                    raw = None if raw is None else str(raw)
+                    try:
+                        cur = json.loads(raw) if raw is not None else default
+                    except ValueError:
+                        cur = default
+                    new = fn(cur)
+                    if new is None:
+                        return cur
+                    if bridge.putRawIf(self.id, key, raw, json.dumps(new, allow_nan=False)):
+                        return new
+                except Exception as e:             # a broken bridge: fall back to the plain write below
+                    self.log("store bridge failed: %s" % e)
+                    self._bridge = None
+                    break
+            cur = self.get_setting(key, default)
+            new = fn(cur)
+            if new is None:
+                return cur
+            self.set_setting(key, new)
+            return new
+
     def _commit(self, key, set=None, drop=(), remove=False, create=False):
         """Reload-merge-save: re-read the stored chats, apply ONLY this mutation to one chat, write back.
         A newer external change (core screen) to other chats or other fields is never overwritten, and an
-        entry removed externally is not resurrected unless create=True. Returns the stored entry or None."""
-        with self._lock:
-            disk = self._read_chats()
-            cur = disk.get(key)
+        entry removed externally is not resurrected unless create=True. Returns the stored entry or None.
+        'enabled' is mirrored into keep_<sk> here (the settings switch), wherever it changes."""
+        out = {}
+
+        def mutate(value):
+            disk = self._parse_chats(value)
+            out["disk"], out["cur"] = disk, disk.get(key)
             if remove:
+                out["cur"] = None
+                if key not in disk:
+                    return None
                 disk.pop(key, None)
-                cur = None
             else:
+                cur = disk.get(key)
                 if not isinstance(cur, dict):
+                    out["cur"] = None
                     if not create:
-                        self._chats = disk
                         return None
                     cur = disk[key] = {}
                 cur.update(set or {})
                 for d in drop:
                     cur.pop(d, None)
-            self.set_setting("chats", json.dumps(disk, ensure_ascii=False))
-            self._chats = disk
+                out["cur"] = cur
+            return json.dumps(disk, ensure_ascii=False)
+
+        with self._lock:
+            self._cas_update("chats", mutate, "{}")
+            self._chats = out["disk"]
+            cur = out["cur"]
+            if remove:
+                self.set_setting("keep_" + self._sk(key), None)
+            elif cur is not None and "enabled" in (set or {}):
+                self.set_setting("keep_" + self._sk(key), bool(cur.get("enabled")))
+            self._fp_note(key)
             return cur
+
+    def _repair_store(self):
+        """Older versions changed 'enabled' (errors, auto-resume) without keep_<sk> and filled missing titles only
+        while drawing the settings screen. Done once on load and after a core edit, never while drawing."""
+        try:
+            for key, c in list(self._read_chats().items()):
+                if not isinstance(c, dict):
+                    continue
+                sk = self._sk(key)
+                keep = self.get_setting("keep_" + sk, None)
+                if keep is not None and bool(keep is True or str(keep).lower() == "true") != bool(c.get("enabled")):
+                    self.set_setting("keep_" + sk, bool(c.get("enabled")))
+                title = str(c.get("title") or "")
+                if not title or title == str(c.get("dialog_id")):
+                    new = self._dialog_title(c)
+                    if new:
+                        self._commit(key, set={"title": new})
+        except Exception as e:
+            self.log("store repair failed: %s" % e)
+
+    # ---- what a running reply depends on: a change of it cancels that chat's reply, not every chat's
+    def _epoch(self, key):
+        return self._config_epoch + self._chat_epochs.get(key, 0)
+
+    def _chat_fp(self, key, c):
+        if not isinstance(c, dict):
+            return None
+        sk = self._sk(key)
+        return (bool(c.get("enabled")), c.get("account"), c.get("dialog_id"),
+                self.get_setting("mode_" + sk, MODE_AUTO), self.get_setting("memory_" + sk, False),
+                self.get_setting("see_media_" + sk, False), self.get_setting("transcribe_voice_" + sk, False))
+
+    def _fingerprints(self):
+        return {"master": self.get_setting("master", True),
+                "chats": {k: self._chat_fp(k, c) for k, c in self._chats.items()}}
+
+    def _fp_note(self, key):
+        """The plugin's own change of a chat is not a core edit: remember its new fingerprint."""
+        fps = getattr(self, "_fps", None)
+        if fps is not None:
+            fp = self._chat_fp(key, self._chats.get(key))
+            if fp is None:
+                fps["chats"].pop(key, None)
+            else:
+                fps["chats"][key] = fp
 
     def on_app_event(self, event):
         """The core app screen edited our prefs (chats, mode_/keep_/rlang_<sk>, master): reload what we cache.
@@ -2123,8 +2298,22 @@ class Plugin(BasePlugin):
             return
         try:
             with self._lock:
-                self._config_epoch += 1
+                old = getattr(self, "_fps", None)
                 self._load_chats()
+                new = self._fps = self._fingerprints()
+                changed = []
+                if old is not None and old["master"] == new["master"]:
+                    changed = [k for k in set(old["chats"]) | set(new["chats"])
+                               if old["chats"].get(k) != new["chats"].get(k)]
+                moded = []
+                if changed:                        # 0.4.5: only the chats the core screen changed
+                    for k in changed:
+                        self._chat_epochs[k] = self._chat_epochs.get(k, 0) + 1
+                        a, b = old["chats"].get(k), new["chats"].get(k)
+                        if a is not None and b is not None and a[3] != b[3]:
+                            moded.append((k, b[3]))
+                else:                              # master switched, or nothing we can tell apart: all of them
+                    self._config_epoch += 1
                 self._lang_cache.clear()           # rlang_<sk> may have changed
                 if self._open_key not in self._chats:
                     self._open_key = None
@@ -2132,6 +2321,13 @@ class Plugin(BasePlugin):
                     if key not in self._chats:
                         self._profiles.pop(key, None)
             self.log("settings_changed: reloaded %d chats" % len(self._chats))
+            for k, mode in moded:                  # the mode was changed on the core screen: visible in the log
+                try:
+                    name = ("auto", "draft", "friend")[int(mode)]
+                except (TypeError, ValueError, IndexError):
+                    name = "unknown"
+                self._decide(k, "cmd", "core_mode_" + name)
+            self._repair_store()
             self._ensure_scan()
         except Exception as e:
             self.error(e)
@@ -2249,20 +2445,22 @@ class Plugin(BasePlugin):
                                        "title": str(title or did),
                                        "type": kind or ("user" if int(did) > 0 else "group"),
                                        "fails": 0}, drop=("auto_off_ts",), create=True)
-        if new or self.get_setting("mode_" + sk, None) is None:
-            self.set_setting("mode_" + sk, MODE_AUTO)
-        self.set_setting("keep_" + sk, True)
+            if new or self.get_setting("mode_" + sk, None) is None:
+                self.set_setting("mode_" + sk, MODE_AUTO)
+                self._fp_note(key)
         st = self._states.get(key)
         if st is not None:
             st.defers = 0
         return c
 
     def chat_off(self, key, remove):
-        """Turn a chat off (remove=False: stays in the list as paused) or drop it. Returns its title or None."""
+        """Turn a chat off (remove=False: stays in the list as paused) or drop it. Returns its title or None.
+        The stored list decides (not the cache): a chat just added on the core screen can be switched off too."""
         sk = self._sk(key)
         with self._lock:
-            c = self._chats.get(key)
-            if c is None:
+            c = self._read_chats().get(key)
+            if not isinstance(c, dict):
+                self._load_chats()
                 return None
             title = str(c.get("title") or key)
             if remove:
@@ -2275,12 +2473,9 @@ class Plugin(BasePlugin):
         if remove:
             self.set_setting("mode_" + sk, None)
             self.set_setting("prompt_" + sk, None)
-            self.set_setting("keep_" + sk, None)
             self.set_setting("rlang_" + sk, None)
             self.set_setting("lore_" + sk, None)
             self.set_setting("learned_" + sk, None)
-        else:
-            self.set_setting("keep_" + sk, False)
         return title
 
     @staticmethod
@@ -2308,10 +2503,10 @@ class Plugin(BasePlugin):
                 out.add(int(x) - 1)
         return out
 
-    def _skip_list(self):
-        """all_skip in stored order (oldest removal first, as the core screen appends too)."""
+    @staticmethod
+    def _parse_skip(value):
         try:
-            data = json.loads(self.get_setting("all_skip", "[]") or "[]")
+            data = json.loads(value or "[]") if isinstance(value, str) else value
         except (ValueError, TypeError):
             data = []
         out, seen = [], set()
@@ -2321,21 +2516,28 @@ class Plugin(BasePlugin):
                 out.append(str(x))
         return out
 
+    def _skip_list(self):
+        """all_skip in stored order (oldest removal first, as the core screen appends too)."""
+        return self._parse_skip(self.get_setting("all_skip", "[]"))
+
     def _all_skip(self):
         """Chat keys the owner removed from the list: reply-all never brings them back."""
         return set(self._skip_list())
 
     def _skip_add(self, key):
-        with self._lock:
-            keys = [k for k in self._skip_list() if k != key] + [key]
-            self.set_setting("all_skip", json.dumps(keys[-500:]))     # the newest removals are kept
+        def mutate(value):
+            keys = [k for k in self._parse_skip(value) if k != key] + [key]
+            return json.dumps(keys[-500:])                            # the newest removals are kept
+        self._cas_update("all_skip", mutate, "[]")
 
     def _skip_drop(self, key):
-        with self._lock:
-            keys = self._skip_list()
-            if key in keys:
-                keys.remove(key)
-                self.set_setting("all_skip", json.dumps(keys))
+        def mutate(value):
+            keys = self._parse_skip(value)
+            if key not in keys:
+                return None
+            keys.remove(key)
+            return json.dumps(keys)
+        self._cas_update("all_skip", mutate, "[]")
 
     def _auto_add(self, account, did, key, m):
         """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto).
@@ -2423,7 +2625,7 @@ class Plugin(BasePlugin):
     def _learn_run(self, key):
         st = self._state(key)
         previous = getattr(self._work_context, "task", None)
-        self._work_context.task = (key, self._config_epoch)
+        self._work_context.task = (key, self._epoch(key))
         try:
             self._learn_notes(key, st)
         except Exception as e:
@@ -2566,7 +2768,7 @@ class Plugin(BasePlugin):
                 return
             st.inflight = True
         previous = getattr(self._work_context, "task", None)
-        self._work_context.task = (key, self._config_epoch)
+        self._work_context.task = (key, self._epoch(key))
         self._work_context.images = []
         try:
             self._revive_send(key, st)
@@ -2639,12 +2841,19 @@ class Plugin(BasePlugin):
 
     def _maybe_resume(self, key):
         """A chat disabled by repeated errors comes back after AUTH_RESUME_SEC (never stay silent forever)."""
-        c = self._chats.get(key)
-        if c and not c.get("enabled") and c.get("auto_off_ts"):
-            if self._now() - float(c.get("auto_off_ts") or 0) >= AUTH_RESUME_SEC:
-                with self._lock:
-                    self._commit(key, set={"enabled": True, "fails": 0}, drop=("auto_off_ts",))
-                self._decide(key, "resume", "auto_resumed_after_errors")
+        def due(c):
+            return bool(isinstance(c, dict) and not c.get("enabled") and c.get("auto_off_ts")
+                        and self._now() - float(c.get("auto_off_ts") or 0) >= AUTH_RESUME_SEC)
+        if not due(self._chats.get(key)):
+            return
+        with self._lock:
+            # 0.4.5: the stored entry decides, the cache may be older than an edit on the core screen
+            # (the owner switched it off there: auto_off_ts is gone and the chat stays off)
+            if not due(self._read_chats().get(key)):
+                self._load_chats()
+                return
+            self._commit(key, set={"enabled": True, "fails": 0}, drop=("auto_off_ts",))
+        self._decide(key, "resume", "auto_resumed_after_errors")
 
     def _note_owner(self, key, m):
         """Our own outgoing message: remember that the owner is active (plugin's own texts excluded)."""
@@ -2951,6 +3160,7 @@ class Plugin(BasePlugin):
         except Exception as e:
             self.log("scan failed: %s" % e)
         finally:
+            self._flush_decisions()            # a burst of decisions that was not written yet
             if self._scan_armed and not self._scan_stop:
                 self._run_later(delay, self._scan_tick)
 
@@ -3068,12 +3278,18 @@ class Plugin(BasePlugin):
     def _fail(self, key, err):
         self.log("failure in %s: %s" % (key, err))
         with self._lock:
-            c = self._chats.get(key)
-            if not c:
+            c = self._read_chats().get(key)       # 0.4.5: the stored entry, not the cache
+            if not isinstance(c, dict):
+                self._load_chats()
                 return
-            fails = int(c.get("fails", 0)) + 1
+            try:
+                fails = int(c.get("fails", 0) or 0) + 1
+            except (TypeError, ValueError):
+                fails = 1
             upd = {"fails": fails}
-            if fails >= MAX_FAILURES:
+            # Only a running chat is paused by errors. A chat the owner switched off meanwhile stays off: an
+            # auto_off_ts on it would switch it back on after AUTH_RESUME_SEC.
+            if fails >= MAX_FAILURES and c.get("enabled"):
                 upd.update({"enabled": False, "auto_off_ts": self._now()})
                 self.log("auto-disabled %s after %d failures" % (key, fails))
                 self._decide(key, "disabled", "auto_disabled_after_errors")
@@ -3092,7 +3308,7 @@ class Plugin(BasePlugin):
     def process(self, key, batch):
         """Never raises: every outcome is logged as a decision."""
         previous = getattr(self._work_context, "task", None)
-        self._work_context.task = (key, self._config_epoch)
+        self._work_context.task = (key, self._epoch(key))
         self._work_context.images = []
         try:
             return self._process(key, batch)
@@ -3270,9 +3486,12 @@ class Plugin(BasePlugin):
         if ack_hint:
             extra = ("The other person only acknowledged something. Answer with one or two words at most "
                      "(like 'ага', 'ок', 'ну') in their language, nothing else.")
+        ai_started = self._now()
         try:
             parts, why = self.generate(key, account, did, messages, c, st,
                                        split=(mode != MODE_DRAFT), extra_system=extra)
+            if self._now() - ai_started >= AI_SLOW_SEC:
+                self._decide(key, "info", "ai_slow_%d" % int(self._now() - ai_started))
         except Exception as e:
             self._fail(key, e)
             if self._requeue(key, st, batch, "ai_failed"):
@@ -3541,8 +3760,10 @@ class Plugin(BasePlugin):
                 }, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
                 + "\n</untrusted_chat_memory_json>")
 
-    def _memory_context(self, key, account, did, messages=None):
-        """Older TEXT only, explicit chat consent, bounded and rate-limited; no attachments or send actions."""
+    def _memory_context(self, key, account, did, messages=None, blocking=True):
+        """Older TEXT only, explicit chat consent, bounded and rate-limited; no attachments or send actions.
+        blocking=False (used by replies): the existing summary is returned at once and a needed refresh runs in a
+        background worker, so the extra AI call never delays an answer."""
         if not self._memory_flag(key) or not self._task_alive(key, account, did):
             return ""
         owner_id = self._memory_owner_id(account)
@@ -3597,6 +3818,13 @@ class Plugin(BasePlugin):
                 payload["messages"].append(row)
             if len(payload["messages"]) < 10:
                 return block if self._memory_active(key, account, did, owner_id) else ""
+            if not blocking:
+                with self._lock:
+                    if token in self._memory_busy:
+                        return block if self._memory_active(key, account, did, owner_id) else ""
+                    self._memory_busy.add(token)
+                self._run_later(0.3, lambda: self._memory_refresh_bg(key, account, did, messages, token))
+                return block if self._memory_active(key, account, did, owner_id) else ""
             with self._lock:
                 previous = self._memory_attempts.get(token)
                 if previous is not None and now - previous < 600:
@@ -3634,8 +3862,22 @@ class Plugin(BasePlugin):
             return self._memory_block(record) if self._memory_active(key, account, did, owner_id) else ""
         except Exception:
             # Memory is optional: errors never disable a chat or fabricate a summary.
-            self._decide(key, "info", "memory_unavailable")
+            if now - self._memory_note.get(token, -1e9) > 1800:     # one log line per half hour, not per answer
+                self._memory_note[token] = now
+                self._decide(key, "info", "memory_unavailable")
             return block if self._memory_active(key, account, did, owner_id) else ""
+
+    def _memory_refresh_bg(self, key, account, did, messages, token):
+        previous = getattr(self._work_context, "task", None)
+        self._work_context.task = (key, self._epoch(key))
+        try:
+            self._memory_context(key, account, did, messages=messages, blocking=True)
+        except Exception as e:
+            self.error(e)
+        finally:
+            self._work_context.task = previous
+            with self._lock:
+                self._memory_busy.discard(token)
 
 
     # ---- per-chat attachment consent and in-flight cancellation
@@ -3654,7 +3896,7 @@ class Plugin(BasePlugin):
         return bool(not self._scan_stop and c and c.get("enabled") and self.get_setting("master", True)
                     and self.chat_key(account, did) == key
                     and int(c.get("account", 0)) == int(account) and int(c.get("dialog_id", 0)) == int(did)
-                    and (task is None or task == (key, self._config_epoch)))
+                    and (task is None or task == (key, self._epoch(key))))
 
     def _prepare_media_message(self, key, message):
         m = dict(message)
@@ -3668,7 +3910,7 @@ class Plugin(BasePlugin):
         mid = m.get("id")
         if isinstance(mid, int) and mid > 0:
             with self._lock:
-                self._media_pending[(key, mid)] = {"text": str(m.get("text") or ""), "epoch": self._config_epoch}
+                self._media_pending[(key, mid)] = {"text": str(m.get("text") or ""), "epoch": self._epoch(key)}
                 while len(self._media_pending) > 300:
                     self._media_pending.pop(next(iter(self._media_pending)))
             if not str(m.get("text") or "").strip():
@@ -3681,7 +3923,7 @@ class Plugin(BasePlugin):
         readable = any(str(text).strip() and text != "[incoming attachment]" for _mid, _fid, text in batch)
         for mid, _fid, _text in batch[-4:]:
             pending = self._media_pending.get((key, mid))
-            if not pending or pending["epoch"] != self._config_epoch or not self._task_alive(key, account, did):
+            if not pending or pending["epoch"] != self._epoch(key) or not self._task_alive(key, account, did):
                 continue
             see = self._media_flag(key, "see_media")
             voice = self._media_flag(key, "transcribe_voice")
@@ -3919,7 +4161,7 @@ class Plugin(BasePlugin):
         with self._lock:
             self._sticker_pending[(key, m.get("id"))] = {
                 "document": document, "parent": parent, "owner_id": owner_id,
-                "only": only, "epoch": self._config_epoch}
+                "only": only, "epoch": self._epoch(key)}
             # Transient Java references are bounded; persistent chat memory never receives them.
             while len(self._sticker_pending) > 600:
                 self._sticker_pending.pop(next(iter(self._sticker_pending)))
@@ -3953,10 +4195,10 @@ class Plugin(BasePlugin):
         params = Params.of(document, None, None, int(did), None, None, None, None, None, None,
                            True, 0, 0, 0, parent, None, False)
         Hooks.skipHooks(params)
-        epoch = self._config_epoch
+        epoch = self._epoch(key)
 
         def send():
-            if (epoch != self._config_epoch or not self._task_alive(key, account, did)
+            if (epoch != self._epoch(key) or not self._task_alive(key, account, did)
                     or not self._sticker_owner_matches(account, owner_id)):
                 self._decide(key, "skip", "sticker_cancelled")
                 return
@@ -3975,7 +4217,7 @@ class Plugin(BasePlugin):
         """Mandatory selection: no sticker_pct/AI-decline gate and never a text fallback."""
         if not self._task_alive(key, account, did) or not self._sticker_only_batch(key, batch):
             return self._skip(key, "disabled meanwhile")
-        if any(self._sticker_pending[(key, mid)].get("epoch") != self._config_epoch for mid, _fid, _text in batch):
+        if any(self._sticker_pending[(key, mid)].get("epoch") != self._epoch(key) for mid, _fid, _text in batch):
             return self._skip(key, "sticker cancelled")
         owner_id = self._memory_owner_id(account)
         if (not self._sticker_owner_matches(account, owner_id)
@@ -4319,7 +4561,7 @@ class Plugin(BasePlugin):
         """Returns (parts, why). Normal success: (parts, ''). Best-effort fallback after the retry:
         (parts, 'fallback'). Empty parts only for: 'empty' (no text at all) or 'duplicate reply'
         (identical to our previous reply). st is the ChatState used for de-duplication (None = off)."""
-        memory = self._memory_context(key, account, did, messages=messages)
+        memory = self._memory_context(key, account, did, messages=messages, blocking=False)
         if memory:
             extra_system = (extra_system + "\n\n" + memory).strip()
         lore = self._lore_block(key)
@@ -4748,6 +4990,7 @@ class Plugin(BasePlugin):
         return "\n".join(out)
 
     def copy_log(self):
+        self._flush_decisions(force=True)
         text = self.log_for_clipboard()
         if not text:
             client.bulletin(self.t("bl_log_empty"))
@@ -4760,7 +5003,352 @@ class Plugin(BasePlugin):
         with self._lock:
             self._decisions.clear()
             self.set_setting("decisions", "[]")
+            self._dec_dirty = False
+            self._dec_flush_ts = self._now()
         client.bulletin(self.t("bl_cleared"))
+
+    # ------------------------------------------------------------------ diagnostic report (0.4.4)
+    # One text for the developer: header, effective settings, per-chat state snapshot and a merged timeline of the
+    # last hour (decisions + history rows as time / direction / length / type). Never message texts, names,
+    # usernames or phone numbers: chats appear only as their key "<account>:<dialog_id>".
+    def copy_report(self):
+        """'Copy report (last hour)' button (UI thread): the report is collected in a worker."""
+        try:
+            client.run_in_bg(self.report_to_clipboard)
+        except Exception as e:
+            self.log("report could not start: %s" % e)
+            client.bulletin(self.t("bl_report_failed", e))
+
+    def report_to_clipboard(self):
+        """Worker thread: builds the report, copies it, shows a bulletin. Never raises."""
+        with self._lock:
+            busy = getattr(self, "_report_busy", False)
+            self._report_busy = True
+        if busy:
+            client.bulletin(self.t("bl_report_busy"))
+            return None
+        try:
+            text, n = self.build_report()
+            client.copy_to_clipboard(text)
+            client.bulletin(self.t("bl_report", len(text), n))
+            return text
+        except Exception as e:
+            self.error(e)
+            client.bulletin(self.t("bl_report_failed", e))
+            return None
+        finally:
+            self._report_busy = False
+
+    @staticmethod
+    def _ago(now, ts):
+        try:
+            ts = float(ts or 0)
+        except (TypeError, ValueError):
+            return "-"
+        if ts <= 0:
+            return "-"
+        d = int(max(0, now - ts))
+        if d < 120:
+            return "%ds" % d
+        if d < 3600:
+            return "%dm%02ds" % (d // 60, d % 60)
+        return "%dh%02dm" % (d // 3600, (d % 3600) // 60)
+
+    @staticmethod
+    def _rep_hm(ts):
+        try:
+            return time.strftime("%H:%M:%S", time.localtime(float(ts)))
+        except Exception:
+            return "?"
+
+    def _report_settings(self):
+        on = lambda v: "on" if v else "off"
+        n = self._fmt_num
+        hours = str(self.get_setting("quiet_hours", "") or "").strip() or "-"
+        return ("settings: reply_all=%s skip_links=%s short_msgs=%s max_parts=%d revive=%s lore_learn=%s "
+                "human_timing=%s owner_active=%ss debounce=%ss cooldown=%ss chat_hourly=%s hourly_cap=%s "
+                "daily_cap=%s scan=%s scan_interval=%ss read_msgs=%s show_typing=%s stickers=%s cmd_enable=%s "
+                "quiet_hours=%s" % (
+                    on(self.get_setting("reply_all", False)), on(self.get_setting("skip_links", True)),
+                    on(self.get_setting("short_msgs", True)), self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6),
+                    on(self._revive_on()), on(self.get_setting("lore_learn", False)), on(self._pbool("human_timing")),
+                    n(self._pnum("owner_active", 0, 3600)), n(self._pnum("debounce", 0, 60)),
+                    n(self._pnum("cooldown", 0, 3600)), n(self._pnum("chat_hourly", 1, 1000)),
+                    n(self._pnum("hourly_cap", 0, 100000)), n(self._pnum("daily_cap", 1, 100000)),
+                    on(self._pbool("scan")), n(self._pnum("scan_interval", 10, 600)),
+                    on(self.get_setting("read_msgs", True)), on(self.get_setting("show_typing", True)),
+                    on(self.get_setting("stickers", True)), on(self.get_setting("cmd_enable", True)), hours))
+
+    @staticmethod
+    def _state_snapshot(st):
+        g = lambda a, d=0: getattr(st, a, d) if st is not None else d
+        return {"pending": len(g("pending", []) or []), "timer": bool(g("timer", False)),
+                "inflight": bool(g("inflight", False)), "sending": bool(g("sending", False)),
+                "revive_busy": bool(g("revive_busy", False)), "learn_busy": bool(g("learn_busy", False)),
+                "last_in": g("last_in_ts", 0.0), "last_reply": g("last_reply_ts", 0.0), "owner": g("owner_ts", 0.0),
+                "last_send": g("last_send_ts", 0.0), "cooldown_until": g("cooldown_until", 0.0),
+                "retries": g("retries", 0), "defers": g("defers", 0), "abort": str(g("abort", "") or "")}
+
+    def _report_history(self, key, since, snap):
+        """[(t, kind, line)] of the chat's history rows inside the window, at most REPORT_HIST_MSGS, never the text.
+        kind: 'in' | 'out'. Raises on a history failure (the caller writes 'history unavailable')."""
+        acc, did = (int(x) for x in str(key).split(":", 1))
+        rows = client.get_recent_messages(did, limit=max(30, REPORT_HIST_MSGS * 2), account=acc) or []
+        keep = []
+        for h in rows:
+            if not isinstance(h, dict) or h.get("is_service") or h.get("is_secret"):
+                continue
+            try:
+                if int(h.get("dialog_id", did)) != did or int(h.get("account", acc)) != acc:
+                    continue
+                t = float(h.get("date") or 0)
+            except (TypeError, ValueError):
+                continue
+            if t >= since:
+                keep.append((t, h))
+        keep.sort(key=lambda p: (p[0], self._history_order(p[1])))
+        out = []
+        for t, h in keep[-REPORT_HIST_MSGS:]:
+            text = str(h.get("text") or "")
+            media = bool(h.get("has_media"))
+            kind = "sticker" if h.get("is_sticker") else ("text+media" if media and text.strip()
+                                                          else "media" if media else "text")
+            if not h.get("out"):
+                who = "in"
+            elif text.strip() and self._is_bot_text(text):
+                who = "out-bot"
+            elif snap["last_send"] and abs(t - float(snap["last_send"])) <= 5:
+                who = "out-bot"
+            elif text.strip():
+                who = "out-owner"
+            else:
+                who = "out-?"
+            mid = h.get("id")
+            line = "%s  MSG %-9s %4d ch  %s%s" % (self._rep_hm(t), who, len(text), kind,
+                                                 ("  #%s" % mid) if mid is not None else "")
+            out.append((t, "in" if who == "in" else "out", line))
+        return out
+
+    def build_report(self, now=None):
+        """-> (text, decisions in the window). Blocking (history reads): call it from a worker."""
+        now = float(self._now() if now is None else now)
+        since = now - REPORT_WINDOW_SEC
+        self._flush_decisions(force=True)
+        with self._lock:
+            ring = [dict(r) for r in self._decisions if isinstance(r, dict)]
+            chats = {k: dict(v) for k, v in self._chats.items() if isinstance(v, dict)}
+            states = dict(self._states)
+            ai_calls = sum(1 for x in list(getattr(self, "_hourly", ())) if now - float(x) <= REPORT_WINDOW_SEC)
+
+        def tnum(r):
+            try:
+                return float(r.get("t") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+        recs = [r for r in ring if tnum(r) >= since]
+        master = bool(self.get_setting("master", True))
+        last_dec = {}
+        for r in ring:
+            last_dec[str(r.get("chat"))] = max(last_dec.get(str(r.get("chat")), 0.0), tnum(r))
+
+        # ---- which chats: decisions in the window (newest first), then enabled chats with live signals / history
+        order, by_chat = [], {}
+        for r in sorted(recs, key=tnum, reverse=True):
+            k = str(r.get("chat"))
+            if k not in by_chat:
+                by_chat[k] = []
+                order.append(k)
+        for r in recs:
+            by_chat[str(r.get("chat"))].append(r)
+        chosen = order[:REPORT_MAX_CHATS]
+        more_dec = max(0, len(order) - len(chosen))
+        extra = []
+        for k, c in chats.items():
+            if k in by_chat or not c.get("enabled"):
+                continue
+            sn = self._state_snapshot(states.get(k))
+            live = (sn["pending"] or sn["timer"] or sn["inflight"] or sn["sending"] or sn["revive_busy"]
+                    or float(sn["last_in"] or 0) >= since)
+            extra.append((0 if live else 1, -float(sn["last_in"] or 0), k))
+        extra.sort()
+        hist_probe, probed = 0, {}
+        for live, _t, k in extra:
+            if len(chosen) >= REPORT_MAX_CHATS:
+                break
+            if live == 0:
+                chosen.append(k)
+            elif hist_probe < 20:             # an enabled chat without any decision: did someone write anyway?
+                hist_probe += 1
+                try:
+                    probed[k] = self._report_history(k, since, self._state_snapshot(states.get(k)))
+                except Exception:
+                    continue
+                if any(kind == "in" for _t2, kind, _l in probed[k]):
+                    chosen.append(k)
+
+        # ---- header (always kept)
+        try:
+            tz = time.strftime("%z", time.localtime(now))
+        except Exception:
+            tz = ""
+        enabled_n = sum(1 for c in chats.values() if c.get("enabled"))
+        head = [
+            "=== ai_autoreply diagnostic report ===",
+            "plugin ai_autoreply v%s | report %s %s | unix %d" % (
+                __version__, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), tz, int(now)),
+            "window: last %d min (since %s) | no message texts included (only chat keys, times, lengths, codes)"
+            % (REPORT_WINDOW_SEC // 60, self._rep_hm(since)),
+            "lang %s | preset %s | master %s" % (self.lang(), PRESET_NAMES[self._preset_index()],
+                                                 "ON" if master else "OFF (the bot is silent everywhere)"),
+            self._report_settings(),
+            "chats: %d listed, %d enabled | log: %d entries kept, %d in window | AI calls in window: %d"
+            % (len(chats), enabled_n, len(ring), len(recs), ai_calls),
+        ]
+
+        # ---- per chat: state (always kept) + timeline events (droppable, oldest first)
+        sections, events, pauses, resp = [], [], [], []
+        for idx, k in enumerate(chosen):
+            c = chats.get(k)
+            st = states.get(k)
+            sn = self._state_snapshot(st)
+            mode = self._chat_mode(k)
+            if c is None:
+                title = "== chat %s | not in the list" % k
+                enabled = False
+            else:
+                enabled = bool(c.get("enabled"))
+                title = "== chat %s | %s | mode %s | %s | fails %s%s" % (
+                    k, c.get("type") or "?", ("auto", "draft", "friend")[mode] if mode in (0, 1, 2) else mode,
+                    "enabled" if enabled else "disabled", c.get("fails", 0),
+                    (" | auto_off %s ago" % self._ago(now, c.get("auto_off_ts"))) if c.get("auto_off_ts") else "")
+            if k not in by_chat:
+                title += " | no decisions in window"
+            yn = lambda v: "YES" if v else "no"
+            cool = max(0.0, float(sn["cooldown_until"] or 0) - now)
+            lines = [title,
+                     "state: pending %d | timer %s | inflight %s | sending %s | revive_busy %s | learn_busy %s | "
+                     "retries %s | defers %s" % (sn["pending"], yn(sn["timer"]), yn(sn["inflight"]), yn(sn["sending"]),
+                                                 yn(sn["revive_busy"]), yn(sn["learn_busy"]), sn["retries"],
+                                                 sn["defers"]) if st is not None else "state: none (no message since load)",
+                     "since: last_in %s | last_reply %s | owner %s | bot_send %s | cooldown left %ds | last decision %s%s"
+                     % (self._ago(now, sn["last_in"]), self._ago(now, sn["last_reply"]), self._ago(now, sn["owner"]),
+                        self._ago(now, sn["last_send"]), int(cool), self._ago(now, last_dec.get(k)),
+                        (" | abort %s" % sn["abort"]) if sn["abort"] else "")]
+            quiet_since = max(float(last_dec.get(k) or 0), float(sn["last_in"] or 0), float(sn["last_send"] or 0))
+            flags = []
+            for name in ("timer", "inflight", "sending", "revive_busy", "learn_busy"):
+                if sn[name] and now - quiet_since > REPORT_STUCK_SEC:
+                    flags.append("!! STUCK FLAG? %s=True with no decision/incoming/send for %s"
+                                 % (name, self._ago(now, quiet_since) if quiet_since else "ever"))
+            if sn["pending"] and not (sn["timer"] or sn["inflight"] or sn["sending"]):
+                flags.append("!! PENDING WITHOUT TIMER: %d message(s) wait and nothing is scheduled" % sn["pending"])
+            if c is not None and not enabled and (c.get("auto_off_ts") or any(
+                    r.get("r") == "auto_disabled_after_errors" for r in by_chat.get(k, []))):
+                flags.append("!! AUTO-DISABLED after repeated errors (enabled=False)")
+            lines += flags
+            sections.append(lines)
+
+            ev = []
+            for n, r in enumerate(by_chat.get(k, [])):
+                x = (" %s" % r["x"]) if r.get("x") else ""
+                line = "%s  DEC %s/%s%s - %s" % (self._rep_hm(tnum(r)), r.get("o"), r.get("r"), x,
+                                                  self.rt(r.get("r")))
+                ev.append((tnum(r), 1, n, "dec", r.get("o"), line))
+            try:
+                hist = probed[k] if k in probed else self._report_history(k, since, sn)
+            except Exception as e:
+                hist = None
+                lines.append("history unavailable (%s)" % type(e).__name__)
+            for n, (t, kind, line) in enumerate(hist or []):
+                ev.append((t, 0, n, kind, None, line))
+            ev.sort(key=lambda e: (e[0], e[1], e[2]))
+            for e in ev:
+                events.append((e[0], idx, e[1], e[2], e[5]))
+
+            # reply times (history only): first incoming of a run -> next bot message; the owner's answer ends it
+            start = None
+            for t, kind, line in hist or []:
+                if kind == "in":
+                    start = t if start is None else start
+                elif start is not None:
+                    if "out-bot" in line:
+                        resp.append(t - start)
+                    start = None
+            # suspicious pauses (merged timeline): incoming, then no message and no decision for too long
+            if enabled and master and mode != MODE_COMMAND:
+                last_in = None
+                for e in ev + [(now, 9, 0, "end", None, "")]:
+                    t, kind, outcome = e[0], e[3], e[4]
+                    if kind == "in":
+                        last_in = t if last_in is None else max(last_in, t)
+                        continue
+                    if last_in is None or (kind == "dec" and outcome in ("seen", "cmd")):
+                        continue
+                    if t - last_in > REPORT_PAUSE_SEC:
+                        pauses.append("chat %s: incoming at %s, then nothing %s (%s)" % (
+                            k, self._rep_hm(last_in), "until now" if kind == "end" else "until " + self._rep_hm(t),
+                            self._ago(t, last_in)))
+                    # timing / typing / read marks / a deferral: still working on it, the clock restarts
+                    last_in = t if (kind == "dec" and outcome in ("info", "defer")) else None
+
+        # ---- summary
+        by_o, by_r = {}, {}
+        for r in recs:
+            o = str(r.get("o"))
+            by_o[o] = by_o.get(o, 0) + 1
+            if o not in ("sent", "draft") or r.get("r") != "ok":
+                rk = "%s/%s" % (o, r.get("r"))
+                by_r[rk] = by_r.get(rk, 0) + 1
+        summ = ["--- summary (window) ---",
+                "outcomes: " + (", ".join("%s %d" % (o, n) for o, n in sorted(by_o.items(), key=lambda p: -p[1]))
+                                or "none")]
+        top = sorted(by_r.items(), key=lambda p: (-p[1], p[0]))
+        if top:
+            summ.append("reasons: " + ", ".join("%s %d" % p for p in top[:25])
+                        + (" (+%d more)" % (len(top) - 25) if len(top) > 25 else ""))
+        if resp:
+            summ.append("incoming -> bot reply: n %d | avg %ds | max %ds (from history of the chats below)"
+                        % (len(resp), int(sum(resp) / len(resp)), int(max(resp))))
+        else:
+            summ.append("incoming -> bot reply: no bot reply found in the history of the chats below")
+        summ.append("suspicious pauses (> %d min, enabled chat, master on): %s"
+                    % (REPORT_PAUSE_SEC // 60, len(pauses) if pauses else "none"))
+        summ += ["  " + p for p in pauses[:10]]
+        if len(pauses) > 10:
+            summ.append("  ... %d more" % (len(pauses) - 10))
+        if more_dec:
+            summ.append("%d more chat(s) with decisions are not shown (limit %d)" % (more_dec, REPORT_MAX_CHATS))
+        if not chosen:
+            summ.append("no chat had decisions or incoming messages in the window")
+
+        # ---- fit into REPORT_MAX_CHARS: header, summary and states stay; the oldest timeline lines go first
+        def render(kept):
+            out = head + [""] + summ
+            for idx, sec in enumerate(sections):
+                mine = [e for e in events if e[1] == idx]
+                shown = [e for e in mine if id(e) in kept]
+                out += [""] + sec
+                out.append("timeline (oldest first):" if mine else "timeline: no events in window")
+                if len(shown) < len(mine):
+                    out.append("  (%d older event(s) dropped to fit the size limit)" % (len(mine) - len(shown)))
+                out += ["  " + e[4] for e in shown]
+            out += ["", "=== end of report ==="]
+            return "\n".join(out)
+        newest_first = sorted(events, key=lambda e: (e[0], e[2]), reverse=True)
+        fixed = len(render(set())) + len(sections) * 60
+        budget, n_keep = REPORT_MAX_CHARS - fixed, 0
+        for e in newest_first:
+            if budget < len(e[4]) + 3:
+                break
+            budget -= len(e[4]) + 3
+            n_keep += 1
+        text = render(set(id(e) for e in newest_first[:n_keep]))
+        while len(text) > REPORT_MAX_CHARS and n_keep > 0:
+            n_keep = max(0, n_keep - 10)
+            text = render(set(id(e) for e in newest_first[:n_keep]))
+        if len(text) > REPORT_MAX_CHARS:
+            text = text[:REPORT_MAX_CHARS - 20].rstrip() + "\n... (truncated)"
+        return text, len(recs)
 
     # ------------------------------------------------------------------ "bot writes first" owner command
     def _cmd_triggers(self):
@@ -4976,6 +5564,10 @@ class Plugin(BasePlugin):
                 return
             shown = ", ".join(names[:8]) + (" +%d" % (len(names) - 8) if len(names) > 8 else "")
             client.bulletin(self.t("bl_adm_list", len(names), shown) + master)
+            return
+        if verb == "log":
+            self._decide(key, "cmd", "admin_log")
+            self.report_to_clipboard()
             return
         try:
             info = client.get_dialog_info(did)
@@ -5219,21 +5811,22 @@ class Plugin(BasePlugin):
         except TypeError:                   # an older app without Text(subtext=...)
             return Text(text=("%s - %s" % (text, subtext)) if subtext else text, key=key, on_click=on_click)
 
+    @staticmethod
+    def _dialog_title(c):
+        """Title from the app's dialog info (cache only), '' when unknown."""
+        try:
+            info = client.get_dialog_info(int(c.get("dialog_id") or 0), account=int(c.get("account", 0)))
+            return str((info or {}).get("title") or "").strip()
+        except Exception:
+            return ""
+
     def _fresh_title(self, key, c):
-        """Chat title: stored one, else from the app's dialog info (cache only)."""
+        """Chat title: stored one, else from the app's dialog info (cache only). Only shown: drawing the settings
+        screen never writes (0.4.5; missing titles are stored by _repair_store on load / after a core edit)."""
         title = str(c.get("title") or "")
         if title and title != str(c.get("dialog_id")):
             return title
-        try:
-            info = client.get_dialog_info(int(c.get("dialog_id") or 0), account=int(c.get("account", 0)))
-            new = str((info or {}).get("title") or "").strip()
-        except Exception:
-            new = ""
-        if new:
-            c["title"] = new
-            self._commit(key, set={"title": new})
-            return new
-        return title or key
+        return self._dialog_title(c) or title or key
 
     def chat_row_sub(self, key, c):
         """Second line of a chat row: mode, on/off, last decision."""
@@ -5387,14 +5980,13 @@ class Plugin(BasePlugin):
             last_acc = acc
             sk = self._sk(key)
             title = self._fresh_title(key, c)
-            self.set_setting("keep_" + sk, bool(c.get("enabled")))   # keep the switch in sync with the menu
             opened = self._open_key == key
             items.append(self._text_row(("▾ " if opened else "▸ ") + title, "chat_" + sk,
                                         self._toggle_open(key), self.chat_row_sub(key, c)))
             if opened:
                 items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
                                       items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO,
-                                      subtext=t("chat_mode_s")))
+                                      subtext=t("chat_mode_s"), on_change=self._mode_cb(key)))
                 items.append(Selector(key="rlang_" + sk, text=t("chat_rlang"),
                                       items=[t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)], default=0))
                 items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
@@ -5525,13 +6117,15 @@ class Plugin(BasePlugin):
     def _group_log(self):
         t = self.t
         rows = self.decision_rows()
+        report = Text(text=t("log_report"), key="log_report", on_click=self.copy_report)
         if not rows:
-            return [note(t("log_none"))]
+            return [note(t("log_none")), report]
         out = []
         for title, sentence, _r in rows[:self.LOG_SHOWN]:
             out.append(Header(text=title))
             out.append(note(sentence))
         out.append(Text(text=t("log_copy"), key="log_copy", on_click=self.copy_log))
+        out.append(report)
         out.append(Text(text=t("log_clear"), key="log_clear", on_click=self.clear_log))
         out.append(note(t("decisions_note")))
         return out
@@ -5586,11 +6180,23 @@ class Plugin(BasePlugin):
 
     def _keep_cb(self, key):
         def cb(value):
+            on = value is True or str(value).lower() == "true"
             with self._lock:
-                c = self._chats.get(key)
-                if c:
-                    upd = {"enabled": bool(value)}
-                    if value:
-                        upd["fails"] = 0
-                    self._commit(key, set=upd)
+                upd = {"enabled": on}
+                if on:
+                    upd["fails"] = 0
+                # 0.4.5: the owner's own on/off ends an error pause; a left-over auto_off_ts would switch a chat
+                # the owner turned off back on after AUTH_RESUME_SEC (_maybe_resume)
+                self._commit(key, set=upd, drop=("auto_off_ts",))
+        return cb
+
+    def _mode_cb(self, key):
+        def cb(value):
+            try:
+                name = ("auto", "draft", "friend")[int(value)]
+            except (TypeError, ValueError, IndexError):
+                name = "unknown"
+            with self._lock:
+                self._fp_note(key)
+            self._decide(key, "cmd", "settings_mode_" + name)
         return cb

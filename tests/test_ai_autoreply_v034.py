@@ -233,6 +233,8 @@ class TestSettingsScreen(Cmd):
         self.p.chat_on(0, DID, str(DID), "user")
         row = next(i for i in self.p.create_settings() if getattr(i, "key", "") == "chat_" + self.p._sk(self.key()))
         self.assertIn("Alice", row.text)
+        # 0.4.5: drawing the screen never writes; the missing title is stored on load / after a core edit
+        self.p.on_app_event("settings_changed")
         self.assertEqual(self.p._chats[self.key()]["title"], "Alice")
 
     def test_picked_chat_starts_auto_and_enabled(self):
@@ -523,7 +525,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.4.3"\n__version_code__ = 16') == 1)
+                        .count('__version__ = "0.4.5"\n__version_code__ = 17') == 1)
 
 
 if __name__ == "__main__":

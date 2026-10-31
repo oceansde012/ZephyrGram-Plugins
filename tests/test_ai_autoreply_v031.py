@@ -222,6 +222,7 @@ class TestSilentPaths(Base):
         self.assertNotIn("секретний", txt)
         self.assertLessEqual(len(txt.splitlines()), 40)
         self.assertTrue(any("decision" in l for l in self.p.logs))
+        self.p.on_plugin_unload()                # 0.4.4: the log is written with a throttle, unload forces it
         p2 = mod.Plugin()
         p2.settings = dict(self.p.settings)
         p2.on_plugin_load()
