@@ -416,9 +416,10 @@ def split_reply(text, max_parts=3):
             merged.append(p)
     if len(merged) > 1 and not by_line and len(merged[-1]) < 8:
         merged[-2] += " " + merged.pop()
+    glue = "\n" if by_line else " "    # merged lines keep their break: 'не' + 'завтра' must not become 'не завтра'
     while len(merged) > max(1, max_parts):
         i = min(range(len(merged) - 1), key=lambda k: len(merged[k]) + len(merged[k + 1]))
-        merged[i:i + 2] = [merged[i] + " " + merged[i + 1]]
+        merged[i:i + 2] = [merged[i] + glue + merged[i + 1]]
     return merged
 
 
@@ -2194,26 +2195,34 @@ class Plugin(BasePlugin):
                 out.add(int(x) - 1)
         return out
 
-    def _all_skip(self):
-        """Chat keys the owner removed from the list: reply-all never brings them back."""
+    def _skip_list(self):
+        """all_skip in stored order (oldest removal first, as the core screen appends too)."""
         try:
             data = json.loads(self.get_setting("all_skip", "[]") or "[]")
         except (ValueError, TypeError):
             data = []
-        return set(str(x) for x in data) if isinstance(data, list) else set()
+        out, seen = [], set()
+        for x in (data if isinstance(data, list) else []):
+            if str(x) not in seen:
+                seen.add(str(x))
+                out.append(str(x))
+        return out
+
+    def _all_skip(self):
+        """Chat keys the owner removed from the list: reply-all never brings them back."""
+        return set(self._skip_list())
 
     def _skip_add(self, key):
         with self._lock:
-            keys = self._all_skip()
-            keys.add(key)
-            self.set_setting("all_skip", json.dumps(sorted(keys)[-500:]))
+            keys = [k for k in self._skip_list() if k != key] + [key]
+            self.set_setting("all_skip", json.dumps(keys[-500:]))     # the newest removals are kept
 
     def _skip_drop(self, key):
         with self._lock:
-            keys = self._all_skip()
+            keys = self._skip_list()
             if key in keys:
-                keys.discard(key)
-                self.set_setting("all_skip", json.dumps(sorted(keys)))
+                keys.remove(key)
+                self.set_setting("all_skip", json.dumps(keys))
 
     def _auto_add(self, account, did, key, m):
         """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto).
@@ -2225,8 +2234,15 @@ class Plugin(BasePlugin):
             did, account = int(did), int(account or 0)
         except (TypeError, ValueError):
             return False
-        if did <= 0 or did == 777000 or m.get("is_bot"):
+        if did <= 0 or did == 777000 or m.get("is_bot") or m.get("is_service") or m.get("is_secret"):
             return False
+        if not str(m.get("text") or "").strip() and not m.get("has_media"):
+            return False                             # 'joined Telegram', calls etc.: the person did not write
+        try:
+            if m.get("date") is not None and self._now() - float(m.get("date")) > self._max_age():
+                return False                         # offline catch-up of an old message
+        except (TypeError, ValueError):
+            pass
         accounts = self._all_accounts()
         if accounts and account not in accounts:
             return False
@@ -2236,15 +2252,22 @@ class Plugin(BasePlugin):
                 return False
             if now - self._auto_neg.get(key, -1e9) < 600:
                 return False
+        info = None
         try:
-            info = client.get_dialog_info(did, account=account)
-        except TypeError:
-            info = client.get_dialog_info(did)
+            try:
+                info = client.get_dialog_info(did, account=account)
+            except TypeError:
+                info = client.get_dialog_info(did)
         except Exception as e:
             self.log("reply-all: no info for %s: %s" % (key, e))
-            info = None
-        if not isinstance(info, dict) or info.get("type") != "user" or self.check_info(info) is not None:
-            self._auto_neg[key] = now
+        if not isinstance(info, dict):
+            return False                             # not cached yet / transient: ask again on the next message
+        if info.get("type") != "user" or self.check_info(info) is not None:
+            with self._lock:
+                if len(self._auto_neg) > 300:
+                    for k in [k for k, t in self._auto_neg.items() if now - t >= 600]:
+                        self._auto_neg.pop(k, None)
+                self._auto_neg[key] = now
             return False
         self.chat_on(account, did, info.get("title") or str(did), "user")
         self._decide(key, "info", "auto_added")
@@ -2329,7 +2352,8 @@ class Plugin(BasePlugin):
             st = self._state(key)
             st.revive_chk = now
             try:
-                hist = self._load_history(key, int(c.get("account", 0)), int(c["dialog_id"]), 12)
+                # media rows too: a sticker / photo / voice reply means they did answer
+                hist = self._load_history(key, int(c.get("account", 0)), int(c["dialog_id"]), 12, media=True)
                 why = self._revive_check(key, hist)
             except Exception as e:
                 self.log("revive check of %s failed: %s" % (key, e))
@@ -2343,6 +2367,13 @@ class Plugin(BasePlugin):
 
     def _revive_run(self, key):
         st = self._state(key)
+        with self._lock:
+            if st.inflight or st.pending:
+                # a normal reply owns the chat now: leave its flags alone (clearing st.inflight here would let a
+                # second request run in parallel and answer twice)
+                st.revive_busy = False
+                return
+            st.inflight = True
         previous = getattr(self._work_context, "task", None)
         self._work_context.task = (key, self._config_epoch)
         self._work_context.images = []
@@ -2365,23 +2396,21 @@ class Plugin(BasePlugin):
                 self._schedule(key, self._debounce(jitter=True))
 
     def _revive_send(self, key, st):
+        """Runs with st.inflight held by _revive_run."""
         c = self._chats.get(key)
         if (not c or not c.get("enabled") or not self.get_setting("master", True) or not self._revive_on()
                 or self._chat_mode(key) != MODE_AUTO):
             return
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
-        with self._lock:
-            if st.inflight or st.pending:
-                return
-            st.inflight = True
         started = self._now()
         if started - st.owner_ts < 120 or self.caps_ok(key) or not self.chat_hourly_ok(st):
             return
         if self.check_info(self._info(key, did)):
             return
-        hist = self._load_history(key, account, did, 15)
-        if self._revive_check(key, hist):
+        rows = self._load_history(key, account, did, 15, media=True)
+        if self._revive_check(key, rows):
             return
+        hist = [h for h in rows if str(h.get("text") or "").strip()]
         msgs = self._hist_messages(c, hist)
         if not msgs:
             return
@@ -2398,12 +2427,15 @@ class Plugin(BasePlugin):
             return self._decide(key, "skip", "revive_empty")
         if st.pending or st.last_in_ts > started or not self._task_alive(key, account, did):
             return self._decide(key, "skip", "revive_cancelled")   # they wrote while the AI was thinking
+        c = self._chats.get(key) or c                # state may have changed during the (slow) AI call
         ok = self.deliver(key, c, st, did, parts, [], self._humanize(), timing=None)
         if ok is False:
             return self._decide(key, "skip", st.abort or "disabled meanwhile")
         self._revive_mark(key)
         with self._lock:
             st.cooldown_until = self._now() + self._cooldown()
+            if c.get("disclosed"):
+                self._commit(key, set={"disclosed": True})   # else the next reply repeats the disclosure prefix
         self._decide(key, "sent", "revived")
 
     # ------------------------------------------------------------------ incoming
@@ -3114,6 +3146,8 @@ class Plugin(BasePlugin):
     def _maybe_split2(self, parts):
         if len(parts) != 1 or not self.get_setting("split_msgs", True):
             return parts
+        if self.get_setting("short_msgs", True) and self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6) < 2:
+            return parts                             # 'max messages per answer' = 1 is a hard limit
         if self._rng.random() * 100.0 >= self._pnum("split2_pct", 0, 100):
             return parts
         two = split_reply(parts[0], 2)
@@ -4194,7 +4228,8 @@ class Plugin(BasePlugin):
             out.pop(0)
         return out
 
-    def _load_history(self, key, account, did, n):
+    def _load_history(self, key, account, did, n, media=False):
+        """Text rows of the chat, oldest first. media=True also keeps rows without text that carry media."""
         if self.chat_key(account, did) != key:
             return []
         n = max(1, min(100, int(n)))
@@ -4203,7 +4238,13 @@ class Plugin(BasePlugin):
             hist = client.get_recent_messages(did, limit=n, account=account) or []
         except Exception as e:
             self.log("history unavailable for %s: %s" % (key, e))
-        valid = sorted((h for h in hist if self._history_row_allowed(h, account, did)), key=self._history_order)
+
+        def keep(h):
+            if self._history_row_allowed(h, account, did):
+                return True
+            return bool(media and isinstance(h, dict) and h.get("has_media")
+                        and self._history_row_allowed(dict(h, text="[media]"), account, did))
+        valid = sorted((h for h in hist if keep(h)), key=self._history_order)
         result, seen = [], set()
         for row in reversed(valid):
             mid = row.get("id")
