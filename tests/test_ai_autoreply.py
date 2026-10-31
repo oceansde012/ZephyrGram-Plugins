@@ -575,6 +575,7 @@ class TestHumanize(Base):
                                             "коротку репліку. Це друге речення теж не маленьке, тому його варто відправити окремо.")
         slept = []
         mod.time.sleep = lambda s: slept.append(s)
+        self.p.settings["typing_cap"] = "2.5"           # an explicit cap keeps the legacy total budget
         self.round("привіт")
         self.assertEqual(len(CLIENT.sent), 2)
         self.assertTrue(CLIENT.sent[0][1].startswith(mod.ROBOT))

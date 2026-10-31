@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.4.6"
-__version_code__ = 18
+__version__ = "0.4.7"
+__version_code__ = 19
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -142,6 +142,8 @@ LEARN_MAX_NOTES = 12
 LEARN_NOTE_CHARS = 140
 LORE_MAX_CHARS = 2500        # global lore
 LORE_CHAT_MAX_CHARS = 1200   # per-chat lore and learned notes
+BIG_PART_CHARS = 200          # 'short messages' mode: a single message longer than this is rewritten once
+PART_TYPE_MS = 35            # typing speed (ms per character) of the length-based pause when no timing preset is used
 MAX_PART_GAP = 20.0          # the pause before one part of a multi-message answer never exceeds this (seconds)
 GENDER_MIN_EVIDENCE = 2      # self-references of one gender needed (and ahead of the other by 2) to decide
 FEM_NAME_EXCEPTIONS = frozenset(u"""микита никита ілля илья лука кузьма данила сава фома гліб дима саша женя валя
@@ -4495,13 +4497,18 @@ class Plugin(BasePlugin):
             for i, part in enumerate(parts):
                 if timing is None:
                     if self.get_setting("typing_delay", True):
-                        d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
-                        if i == 0:
-                            d = max(d, min(MIN_TYPING_TOTAL, cap))
-                        d = max(0.0, min(budget, d))
-                        budget -= d
-                        if d > 0:
-                            time.sleep(d)
+                        if self._explicit("typing_cap") is None:
+                            # no explicit cap: every part takes as long as a person needs to type it
+                            d = 0.3 + len(part) * PART_TYPE_MS / 1000.0 * self._rng.uniform(0.85, 1.25)
+                            self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else 0.5, d)))
+                        else:                       # the owner set 'typing_cap': one total budget for all parts
+                            d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
+                            if i == 0:
+                                d = max(d, min(MIN_TYPING_TOTAL, cap))
+                            d = max(0.0, min(budget, d))
+                            budget -= d
+                            if d > 0:
+                                time.sleep(d)
                 elif i:
                     # every part takes as long as a person needs to type it: long messages go out later
                     lo = self._pnum("split_gap_min", 0, 60)
@@ -4731,6 +4738,9 @@ class Plugin(BasePlugin):
                 if "copy" in problems:
                     kwargs["system"] += (" Do not repeat, quote or paraphrase any earlier message of this "
                                          "conversation, neither the owner's nor the other person's.")
+                if "big" in problems:
+                    kwargs["system"] += (" Every message must stay under about 120 characters: put each idea on its "
+                                         "own line instead of writing paragraphs.")
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
@@ -4749,6 +4759,8 @@ class Plugin(BasePlugin):
             problems = self.reply_problems(" ".join(parts), st, last_in, extra)
             if short and any(longest_sentence_words(p) > SHORT_MAX_WORDS for p in parts):
                 problems = problems + ["long"]
+            if short and any(len(p) > BIG_PART_CHARS for p in parts):
+                problems = problems + ["big"]
             if any(echoes(p, refs) for p in parts):
                 problems = problems + ["copy"]
             cands.append((parts, problems))

@@ -525,7 +525,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.4.6"\n__version_code__ = 18') == 1)
+                        .count('__version__ = "0.4.7"\n__version_code__ = 19') == 1)
 
 
 if __name__ == "__main__":
