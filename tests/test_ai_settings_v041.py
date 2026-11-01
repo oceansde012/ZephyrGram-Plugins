@@ -88,8 +88,9 @@ class TestAllSettingsReachable(Screen):
         self.assertEqual((rows["rlang_" + sk].default, len(rows["rlang_" + sk].items)), (0, 5))
         self.assertEqual((rows["react_" + sk].default, len(rows["react_" + sk].items)), (0, 3))
         self.assertTrue(rows["keep_" + sk].default)
-        for k in ("memory_", "see_media_", "transcribe_voice_"):
+        for k in ("see_media_", "transcribe_voice_"):
             self.assertFalse(rows[k + sk].default, k)
+        self.assertTrue(rows["memory_" + sk].default)              # 0.5.2: memory is on by default in private chats
         self.assertEqual(rows["prompt_" + sk].default, "")
         self.assertTrue(callable(rows["test_" + sk].on_click))
         self.assertTrue(callable(rows["remove_" + sk].on_click))
