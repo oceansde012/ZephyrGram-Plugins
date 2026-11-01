@@ -1,0 +1,204 @@
+{
+ "schema": 1,
+ "sequence": 19,
+ "generated": "2026-11-01T12:00:23Z",
+ "expires": "2026-12-31T12:00:23Z",
+ "repo": "oceansde012/ZephyrGram-Plugins",
+ "plugins": [
+  {
+   "id": "ai_autoreply",
+   "name": "AI auto-reply",
+   "author": "ZephyrGram",
+   "description": "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "ai.complete",
+    "chat.read",
+    "messages.send",
+    "network.requests",
+    "ui.menu",
+    "updates.read"
+   ],
+   "latest": "0.5.2",
+   "versions": [
+    {
+     "version": "0.5.2",
+     "versionCode": 24,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/685e559182063fa306a798def3b9714baa28f3f4/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "2f801369d6cf07953eb677075c0be84f505baf854470bd54c3824591630cfc69",
+     "size": 424372,
+     "changelog": "- **One request can never balloon.** New \"Max size of one AI request\" (Limits, `prompt_max`, empty = 24000 characters, about 8k tokens; 8000-60000, nothing can go above 60000). Everything sent with one reply counts: rules, your prompt, style examples, lore and notes, chat memory and history. When it does not fit, pieces shrink in a fixed order: the system part takes at most 55 % (fewer style examples first, then shorter lore, then a hard cut), then the messages being answered get their room, the",
+     "published": "2026-11-01T12:00:23Z"
+    },
+    {
+     "version": "0.5.1",
+     "versionCode": 23,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/6fa9dbcf5c7b85dfdaee636a90c087679236be62/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "6e270298912101d2114c839d7718129c586e1bf983b5aa430c45bae2985d8a6e",
+     "size": 390783,
+     "changelog": "- **If you answered first, the bot takes your message into account.** Before, one message of yours in the middle of a batch silenced the whole batch, even their newer messages that came after yours. Now the messages up to your reply count as answered by you, and the bot answers only what came after it; your own message stays in the conversation the model sees, with a rule not to repeat or contradict it. If you answered everything, the bot still stays silent. The log shows \"you answered part of i",
+     "published": "2026-10-31T21:20:19Z"
+    },
+    {
+     "version": "0.4.9",
+     "versionCode": 21,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/b8fb92fa0d94e4a83ff546b7db52a08999baf65c/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "c14cc66956cef0794380d4e6bcaf5e37ee94f8d17f16fb2166c9c4cc2e64a841",
+     "size": 371443,
+     "changelog": "- **The bot keeps answering while the phone sleeps (needs app 0.2.0 or newer).** The app's background service keeps the process alive, but with the screen off the CPU suspends and the plugin's timers and sleeps (debounce of a few seconds, the human-pace pause, typing waits) stand still until something wakes the phone, for example the owner opening the app; that looked like \"the bot does nothing until I come in\". The plugin now asks the app to keep the CPU awake (`client.keep_awake`, at most 3 mi",
+     "published": "2026-10-31T20:46:18Z"
+    },
+    {
+     "version": "0.4.8",
+     "versionCode": 20,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/4560b3690a88ce1098f2d17ec17a22c2b08eb6b8/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "97bdeef47908c9ee0858668b1ae7b9076ae99983af88b46ff9e2cb8af86258d8",
+     "size": 370683,
+     "changelog": "- **Gender: it now actually works without setting anything.** Detection no longer needs two self-references from the other person: it also reads how YOU addressed them in the chat history (ти була / ты сделала, красуня, or ти був / братан) and the real history, not only the part that fits into the prompt. Two or more hits = a firm rule; one hit with nothing against it = a hedged rule (\"earlier messages suggest ...\"). The bot's own earlier lines are never used as evidence.\n- **No more masculine b",
+     "published": "2026-10-31T20:32:09Z"
+    },
+    {
+     "version": "0.4.7",
+     "versionCode": 19,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/700a753657d2dfb9e13cbf77a92bc4286c56a382/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "4babfee3401c773e141d78588474ca6f91cac5885778cffcf82fe6ff87e1fba7",
+     "size": 362061,
+     "changelog": "- **No more big messages in a row without pauses.** Without a timing preset (Balanced, Chatty, Quiet or Live with human timing off) the typing pause was one shared budget of 2.5 s for the whole answer, so three long parts went out almost at once. Now every part takes as long as a person needs to type it (35 ms per character, jitter, 0.8-20 s per part) with \"typing...\" refreshed while waiting. Setting \"Typing pause cap\" by hand still gives the old behaviour (one total budget), and the \"Typing pau",
+     "published": "2026-10-31T20:15:52Z"
+    },
+    {
+     "version": "0.4.5",
+     "versionCode": 17,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/84e148a46d632ca5c00db780e40a2960942a661c/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "c76ca9ebf4355de778619f898a181582c2eb7bf59ac646b750b1e7288146f140",
+     "size": 352888,
+     "changelog": "- **The app's Auto-reply tab and the plugin's settings stay in sync.** (1) A change made on the tab while the plugin was writing the chat list (a reply finished, an error counted, \"answer everyone\" added a chat) could be overwritten, and the other way round: both sides now write under one lock / compare-and-set (needs the matching app update; older apps behave as before). (2) A chat you paused (tab, settings switch) while a request for it was failing, or a chat you switched off after an error pa",
+     "published": "2026-10-31T19:52:08Z"
+    },
+    {
+     "version": "0.4.3",
+     "versionCode": 16,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/24cbd2aa41545668dfb72320eea85973a29a53c7/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "0bf9d324e8d3a10ebe056c961fdde27381402664e9d9acc171c75341bfb70c74",
+     "size": 319059,
+     "changelog": "- **`.ai start`** (also `.ai старт`, `.ai welcome`, `.ai привітання`, `.ai приветствие`): typed in a private chat (not sent), it adds the chat to the bot's list (mode Auto, or the mode the chat already has) and the bot writes the first message right away: a greeting when the chat is empty, a natural continuation of the conversation when you already talked. Refused in groups, channels, bots and secret chats.\n- **The bot no longer copies messages.** When it is switched on in a conversation that is",
+     "published": "2026-10-31T19:36:31Z"
+    },
+    {
+     "version": "0.4.1",
+     "versionCode": 14,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/a65cbe1f6d9d8a4ba52290b1e6763bd62087e13b/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "de91ede5cf6b2e35b4e7457eeac8cfe47b0892760555b65027a39937022ace0c",
+     "size": 302361,
+     "changelog": "- The settings screen is reorganized for a narrow phone screen. On top, **Main**: master switch, answer everyone (+ accounts), do not answer links, short messages, revive quiet conversations, reply language, tone, preset, interface language. A new user also sees one line on how to start.\n- Then the chat list (per account as before) and **Add chat**. With more than 15 chats only the first 15 are shown plus **Show all chats (N)**; an opened chat stays visible. The modes (Auto / Draft / Friend) are",
+     "published": "2026-10-31T19:14:15Z"
+    },
+    {
+     "version": "0.3.9",
+     "versionCode": 12,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/0a29693e541ee8025c75a2a8bc0caca6a12a1461/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "f39b23b3c065edaa80b35d543d60e77b4800d7dbdb768c818e39be3980c6a3c5",
+     "size": 284924,
+     "changelog": "- Added per-chat opt-in local SQLite memory: compact summaries of older text, separated by Telegram owner/account/chat, with bounded storage and cancellation checks. Full histories, audio and images are not copied into the memory database. Recent questions stay in ordinary context; old summaries are untrusted background, not instructions.\n- A sticker-only incoming batch in an enabled auto-reply chat uses a dedicated sticker-only response route. No random sticker percentage or AI-decline gate app",
+     "published": "2026-10-31T09:12:45Z"
+    },
+    {
+     "version": "0.3.8",
+     "versionCode": 11,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/2996595f2801618deb10f7aa4b2871ea0e6f0748/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "060aff02c78aba89d21e197891c4b989f36592e926b6f1262d750448a881008b",
+     "size": 238512,
+     "changelog": "- Added separate per-chat opt-ins for incoming images/stickers/GIF frames and voice transcription. Both default to off. The former global See media setting does not grant permission in any chat.\n- Only incoming attachment IDs from the current enabled chat and current batch are fetched, using its explicit Telegram account. At most two bounded images are attached to the reply model. Voice audio uses the configured AI server's transcription endpoint; unsupported/403 failures produce a decision-log ",
+     "published": "2026-10-30T22:27:24Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "copy_message_id",
+   "name": "Copy message ID",
+   "author": "ZephyrGram",
+   "description": "Adds a 'Copy message ID' item to the message context menu.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "ui.menu"
+   ],
+   "latest": "1.0.0",
+   "versions": [
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/64793f11a7b48573ad09e6fd20f7c2dd735076df/plugins/copy_message_id/copy_message_id.plugin",
+     "sha256": "f468c549afef7235dd3f4771e3e889266cf654924709e1bb4d741815c7e96963",
+     "size": 849,
+     "changelog": "- Initial release: \"Copy message ID\" in the message context menu.",
+     "published": "2026-10-30T13:23:40Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "outgoing_signature",
+   "name": "Outgoing signature",
+   "author": "ZephyrGram",
+   "description": "Appends a configurable signature to every text message you send.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "messages.send"
+   ],
+   "latest": "1.0.0",
+   "versions": [
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/64793f11a7b48573ad09e6fd20f7c2dd735076df/plugins/outgoing_signature/outgoing_signature.plugin",
+     "sha256": "2157eac37561a9f38202efe37f22edd6c6277e8f96291383ec6015b3f7e2d397",
+     "size": 1401,
+     "changelog": "- Initial release: appends a configurable signature to outgoing messages.",
+     "published": "2026-10-30T13:23:40Z"
+    }
+   ],
+   "revoked": []
+  }
+ ],
+ "removed": []
+}
