@@ -57,6 +57,8 @@ class TestCompactMemory(Base):
         return self.p._memory_context(self.key(),0,DID,**kwargs)
 
     def test_off_by_default_no_io_or_extra_model_calls(self):
+        # 0.5.2: on by default in private chats ('memory_auto'); switched off globally or in the chat: no IO at all
+        self.p.settings["memory_auto"]=False
         self.assertEqual(self.context(),"")
         self.assertEqual(self.calls,[])
         self.assertEqual(list(self.root.iterdir()),[])
@@ -64,6 +66,11 @@ class TestCompactMemory(Base):
         setting=next(item for item in chats_screen(self.p) if getattr(item,"key",None)=="memory_"+self.sk)
         self.assertFalse(setting.default)
         self.assertIn("AI server",setting.subtext)
+        del self.p.settings["memory_auto"]
+        self.p.settings["memory_"+self.sk]=False
+        self.assertEqual(self.context(),"")
+        self.assertEqual(self.calls,[])
+        self.assertEqual(list(self.root.iterdir()),[])
 
     def test_summary_uses_only_old_text_metadata_and_explicit_model(self):
         self.opt_in()
