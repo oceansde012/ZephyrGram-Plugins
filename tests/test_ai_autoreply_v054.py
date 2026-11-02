@@ -23,7 +23,7 @@ class TestNaturalProfile(Base):
         self.assertEqual(self.p._model_for("memory"), "DeepSeek-V4.1-Flash")
         self.assertEqual(self.p.get_setting("temperature"), "0.85")
         self.assertFalse(self.p.get_setting("short_msgs"))
-        self.assertTrue(self.p.get_setting("disclosure"))
+        self.assertIsNone(self.p.get_setting("disclosure"))
         self.assertEqual(before, self.p._chats)
         for key in ("master", "reply_all", "style_share", "memory_auto", "see_media_0_42", "transcribe_voice_0_42"):
             self.assertFalse(self.p.get_setting(key), key)
