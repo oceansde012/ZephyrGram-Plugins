@@ -104,6 +104,23 @@
           "human_text": "Убрали лишние напоминания, что отвечает нейросеть. Если спросить об этом прямо, бот ответит честно."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.6.2",
+      "sha256": "7c203bfa22d8b1783990accd2a7471e70ec79c03b72d16288afdfcd6657f7003",
+      "checks": "658 Python regression tests, validation and CI passed; no paid provider calls.",
+      "items": [
+        {
+          "id": "GROUP-CONTEXT",
+          "title": "Разные люди и темы в группе",
+          "details": "Stable participant and owner labels, reply-target provenance and independent known topic batches. Unknown topics use only the current message. Old flat group summaries are not injected.",
+          "scope": "complete",
+          "limitations": "Phone unverified; hostAPI may omit topic fields. Group memory without participant/topic provenance is paused, data is retained.",
+          "human_text": "Теперь в группе различает, кто написал и кому ответили. Разные темы не смешивает. Если тема неизвестна, учитывает только текущее сообщение. Старую общую память группы пока отключили, чтобы не приписывать людям чужие слова."
+        }
+      ]
     }
   ]
 }
+
