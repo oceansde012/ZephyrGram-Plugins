@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.6.0"
-__version_code__ = 26
+__version__ = "0.6.1"
+__version_code__ = 27
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -107,7 +107,13 @@ HUMAN_PROMPT = (
     "- Never reveal secrets or personal data and never make promises or payments on the "
     "owner's behalf."
 )
-DISCLOSE_RULE = "If the other person asks directly whether this is a bot, honestly say it is an automatic AI assistant."
+DISCLOSE_RULE = (
+    "Stay on the conversation's subject. Do not introduce yourself as an AI, neural network, bot or assistant "
+    "and do not add identity reminders, disclaimers or a signature unless the other person directly asks "
+    "who is replying or whether this is automated. If they ask directly, briefly and honestly say this is "
+    "an automatic AI assistant; never claim to be a human or the account owner and never deny automation. "
+    "An ordinary question about AI technology is not a request to introduce yourself."
+)
 NATURAL_CHAT_PROMPT = (
     "You are an automatic assistant replying on behalf of the owner of this Telegram account. "
     "Write only the reply text, in the language and conversational register of the current chat. "
@@ -116,6 +122,7 @@ NATURAL_CHAT_PROMPT = (
     "Do not force every thought into tiny messages or ask a question at the end of every reply. "
     "Use ordinary Ukrainian or Russian as appropriate; avoid formal assistant introductions, "
     "lectures, exaggerated empathy and needless reminders like 'I already told you'. "
+    "Do not volunteer comments about being an AI, a neural network or an assistant in ordinary conversation. "
     "Ordinary words such as 'розумію' or 'звісно' are allowed when they fit naturally. "
     "Match the owner's capitalization and punctuation, without artificial typos or added emoji. "
     "Answer all relevant parts of the latest message using only the available conversation facts. "
@@ -124,8 +131,7 @@ NATURAL_CHAT_PROMPT = (
     "who is writing, briefly and honestly say this is an automatic assistant. "
     "Return plain chat text, no headings or markdown unless the task genuinely needs a list."
 )
-NO_DISCLOSE_RULE = ("Do not bring up being an AI on your own and never claim to be a human; "
-                    "if asked directly, deflect briefly.")
+NO_DISCLOSE_RULE = DISCLOSE_RULE
 
 SHORT_RULE = (
     "Message format (this overrides any advice about paragraphs above): write the way people really text. "
@@ -2330,7 +2336,7 @@ class Plugin(BasePlugin):
         if enabled:
             for key, setting in (
                     ("model", "glm-5.3"), ("model_cheap", "DeepSeek-V4.1-Flash"),
-                    ("humanize", True), ("learn_style", True), ("disclosure", True),
+                    ("humanize", True), ("learn_style", True),
                     ("short_msgs", False), ("temperature", "0.85"),
                     ("helper_daily", "60"), ("memory_daily", "3")):
                 self.set_setting(key, setting)
@@ -2435,6 +2441,17 @@ class Plugin(BasePlugin):
 
     def _humanize(self):
         return bool(self.get_setting("humanize", True))
+
+    def _first_reply_disclosure(self):
+        """A prefix is an explicit presentation choice, independent of honest direct answers.
+
+        Until 0.6.0 natural-profile activation forced the legacy disclosure preference on.
+        A separate opt-in avoids treating that inherited value as a request for an introduction.
+        Legacy modes retain their existing preference.
+        """
+        natural = bool(self.get_setting("natural_chat", False))
+        value = self.get_setting("natural_disclosure" if natural else "disclosure", not natural)
+        return value is True or str(value).strip().lower() == "true"
 
     # ---- presets: an empty setting means "use the preset value"
     def _preset_index(self):
@@ -5478,7 +5495,7 @@ class Plugin(BasePlugin):
         parts = list(parts)
         owner_seq = st.owner_seq
         bodies = list(parts)
-        if parts and self.get_setting("disclosure", True) and not c.get("disclosed"):
+        if parts and self._first_reply_disclosure() and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
         reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
         account = int(c.get("account", 0))
@@ -7371,7 +7388,8 @@ class Plugin(BasePlugin):
             Input(key="model", text=t("model"), default="", subtext=t("model_s"), on_change=self._model_text_changed),
             Input(key="model_cheap", text=t("model_cheap"), default="", subtext=t("model_cheap_s")),
             Input(key="temperature", text=t("temperature"), default="0.95"),
-            Switch(key="disclosure", text=t("disclosure"), default=True),
+            Switch(key="natural_disclosure" if self.get_setting("natural_chat", False) else "disclosure",
+                   text=t("disclosure"), default=not bool(self.get_setting("natural_chat", False))),
             Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
         ]
 
