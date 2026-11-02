@@ -1,0 +1,537 @@
+__id__ = "chat_history_export"
+__name__ = "Экспорт истории чата"
+__description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
+__author__ = "ZephyrGram"
+__version__ = "1.0.0"
+__version_code__ = 1
+__api_version__ = 1
+__min_app_version__ = "0.1.4"
+__permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
+
+import datetime
+import json
+import os
+import re
+import shutil
+import sqlite3
+import threading
+import time
+import uuid
+import zipfile
+
+from zephyr import BasePlugin, MenuItem, MenuType, client
+from zephyr.ui import Header, Text, Divider
+
+
+def jclass(name):
+    from java import jclass as get_class
+    return get_class(name)
+
+
+def _new(*names):
+    for name in names:
+        try:
+            return jclass(name)()
+        except Exception:
+            pass
+    raise RuntimeError("Версия приложения не поддерживает запрос истории")
+
+
+def _items(value):
+    if value is None:
+        return []
+    try:
+        return [value.get(i) for i in range(value.size())]
+    except AttributeError:
+        return list(value)
+
+
+def _int(obj, key, default=0):
+    try:
+        return int(getattr(obj, key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _name(obj):
+    if obj is None:
+        return ""
+    try:
+        return str(obj.getClass().getSimpleName())
+    except AttributeError:
+        return type(obj).__name__
+
+
+def _peer(peer):
+    if peer is None:
+        return None
+    for field, prefix in (("user_id", "user"), ("channel_id", "channel"), ("chat_id", "chat")):
+        value = _int(peer, field)
+        if value:
+            return prefix + str(value)
+    return None
+
+
+def message_record(message, fallback_topic=None):
+    mid = _int(message, "id")
+    if mid <= 0 or "messageEmpty" in _name(message):
+        return None
+    reply = getattr(message, "reply_to", None)
+    topic = _int(reply, "reply_to_top_id") or _int(reply, "top_msg_id")
+    if not topic and bool(getattr(reply, "forum_topic", False)):
+        topic = _int(reply, "reply_to_msg_id")
+    action = getattr(message, "action", None)
+    if "TopicCreate" in _name(action):
+        topic = mid
+    media = getattr(message, "media", None)
+    kind = _name(media)
+    attachment = None
+    if media is not None and "Empty" not in kind:
+        attachment = {"type": kind}
+        document = getattr(media, "document", None)
+        if document is not None:
+            attachment["mime"] = str(getattr(document, "mime_type", "") or "")
+            attachment["size"] = _int(document, "size")
+            for attr in _items(getattr(document, "attributes", None)):
+                filename = getattr(attr, "file_name", None)
+                if filename:
+                    attachment["file_name"] = str(filename)
+        # No access_hash, file_reference, tokens or account session data.
+    return {
+        "id": mid, "date_unixtime": _int(message, "date"),
+        "edit_date": _int(message, "edit_date"),
+        "from_id": _peer(getattr(message, "from_id", None)),
+        "text": str(getattr(message, "message", "") or ""),
+        "topic_id": topic or fallback_topic,
+        "reply_to_message_id": _int(reply, "reply_to_msg_id") or None,
+        "service": _name(action) if action is not None else None,
+        "service_title": str(getattr(action, "title", "") or "") if action else "",
+        "attachment": attachment,
+    }
+
+
+class Archive:
+    """Disk-backed de-duplication, bounded memory, valid partial archives on error."""
+    def __init__(self, directory, metadata):
+        os.makedirs(directory, exist_ok=True)
+        self.path = os.path.join(directory, "history.sqlite3")
+        self.db = sqlite3.connect(self.path, check_same_thread=False)
+        self.db.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY, date INTEGER, topic INTEGER, body TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE topics(id INTEGER PRIMARY KEY, title TEXT NOT NULL)")
+        self.metadata = metadata
+        self.count = 0
+        self.bytes = 0
+
+    def add(self, records):
+        for record in records:
+            if record is None:
+                continue
+            encoded = json.dumps(record, ensure_ascii=False)
+            if self.bytes + len(encoded.encode("utf-8")) > 256 * 1024 * 1024:
+                raise RuntimeError("Достигнут предел архива 256 МиБ; сохранена неполная история")
+            result = self.db.execute("INSERT OR IGNORE INTO messages VALUES(?,?,?,?)",
+                                     (record["id"], record["date_unixtime"], record["topic_id"], encoded))
+            if result.rowcount:
+                self.count += 1
+                self.bytes += len(encoded.encode("utf-8"))
+            elif record["topic_id"]:
+                self.db.execute("UPDATE messages SET topic=? WHERE id=? AND (topic IS NULL OR topic=1)",
+                                (record["topic_id"], record["id"]))
+        self.db.commit()
+
+    def add_topics(self, topics):
+        self.db.executemany("INSERT OR REPLACE INTO topics VALUES(?,?)", [(t["id"], t["title"]) for t in topics])
+        self.db.commit()
+
+    def finish(self, output, complete, reason):
+        meta = dict(self.metadata, complete=bool(complete), stop_reason=reason,
+                    message_count=self.count, finished_at=int(time.time()),
+                    media_files_included=False,
+                    completeness_note="Only messages visible to this account; deleted/hidden messages are unavailable. Export is not an atomic snapshot.")
+        topics = [{"id": row[0], "title": row[1]} for row in self.db.execute("SELECT id,title FROM topics ORDER BY id")]
+        meta["topics"] = topics
+        titles = {t["id"]: t["title"] for t in topics}
+        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", json.dumps(meta, ensure_ascii=False, indent=2))
+            with archive.open("result.json", "w") as target:
+                # zipfile permits only one write handle: build the JSON and text in two streaming passes.
+                header = dict(meta, format="zephyr_chat_history_v1", name=meta.get("title", ""), id=meta["dialog_id"])
+                prefix = json.dumps(header, ensure_ascii=False)
+                target.write((prefix[:-1] + ',"messages":[').encode("utf-8"))
+                first = True
+                for body, topic in self.db.execute("SELECT body,topic FROM messages ORDER BY id"):
+                    item = json.loads(body)
+                    item["topic_id"] = topic or (1 if topics else None)
+                    target.write((("" if first else ",") + json.dumps(item, ensure_ascii=False)).encode("utf-8"))
+                    first = False
+                target.write(b"]}")
+            with archive.open("history.txt", "w") as target:
+                target.write(("Полнота: %s\nПричина остановки: %s\nВложения: только подписи и метаданные\n\n" % ("вся доступная история" if complete else "НЕПОЛНЫЙ ЭКСПОРТ", reason)).encode("utf-8"))
+                for body, topic in self.db.execute("SELECT body,topic FROM messages ORDER BY id"):
+                    item = json.loads(body)
+                    timestamp = datetime.datetime.fromtimestamp(item["date_unixtime"], datetime.timezone.utc).isoformat()
+                    line = "[%s] [%s] #%s %s\n%s\n" % (timestamp, titles.get(topic, str(topic or "Общая")), item["id"], item["from_id"] or "?", item["text"])
+                    if item["attachment"]:
+                        line += "[вложение: %s]\n" % json.dumps(item["attachment"], ensure_ascii=False)
+                    if item["service"]:
+                        line += "[событие: %s %s]\n" % (item["service"], item["service_title"])
+                    target.write((line + "\n").encode("utf-8"))
+        self.db.close()
+        return output
+
+
+class Session:
+    def __init__(self, plugin, ctx, info, peer, forum, owner):
+        self.plugin = plugin
+        self.account = int(ctx["account"])
+        self.dialog = int(ctx["dialog_id"])
+        self.owner = owner
+        self.peer = peer
+        self.forum = forum
+        self.channel = _int(peer, "channel_id") > 0
+        self.lock = threading.RLock()
+        self.stopped = False
+        self.nonce = 0
+        self.awaiting = False
+        self.timer = None
+        self.offset = 0
+        self.snapshot = 0
+        self.stage = "history"
+        self.topics = {}
+        self.topic_offsets = (0, 0, 0)
+        self.topic_cursors = set()
+        self.reply_ids = []
+        self.reply_index = 0
+        self.directory = os.path.join(str(plugin.data_dir), "exports", uuid.uuid4().hex)
+        self.archive = Archive(self.directory, {"dialog_id": self.dialog, "title": str(info.get("title", "")),
+            "account_slot": self.account, "started_at": int(time.time()),
+            "bot_api_chat_id": -(1000000000000 + _int(peer, "channel_id")) if self.channel else self.dialog})
+
+    def valid(self):
+        if self.stopped or not self.plugin._active:
+            return False
+        try:
+            return int(jclass("org.telegram.messenger.UserConfig").getInstance(self.account).getClientUserId()) == self.owner
+        except Exception:
+            return False
+
+    def schedule(self, fn, seconds=0.6):
+        client.run_on_ui(lambda: client.run_in_bg(fn), delay_ms=int(seconds * 1000))
+
+    def request(self):
+        try:
+            self._request()
+        except Exception:
+            self.finish(False, "Версия приложения не поддерживает запрос истории или тем")
+
+    def _request(self):
+        with self.lock:
+            if not self.valid():
+                return self.finish(False, "Отменено или сменился аккаунт")
+            if self.stage == "topics":
+                request = _new("org.telegram.tgnet.tl.TL_forum$TL_messages_getForumTopics",
+                    "org.telegram.tgnet.TLRPC$TL_messages_getForumTopics", "org.telegram.tgnet.TLRPC$TL_channels_getForumTopics")
+                if hasattr(request, "peer"):
+                    request.peer = self.peer
+                else:
+                    channel = _new("org.telegram.tgnet.TLRPC$TL_inputChannel")
+                    channel.channel_id = self.peer.channel_id
+                    channel.access_hash = self.peer.access_hash
+                    request.channel = channel
+                request.offset_date, request.offset_id, request.offset_topic = self.topic_offsets
+                request.limit = 100
+            else:
+                request = _new("org.telegram.tgnet.TLRPC$TL_messages_getReplies" if self.stage == "replies" else "org.telegram.tgnet.TLRPC$TL_messages_getHistory")
+                request.peer = self.peer
+                if self.stage == "replies":
+                    request.msg_id = self.reply_ids[self.reply_index]
+                request.offset_id = self.offset
+                request.offset_date = request.add_offset = request.min_id = 0
+                request.max_id = self.snapshot + 1 if self.snapshot and self.snapshot < 2147483647 else 0
+                request.limit = 100
+                request.hash = 0
+            self.nonce += 1
+            nonce = self.nonce
+            self.awaiting = True
+            self.timer = threading.Timer(50, lambda: self.deliver(nonce, None, "REQUEST_TIMEOUT"))
+            self.timer.daemon = True
+            self.timer.start()
+            try:
+                client.send_request(request, lambda response, error: self.deliver(nonce, response, error), account=self.account)
+            except Exception:
+                self.deliver(nonce, None, "REQUEST_UNAVAILABLE")
+
+    def deliver(self, nonce, response, error):
+        with self.lock:
+            if nonce != self.nonce or not self.awaiting or self.stopped:
+                return
+            self.awaiting = False
+            if self.timer:
+                self.timer.cancel()
+        client.run_in_bg(lambda: self.process(response, error))
+
+    def process(self, response, error):
+        with self.lock:
+            try:
+                if not self.valid():
+                    return self.finish(False, "Отменено или сменился аккаунт")
+                if error is not None:
+                    code = str(getattr(error, "text", error))
+                    flood = re.search(r"FLOOD_(?:PREMIUM_)?WAIT_(\d+)", code)
+                    if flood:
+                        wait = int(flood.group(1))
+                        if wait <= 86400:
+                            self.plugin._notice("Telegram просит подождать %s сек. Экспорт продолжится автоматически." % wait)
+                            return self.schedule(self.request, max(1, wait + 1))
+                    if self.stage == "topics" and "CHANNEL_FORUM_MISSING" in code and not self.forum:
+                        return self.finish(True, "История доступного чата получена")
+                    return self.finish(False, "Telegram: " + re.sub(r"[^A-Z0-9_ ]", "", code)[:100])
+                messages = _items(getattr(response, "messages", None))
+                records = [message_record(m, self.reply_ids[self.reply_index] if self.stage == "replies" else None) for m in messages]
+                records = [r for r in records if r]
+                if not self.snapshot and self.stage == "history" and records:
+                    self.snapshot = max(r["id"] for r in records)
+                records = [r for r in records if not self.snapshot or r["id"] <= self.snapshot]
+                self.archive.add(records)
+                self.plugin._status = "Сохранено сообщений: %s · %s" % (self.archive.count, self.stage)
+                if self.stage == "topics":
+                    raw_topics = _items(getattr(response, "topics", None))
+                    topics = [{"id": _int(t, "id"), "title": str(getattr(t, "title", "") or "Тема %s" % _int(t, "id")),
+                               "date": _int(t, "date"), "top_message": _int(t, "top_message")} for t in raw_topics if "Deleted" not in _name(t)]
+                    for topic in topics:
+                        if topic["id"] > 0 and (not self.snapshot or topic["id"] <= self.snapshot):
+                            self.topics[topic["id"]] = topic
+                    self.archive.add_topics(list(self.topics.values()))
+                    if not raw_topics or _int(response, "count") > 0 and len(self.topics) >= _int(response, "count"):
+                        return self.start_replies()
+                    if not topics:
+                        return self.finish(False, "Не удалось продолжить список тем")
+                    last = topics[-1]
+                    dates = {r["id"]: r["date_unixtime"] for r in records}
+                    date = last["date"] if bool(getattr(response, "order_by_create_date", False)) else dates.get(last["top_message"], 0)
+                    cursor = (date, last["top_message"], last["id"])
+                    if cursor in self.topic_cursors or not date:
+                        return self.finish(False, "Список тем не продвигается; архив неполный")
+                    self.topic_cursors.add(cursor)
+                    self.topic_offsets = cursor
+                else:
+                    floor = self.reply_ids[self.reply_index] if self.stage == "replies" else 0
+                    ids = [_int(m, "id") for m in messages if _int(m, "id") > floor]
+                    if not ids or min(ids) <= 1:
+                        if self.stage == "history":
+                            if self.channel:
+                                self.stage = "topics"
+                            else:
+                                return self.finish(True, "История доступного чата получена")
+                        else:
+                            self.reply_index += 1
+                            self.offset = 0
+                            if self.reply_index >= len(self.reply_ids):
+                                return self.finish(True, "Все доступные темы выгружены")
+                    else:
+                        next_offset = min(ids)
+                        if self.offset and next_offset >= self.offset:
+                            return self.finish(False, "История не продвигается; архив неполный")
+                        self.offset = next_offset
+                self.schedule(self.request)
+            except Exception:
+                self.finish(False, "Ошибка совместимости или записи. Архив содержит только полученную часть.")
+
+    def start_replies(self):
+        self.reply_ids = sorted(t for t in self.topics if t != 1)
+        if not self.reply_ids:
+            return self.finish(True, "Все доступные темы выгружены")
+        self.stage = "replies"
+        self.reply_index = self.offset = 0
+        self.schedule(self.request)
+
+    def finish(self, complete, reason):
+        with self.lock:
+            if self.stopped:
+                return
+            self.stopped = True
+            if self.timer:
+                self.timer.cancel()
+            output = os.path.join(self.directory, "zephyr-history-%s.zip" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+            try:
+                self.archive.finish(output, complete, reason)
+                self.plugin._last_file = output
+                self.plugin.set_setting("last_file", output)
+                self.plugin._status = "%s · сообщений: %s" % ("Готово" if complete else "НЕПОЛНЫЙ экспорт", self.archive.count)
+                self.plugin._notice(self.plugin._status + ". В настройках плагина: «Поделиться архивом».")
+                if self.plugin._active:
+                    client.run_on_ui(lambda: self.plugin._offer(output, complete))
+            except Exception:
+                self.plugin._status = "Ошибка сохранения архива"
+                self.plugin._notice(self.plugin._status)
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self._active = True
+        self._session = None
+        self._last_file = self.get_setting("last_file", "")
+        self._status = "Экспорт ещё не запускался"
+        self.add_menu_item(MenuItem(MenuType.CHAT_ACTION, "Экспорт истории (все темы)", self.on_export,
+                                   key="chat_history_export", condition=lambda ctx: bool(ctx.get("dialog_id"))))
+
+    def on_plugin_unload(self):
+        self._active = False
+        session = self._session
+        if session and not session.stopped:
+            client.run_in_bg(lambda: session.finish(False, "Плагин выключен"))
+
+    def _notice(self, text):
+        client.bulletin(text)
+
+    def create_settings(self):
+        note = Divider()
+        note.text = "Откройте группу → ⋮ → Экспорт истории (все темы). Сохраняются тексты, темы, ответы и метаданные вложений. Фото, видео и голосовые файлы не скачиваются. AI не вызывается; архив никуда не отправляется автоматически. Не закрывайте ZephyrGram до завершения."
+        return [Header("Экспорт истории"), note, Text(self._status),
+                Text("Отменить текущий экспорт", on_click=self.cancel),
+                Text("Поделиться архивом", on_click=self.share_last),
+                Text("Сохранить ZIP в Загрузки", on_click=self.save_last)]
+
+    def cancel(self):
+        if self._session and not self._session.stopped:
+            session = self._session
+            client.run_in_bg(lambda: session.finish(False, "Остановлено пользователем"))
+
+    def on_export(self, ctx):
+        if self._session and not self._session.stopped:
+            return self._notice(self._status + ". Для остановки откройте настройки плагина.")
+        captured = dict(ctx)
+        captured["account"] = int(ctx.get("account", client.current_account()))
+        did = int(ctx.get("dialog_id", 0))
+        if not did:
+            return
+        captured["dialog_id"] = did
+        def prepare():
+            try:
+                info = client.get_dialog_info(did, account=captured["account"])
+                if info.get("type") == "secret":
+                    return self._notice("Секретные чаты не поддерживаются")
+                captured["owner"] = int(jclass("org.telegram.messenger.UserConfig").getInstance(captured["account"]).getClientUserId())
+                client.run_on_ui(lambda: self._confirm(captured, info))
+            except Exception:
+                self._notice("Не удалось определить чат. Откройте его и попробуйте снова.")
+        client.run_in_bg(prepare)
+
+    def _confirm(self, ctx, info):
+        try:
+            fragment = ctx.get("fragment")
+            activity = fragment.getParentActivity() if fragment else None
+            if activity is None:
+                return self._notice("Откройте чат и повторите экспорт")
+            from java import dynamic_proxy
+            click_interface = jclass("android.content.DialogInterface$OnClickListener")
+            plugin = self
+            class Start(dynamic_proxy(click_interface)):
+                def onClick(self, dialog, which):
+                    client.run_in_bg(lambda: plugin._start(ctx, info))
+            builder = jclass("android.app.AlertDialog$Builder")(activity)
+            builder.setTitle("Экспорт истории")
+            builder.setMessage("Чат: %s\n\nЗагрузить всю доступную историю и все темы в локальный ZIP? Тексты и метаданные вложений будут сохранены на телефоне. Файлы вложений не скачиваются. Архив не отправляется автоматически." % str(info.get("title", "")))
+            builder.setPositiveButton("Экспортировать", Start())
+            builder.setNegativeButton("Отмена", None)
+            builder.show()
+        except Exception:
+            self._notice("Не удалось открыть подтверждение экспорта")
+
+    def _start(self, ctx, info):
+        if not self._active or self._session and not self._session.stopped:
+            return
+        try:
+            account, did = ctx["account"], ctx["dialog_id"]
+            owner = int(jclass("org.telegram.messenger.UserConfig").getInstance(account).getClientUserId())
+            if owner <= 0 or owner != ctx.get("owner"):
+                raise ValueError("account")
+            controller = jclass("org.telegram.messenger.MessagesController").getInstance(account)
+            peer = controller.getInputPeer(did)
+            if peer is None or "Empty" in _name(peer):
+                raise ValueError("peer")
+            chat = controller.getChat(-did) if did < 0 else None
+            if bool(getattr(chat, "noforwards", False)):
+                return self._notice("В этом чате ограничено сохранение содержимого. Экспорт не выполняется.")
+            self._session = Session(self, ctx, info, peer, bool(getattr(chat, "forum", False)), owner)
+            self._notice("Экспорт начат. Держите ZephyrGram открытым; статус — в настройках плагина.")
+            self._session.request()
+        except Exception:
+            self._notice("Не удалось начать экспорт. Возможно, версия приложения не поддерживается.")
+
+    def _offer(self, path, complete):
+        # The owner chooses the next action from settings, avoiding automatic uploads.
+        self._notice(("Экспорт готов" if complete else "Сохранён НЕПОЛНЫЙ архив") + ". Настройки плагина → Поделиться архивом / Сохранить ZIP в Загрузки.")
+
+    def share_last(self):
+        path = self._last_file
+        if not path or not os.path.isfile(path):
+            return self._notice("Архив ещё не создан")
+        def prepare():
+            try:
+                context = jclass("org.telegram.messenger.ApplicationLoader").applicationContext
+                directory = os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")
+                os.makedirs(directory, exist_ok=True)
+                destination = os.path.join(directory, os.path.basename(path))
+                shutil.copyfile(path, destination)
+                def launch():
+                    try:
+                        Intent = jclass("android.content.Intent")
+                        uri = jclass("androidx.core.content.FileProvider").getUriForFile(context, str(context.getPackageName()) + ".provider", jclass("java.io.File")(destination))
+                        intent = Intent(Intent.ACTION_SEND)
+                        intent.setType("application/zip")
+                        intent.putExtra(Intent.EXTRA_STREAM, uri)
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        chooser = Intent.createChooser(intent, "Сохранить или отправить экспорт")
+                        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(chooser)
+                    except Exception:
+                        self._notice("Не удалось открыть отправку. Используйте «Сохранить ZIP в Загрузки».")
+                client.run_on_ui(launch)
+            except Exception:
+                self._notice("Не удалось подготовить файл для отправки")
+        client.run_in_bg(prepare)
+
+    def save_last(self):
+        path = self._last_file
+        if not path or not os.path.isfile(path):
+            return self._notice("Архив ещё не создан")
+        def save():
+            uri = None
+            try:
+                if int(jclass("android.os.Build$VERSION").SDK_INT) < 29:
+                    return self._notice("На Android ниже 10 используйте «Поделиться архивом» и выберите файловый менеджер")
+                context = jclass("org.telegram.messenger.ApplicationLoader").applicationContext
+                resolver = context.getContentResolver()
+                values = jclass("android.content.ContentValues")()
+                values.put("_display_name", os.path.basename(path))
+                values.put("mime_type", "application/zip")
+                values.put("relative_path", "Download/ZephyrGram")
+                values.put("is_pending", jclass("java.lang.Integer")(1))
+                uri = resolver.insert(jclass("android.provider.MediaStore$Downloads").EXTERNAL_CONTENT_URI, values)
+                if uri is None:
+                    raise OSError("insert")
+                stream = resolver.openOutputStream(uri)
+                if stream is None:
+                    raise OSError("stream")
+                try:
+                    with open(path, "rb") as source:
+                        while True:
+                            block = source.read(65536)
+                            if not block:
+                                break
+                            stream.write(block)
+                finally:
+                    stream.close()
+                published = jclass("android.content.ContentValues")()
+                published.put("is_pending", jclass("java.lang.Integer")(0))
+                resolver.update(uri, published, None, None)
+                self._notice("ZIP сохранён: Загрузки/ZephyrGram")
+            except Exception:
+                if uri is not None:
+                    try:
+                        resolver.delete(uri, None, None)
+                    except Exception:
+                        pass
+                self._notice("Не удалось сохранить в Загрузки. Используйте «Поделиться архивом».")
+        client.run_in_bg(save)
