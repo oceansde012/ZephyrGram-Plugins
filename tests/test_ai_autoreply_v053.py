@@ -305,7 +305,7 @@ class TestMemoryDefault(Fakes):
         self.p.settings["memory_auto"] = True
         self.assertFalse(self.p._memory_flag(gkey))                  # groups: only with their own switch
         self.p.settings["memory_" + self.p._sk(gkey)] = True
-        self.assertTrue(self.p._memory_flag(gkey))
+        self.assertFalse(self.p._memory_flag(gkey))  # old shared summaries lack participant/topic provenance
         self.p._chats[self.key()]["enabled"] = False
         self.assertFalse(self.p._memory_flag(self.key()))
 
@@ -518,3 +518,4 @@ class TestVisibility(Fakes):
 if __name__ == "__main__":
     import unittest
     unittest.main(verbosity=2)
+

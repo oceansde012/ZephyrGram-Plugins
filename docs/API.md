@@ -738,3 +738,12 @@ always stay):
 
 The report never contains message texts, chat titles, names, usernames or phone numbers.
 
+
+
+## Group participant context (ai_autoreply 0.6.2)
+
+Group messages use app-added sender identity and reply-to metadata for both owner and other participants. Positive sender IDs mean users; negative IDs are anonymous chat/channel identities and do not prove one personal author. Matching display names are never merged. One group-wide gender override is not applied to all members. Public broadcast channels remain disallowed.
+
+APIv1 guarantees from_id, out and reply_to, but does not guarantee forum/topic IDs. Optional topic_id/thread_id/message_thread_id/reply_to_top_id fields are used when supplied; native incoming MessageObject reply headers can add forum_topic/reply_to_top_id metadata. An ordinary reply_to is never guessed to be a topic. Messages of known different topics form separate reply batches. Cached history is restricted to the exact account, dialog and known topic. Basic groups positively identified as non-forum may retain normal group history. Otherwise the safe fallback is one current message without historical context, rather than mixing unknown forum topics. Replies keep an explicit source-message target; older hosts that cannot preserve it fail without sending to General.
+
+Until local long-term group summaries and automatic learned notes can preserve topic and sender provenance, they are not updated or injected in groups. Existing data is retained, not deleted. The per-group settings show this limitation and hide the ineffective group memory/gender controls. Private-chat memory and preferences are unaffected. Optional style examples for groups use only allowed current-topic history and never borrow examples from other chats. Server-side scoped memory is a separate integration. No new permissions or provider calls were added. Device/native bridge compatibility still requires phone verification.

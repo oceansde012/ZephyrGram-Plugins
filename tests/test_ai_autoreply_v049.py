@@ -52,6 +52,7 @@ class TestPromptLevels(Base):
 
     def test_groups_get_no_gender_line(self):
         self.p._commit(self.key(), set={"type": "group"})
+        CLIENT.info["type"] = "group"
         self.assertNotIn("GENDER", self.system([]))
 
 
@@ -134,3 +135,4 @@ class TestVaryParts(Base):
         self.incoming(text="і ще питання", mid=2000)
         self.fire_timers()
         self.assertEqual(len(CLIENT.sent), 4)
+
