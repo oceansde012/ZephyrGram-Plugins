@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+- Явный аккаунт для команд и служебных ответов. Команды, черновики, чтение профиля и ответ при лимите используют выбранный аккаунт. Удаление очищает только его параметры.
+- Отмена устаревшей текстовой автоответки. Ручной текст во время генерации/отправки отменяет последующие части; пауза и повторное включение не оживляют старый запрос.
+- Восстановление потерянного таймера. Safety-net scan заново запускает ожидающую очередь без таймера, не добавляя то же входящее повторно.
+- Обработка границ предложения при лимите. Если целое предложение помещается, ответ заканчивается на его границе. Если границы нет, жёсткое ограничение отмечается многоточием вместо скрытого обрыва.
+- Даты в контексте ответа. Передаются текущие UTC-дата/время и датированные выдержки последних сообщений с правилом не выдавать старую новость за сегодняшнюю.
+- Ожидание длительности голосового. Добавлен переключатель ожидания длительности голосового, отсчитанного от получения; время генерации уже учитывается. Транскрипция помечается как текстовая расшифровка.
+- Off и pause сохраняют настройки. Команды off/pause выключают ответы с сохранением записи, delete удаляет её. Незавершённые старые запросы отменяются.
+- Русские команды вместе с английскими. Добавлены .аи офф, .аи пауза и .аи удалить. Существующие стандартные триггеры получают русские варианты; явный нестандартный триггер сохраняет свою область.
+- Структурированный лор и локальная замена. В разделе промптов появились необязательные имя, возраст и город; для чата можно дополнять глобальный лор либо использовать только локальный.
+- Выбор основной модели списком. В разделе промптов добавлен список: модель приложения/прокси, glm-5.3, DeepSeek-V4.1-Flash. Свой model ID можно сохранить в текстовом поле.
+- Реестр отдельных отчётов и ограничений: docs/release-reports.json. Проверка на реальном телефоне ещё не выполнена.
+
 ## 0.5.2 (cost control, one model per task, better memory)
 - **One request can never balloon.** New "Max size of one AI request" (Limits, `prompt_max`, empty = 24000 characters, about 8k tokens; 8000-60000, nothing can go above 60000). Everything sent with one reply counts: rules, your prompt, style examples, lore and notes, chat memory and history. When it does not fit, pieces shrink in a fixed order: the system part takes at most 55 % (fewer style examples first, then shorter lore, then a hard cut), then the messages being answered get their room, then the chat memory, then the newest history, and the oldest history goes first. Your own prompt (default or per chat) is capped at 4000 characters per request. A typical reply stays as before (about 9-11k characters); the old worst case (context 48000 + lore + memory + an unlimited prompt, 70k+ characters, twice with the retry) is gone. `.ai`, revivals and the style test are bounded the same way.
 - **Smart model for replies, cheap model for background work.** New "Cheap model for background work" (Prompts and model, `model_cheap`; empty = the Model above). Used for chat memory summaries, learned chat notes and the sticker picker (which used to call the app default model). Replies, `.ai`, revivals and the style test keep using Model. If the cheap model fails, that task is redone once with the main model and the cheap one is skipped for 30 minutes, so background work never costs more than before 0.5.2.

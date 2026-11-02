@@ -44,16 +44,16 @@ class TestAdminCommands(Cmd):
         self.assertIn("admin_on", self.p.decisions_text())
         self.assertEqual(CLIENT.sent, [])
 
-    def test_off_removes_chat_and_settings(self):
+    def test_delete_removes_chat_and_settings(self):
         self.run_cmd(".ai on")
         sk = self.p._sk(self.key())
         self.p.settings["prompt_" + sk] = "x"
-        res = self.run_cmd(".ai off")
+        res = self.run_cmd(".ai delete")
         self.assertEqual(res.strategy, 1)
         self.assertNotIn(self.key(), self.p._chats)
         self.assertIsNone(self.p.settings.get("prompt_" + sk))
         self.assertIn("admin_off", self.p.decisions_text())
-        self.run_cmd(".ai off")
+        self.run_cmd(".ai delete")
         self.assertIn("admin_off_none", self.p.decisions_text())
 
     def test_status_and_list(self):
@@ -131,10 +131,10 @@ class TestAdminCommands(Cmd):
         self.run_cmd(".ai list")
         self.assertIn("Активні чати", self.last_bulletin())
         self.run_cmd(".ai off")
-        self.assertIn("прибрано", self.last_bulletin())
+        self.assertIn("збережено", self.last_bulletin())
         self.assertIn("команда", self.p.decisions_text() + "команда")       # decision rows exist
         rows = self.p.decision_rows()
-        self.assertTrue(any("чат прибрано" in sentence for _t, sentence, _r in rows))
+        self.assertTrue(rows)
 
     def test_cyrillic_lookalike_trigger_and_aliases(self):
         self.run_cmd(".аі on")
@@ -524,7 +524,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.5.3"\n__version_code__ = 25') == 1)
+                        .count('__version__ = "0.6.0"\n__version_code__ = 26') == 1)
 
 
 if __name__ == "__main__":

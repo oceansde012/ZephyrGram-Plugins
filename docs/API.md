@@ -400,8 +400,8 @@ for example `"0:123456789"`. Value:
 | `auto_off_ts` | number, optional | unix time when errors paused the chat; resumes after 30 minutes. Only a running chat gets it; the owner's own on/off (core tab, settings switch, menu) removes it, otherwise a chat the owner switched off would come back on (0.4.5) |
 | `disclosed` | bool, optional | the AI disclosure prefix was already sent in this chat |
 
-"Active" chat = `enabled == true`. `.ai off` removes the entry, the chat-menu toggle and the "Enabled" switch only
-set `enabled`.
+"Active" chat = `enabled == true`. `.ai delete` removes the entry; `.ai off` and `.ai pause` preserve its settings and pause it.
+Before 0.6.0, off removed the entry. The chat-menu toggle and the "Enabled" switch only set `enabled`.
 
 **Per-chat settings**, key suffix `<sk>` = the chat key with `:` replaced by `_` and `-` by `n`
 (`"0:123456789"` -> `0_123456789`, `"0:-1001"` -> `0_n1001`):
@@ -489,7 +489,7 @@ one made with the settings screen's selector as `settings_mode_*`. (5) Drawing t
 writes nothing.
 
 **In-chat owner commands (private chats only, never sent as messages):** `.ai on` (add/enable, mode Auto),
-`.ai off` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`, `.ai start` (0.4.3), `.ai log` (0.4.4,
+`.ai off` / `.ai pause` (preserve settings), `.ai delete` (remove), `.ai status`, `.ai list`, `.ai mode auto|draft|friend`, `.ai start` (0.4.3), `.ai log` (0.4.4,
 see section 18). They are intercepted by the send hook;
 the command words (default `.ai`, `.аі`) are the `cmd_triggers` setting and the whole feature is `cmd_enable`.
 
@@ -737,3 +737,4 @@ always stay):
   `sticker` when known) and message id. A failing history read prints `history unavailable (<error type>)`.
 
 The report never contains message texts, chat titles, names, usernames or phone numbers.
+
