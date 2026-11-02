@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.5.2"
-__version_code__ = 24
+__version__ = "0.5.3"
+__version_code__ = 25
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -108,6 +108,22 @@ HUMAN_PROMPT = (
     "owner's behalf."
 )
 DISCLOSE_RULE = "If the other person asks directly whether this is a bot, honestly say it is an automatic AI assistant."
+NATURAL_CHAT_PROMPT = (
+    "You are an automatic assistant replying on behalf of the owner of this Telegram account. "
+    "Write only the reply text, in the language and conversational register of the current chat. "
+    "Use the owner's examples for tone and rhythm, never as facts or lines to copy. "
+    "A casual reaction can be a few words; an explanation or emotional topic may need more. "
+    "Do not force every thought into tiny messages or ask a question at the end of every reply. "
+    "Use ordinary Ukrainian or Russian as appropriate; avoid formal assistant introductions, "
+    "lectures, exaggerated empathy and needless reminders like 'I already told you'. "
+    "Ordinary words such as 'розумію' or 'звісно' are allowed when they fit naturally. "
+    "Match the owner's capitalization and punctuation, without artificial typos or added emoji. "
+    "Answer all relevant parts of the latest message using only the available conversation facts. "
+    "Never invent the owner's plans, location, experiences, promises or consent to payments. "
+    "Never disclose secrets or personal data. You are not the owner or a human: if asked directly "
+    "who is writing, briefly and honestly say this is an automatic assistant. "
+    "Return plain chat text, no headings or markdown unless the task genuinely needs a list."
+)
 NO_DISCLOSE_RULE = ("Do not bring up being an AI on your own and never claim to be a human; "
                     "if asked directly, deflect briefly.")
 
@@ -524,16 +540,17 @@ def cap_text(t, limit):
     return (cut[:sp] if sp > limit // 2 else cut).rstrip(" ,;:-")
 
 
-def clean_humanized(reply, limit=300):
+def clean_humanized(reply, limit=300, preserve_filler=False):
     """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler; cap the length."""
     if not isinstance(reply, str):
         return ""
     t = strip_markdown(reply).strip()
     for _ in range(2):
         t = unwrap_quotes(PREFIX_RE.sub("", LABEL_RE.sub("", t)))
-    f = FILLER_RE.sub("", t, count=1).strip()
-    if f:
-        t = f
+    if not preserve_filler:
+        f = FILLER_RE.sub("", t, count=1).strip()
+        if f:
+            t = f
     t = re.sub(r"[ \t]+", " ", t)
     t = re.sub(r"\n\s*\n+", "\n", t).strip()
     return cap_text(t, limit)
@@ -1079,6 +1096,11 @@ def app_ui_lang():
 
 # key: (English, Ukrainian, Russian). A missing translation falls back to English.
 S = {
+    "natural_chat": ("Natural conversation (GLM)", "Природне спілкування (GLM)", "Живое общение (GLM)"),
+    "natural_chat_s": (
+        "Apply GLM replies, DeepSeek helpers and adaptive length. Keeps chat/media consent; turning off keeps the model settings.",
+        "Застосувати GLM для відповідей, DeepSeek для допоміжних задач і гнучку довжину. Дозволи чатів/медіа зберігаються; вимкнення залишає вибрані моделі.",
+        "Применить GLM для ответов, DeepSeek для фоновых задач и гибкую длину. Разрешения чатов/медиа сохраняются; выключение оставляет выбранные модели."),
     # menu and bulletins
     "menu_off": ("Bot in this chat: off (tap to turn on)", "Бот у цьому чаті: вимк. (натисніть, щоб увімкнути)",
                  "Бот в этом чате: выкл. (нажмите, чтобы включить)"),
@@ -2277,6 +2299,21 @@ class ChatState(object):
 
 
 class Plugin(BasePlugin):
+    def _natural_profile_changed(self, value):
+        """An explicit, local profile action; never enable chats or media/memory consent."""
+        enabled = value is True or str(value).strip().lower() == "true"
+        self.set_setting("natural_chat", enabled)
+        if enabled:
+            for key, setting in (
+                    ("model", "glm-5.3"), ("model_cheap", "DeepSeek-V4.1-Flash"),
+                    ("humanize", True), ("learn_style", True), ("disclosure", True),
+                    ("short_msgs", False), ("temperature", "0.85"),
+                    ("helper_daily", "60"), ("memory_daily", "3")):
+                self.set_setting(key, setting)
+        with self._lock:
+            self._config_epoch += 1
+            self._profiles.clear()
+
     # ------------------------------------------------------------------ lifecycle
     def on_plugin_load(self):
         self._lock = threading.RLock()
@@ -5470,9 +5507,11 @@ class Plugin(BasePlugin):
             tone = int(self.get_setting("tone", 0))
         except (TypeError, ValueError):
             tone = 0
-        parts = [HUMAN_PROMPT, self._detail_rule(), TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
-                 DISCLOSE_RULE if self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
-        if self.get_setting("short_msgs", True):
+        natural = bool(self.get_setting("natural_chat", False))
+        parts = [NATURAL_CHAT_PROMPT if natural else HUMAN_PROMPT, self._detail_rule(),
+                 TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
+                 DISCLOSE_RULE if natural or self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
+        if self.get_setting("short_msgs", True) and not natural:
             parts.append(SHORT_RULE)
         c = self._chats.get(key) or {}
         if c.get("type") == "group":
@@ -5590,7 +5629,8 @@ class Plugin(BasePlugin):
         limit = self._reply_limit()
         style = (profile or {}).get("style") or {}
         extra = self._banned_extra()
-        short = bool(self.get_setting("short_msgs", True))
+        natural = bool(self.get_setting("natural_chat", False))
+        short = bool(self.get_setting("short_msgs", True)) and not natural
         max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6) if short else 2
         split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")
                      else (SHORT_SPLIT_CHARS if short else SPLIT_MIN_CHARS))
@@ -5616,7 +5656,8 @@ class Plugin(BasePlugin):
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
-            reply = clean_humanized(self._complete_for_chat(key, account, did, messages, _kind=kind, **kwargs), limit)
+            reply = clean_humanized(self._complete_for_chat(key, account, did, messages, _kind=kind, **kwargs),
+                                    limit, preserve_filler=natural)
             if not reply:
                 problems = ["empty"]
                 continue
@@ -5665,10 +5706,13 @@ class Plugin(BasePlugin):
     def reply_problems(self, text, st, last_in="", extra=()):
         """List of problems: 'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat' (same as our last reply)."""
         out = []
-        tell = STRONG_TELL_RE if self.get_setting("disclosure", True) else AI_TELL_RE
+        natural = bool(self.get_setting("natural_chat", False))
+        tell = STRONG_TELL_RE if natural or self.get_setting("disclosure", True) else AI_TELL_RE
         if tell.search(text):
             out.append("ai-tell")
-        hits = banned_hits(text, extra)
+        # The old broad phrase blacklist stays available in the original mode.
+        # In natural mode only the owner's explicit extra bans can trigger a rewrite.
+        hits = ([w for w in extra if w and w in text.lower()] if natural else banned_hits(text, extra))
         if hits:
             out.append("banned:" + ",".join(hits[:4]))
         if CJK_RE.search(text) and not CJK_RE.search(last_in or ""):
@@ -7100,6 +7144,8 @@ class Plugin(BasePlugin):
     def _group_style(self):
         t = self.t
         return [
+            Switch(key="natural_chat", text=t("natural_chat"), default=False,
+                   subtext=t("natural_chat_s"), on_change=self._natural_profile_changed),
             Selector(key="tone", text=t("tone"), items=[t("tone_%d" % i) for i in range(3)], default=0),
             Switch(key="humanize", text=t("humanize"), default=True, subtext=t("humanize_s")),
             Switch(key="learn_style", text=t("learn"), default=True, subtext=t("learn_s")),
@@ -7299,3 +7345,4 @@ class Plugin(BasePlugin):
                 self._fp_note(key)
             self._decide(key, "cmd", "settings_mode_" + name)
         return cb
+

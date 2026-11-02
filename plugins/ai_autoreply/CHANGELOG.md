@@ -155,3 +155,12 @@
 ## 0.1.0
 - Initial release: per-chat allowlist via the chat header menu, auto / draft / command modes, per-chat prompts, cooldown, daily and hourly caps, loop protection, 3 s debounce.
 - Icon: optional; ship a PNG (64 KB max) as `icon.png` next to the plugin, a robot or chat bubble with a spark works well.
+
+## 0.5.3
+
+- Added an opt-in Natural conversation (GLM) profile in Style: GLM replies, DeepSeek helpers, temperature 0.85 and bounded background calls.
+- Adaptive reply length: natural conversation no longer forces every sentence into tiny messages.
+- Ordinary empathy words no longer trigger paid rewrites or get stripped in this mode. Explicit user bans, language checks and repeat guards still apply.
+- Clear automatic-assistant identity when asked directly. Existing chat, media, voice and memory permissions are preserved.
+- Existing installations keep their settings until the profile is enabled. Covered by 600 local tests; plugin validation and index build pass.
+
