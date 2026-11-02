@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 import zipfile
 
 _client = types.SimpleNamespace(run_in_bg=lambda fn: fn(), run_on_ui=lambda fn, **kw: None, bulletin=lambda text: None)
@@ -16,8 +17,10 @@ _zephyr.MenuItem = lambda *a, **kw: (a, kw)
 _zephyr.MenuType = types.SimpleNamespace(CHAT_ACTION='chat')
 _zephyr.client = _client
 _ui = types.ModuleType('zephyr.ui')
-for name in ('Header', 'Text', 'Divider'):
-    setattr(_ui, name, lambda *a, **kw: types.SimpleNamespace())
+def _ui_item(*args, **kwargs):
+    return types.SimpleNamespace(args=args, **kwargs)
+for name in ('Header', 'Text', 'Divider', 'DialogPicker'):
+    setattr(_ui, name, _ui_item)
 _saved = {key: sys.modules.get(key) for key in ('zephyr', 'zephyr.ui')}
 sys.modules.update({'zephyr': _zephyr, 'zephyr.ui': _ui})
 _path = Path(__file__).resolve().parents[1] / 'plugins/chat_history_export/chat_history_export.plugin'
@@ -170,6 +173,56 @@ class ExportTests(unittest.TestCase):
         self.assertNotIn('ai.complete', mod.__permissions__)
         self.assertNotIn('messages.send', mod.__permissions__)
         self.assertNotIn('internet', mod.__permissions__)
+
+    def configured_plugin(self):
+        plugin = mod.Plugin()
+        settings = {}
+        plugin.get_setting = lambda key, default=None: settings.get(key, default)
+        plugin.set_setting = lambda key, value: settings.__setitem__(key, value)
+        plugin.add_menu_item = lambda item: None
+        plugin.on_plugin_load()
+        return plugin, settings
+
+    def test_settings_offer_picker_and_start_without_chat_menu(self):
+        plugin, _ = self.configured_plugin()
+        rows = plugin.create_settings()
+        picker = next(row for row in rows if getattr(row, 'key', '') == 'export_target')
+        self.assertEqual(picker.on_pick, plugin.pick_chat)
+        start = next(row for row in rows if row.args and row.args[0] == 'Начать экспорт')
+        self.assertEqual(start.on_click, plugin.start_selected)
+
+    def test_selection_records_exact_account_and_updates_visible_chat_title(self):
+        plugin, settings = self.configured_plugin()
+        user_config = types.SimpleNamespace(getInstance=lambda account: types.SimpleNamespace(getClientUserId=lambda: 42))
+        with patch.object(mod, 'jclass', return_value=user_config), patch.object(_client, 'current_account', return_value=1, create=True):
+            plugin.pick_chat(-3946151263, 'Рабочая группа')
+        selected = json.loads(settings['selected_chat'])
+        self.assertEqual(selected['account'], 1)
+        self.assertEqual(selected['owner'], 42)
+        picker = next(row for row in plugin.create_settings() if getattr(row, 'key', '') == 'export_target')
+        self.assertEqual(picker.subtext, 'Рабочая группа')
+
+    def test_settings_start_needs_no_fragment_or_native_confirmation(self):
+        plugin, settings = self.configured_plugin()
+        settings['selected_chat'] = json.dumps({'account':1,'owner':42,'dialog_id':-9,'title':'Group'})
+        started = []
+        plugin._start = lambda ctx, info: started.append((ctx, info))
+        plugin._confirm = lambda *args: self.fail('chat fragment should not be needed')
+        user_config = types.SimpleNamespace(getInstance=lambda account: types.SimpleNamespace(getClientUserId=lambda: 42))
+        with patch.object(mod, 'jclass', return_value=user_config), patch.object(_client, 'get_dialog_info', return_value={'type':'group'}, create=True) as get_info:
+            plugin.start_selected()
+        get_info.assert_called_once_with(-9, account=1)
+        self.assertEqual(len(started), 1)
+        self.assertNotIn('fragment', started[0][0])
+
+    def test_changed_account_owner_blocks_settings_export_before_reading_chat(self):
+        plugin, settings = self.configured_plugin()
+        settings['selected_chat'] = json.dumps({'account':1,'owner':42,'dialog_id':-9})
+        plugin._start = lambda *args: self.fail('account changed')
+        user_config = types.SimpleNamespace(getInstance=lambda account: types.SimpleNamespace(getClientUserId=lambda: 77))
+        with patch.object(mod, 'jclass', return_value=user_config), patch.object(_client, 'get_dialog_info', create=True) as get_info:
+            plugin.start_selected()
+        get_info.assert_not_called()
 
 
 if __name__ == '__main__':

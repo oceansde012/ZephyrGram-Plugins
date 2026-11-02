@@ -2,8 +2,8 @@ __id__ = "chat_history_export"
 __name__ = "Экспорт истории чата"
 __description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
 __author__ = "ZephyrGram"
-__version__ = "1.0.0"
-__version_code__ = 1
+__version__ = "1.0.1"
+__version_code__ = 2
 __api_version__ = 1
 __min_app_version__ = "0.1.4"
 __permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
@@ -20,7 +20,7 @@ import uuid
 import zipfile
 
 from zephyr import BasePlugin, MenuItem, MenuType, client
-from zephyr.ui import Header, Text, Divider
+from zephyr.ui import Header, Text, Divider, DialogPicker
 
 
 def jclass(name):
@@ -370,6 +370,7 @@ class Plugin(BasePlugin):
     def on_plugin_load(self):
         self._active = True
         self._session = None
+        self._start_lock = threading.Lock()
         self._last_file = self.get_setting("last_file", "")
         self._status = "Экспорт ещё не запускался"
         self.add_menu_item(MenuItem(MenuType.CHAT_ACTION, "Экспорт истории (все темы)", self.on_export,
@@ -386,11 +387,58 @@ class Plugin(BasePlugin):
 
     def create_settings(self):
         note = Divider()
-        note.text = "Откройте группу → ⋮ → Экспорт истории (все темы). Сохраняются тексты, темы, ответы и метаданные вложений. Фото, видео и голосовые файлы не скачиваются. AI не вызывается; архив никуда не отправляется автоматически. Не закрывайте ZephyrGram до завершения."
-        return [Header("Экспорт истории"), note, Text(self._status),
+        note.text = "Нажмите «Выбрать чат», выберите группу и затем «Начать экспорт». Будет выгружен весь доступный чат со всеми темами. Фото, видео и голосовые файлы не скачиваются. AI не вызывается; архив никуда не отправляется автоматически. Не закрывайте ZephyrGram до завершения."
+        selected = self._selection()
+        title = str(selected.get("title") or "Чат ещё не выбран")
+        return [Header("Экспорт истории"), note,
+                DialogPicker(key="export_target", text="Выбрать чат", on_pick=self.pick_chat,
+                             subtext=title),
+                Text("Начать экспорт", on_click=self.start_selected), Text(self._status),
                 Text("Отменить текущий экспорт", on_click=self.cancel),
                 Text("Поделиться архивом", on_click=self.share_last),
                 Text("Сохранить ZIP в Загрузки", on_click=self.save_last)]
+
+    def _selection(self):
+        try:
+            value = json.loads(self.get_setting("selected_chat", "{}"))
+            if isinstance(value, dict):
+                return value
+        except (ValueError, TypeError):
+            pass
+        return {}
+
+    def pick_chat(self, dialog_id, title):
+        try:
+            account = int(client.current_account())
+            owner = int(jclass("org.telegram.messenger.UserConfig").getInstance(account).getClientUserId())
+            if owner <= 0 or not int(dialog_id):
+                raise ValueError("account")
+            selected = {"account": account, "owner": owner, "dialog_id": int(dialog_id), "title": str(title)}
+            self.set_setting("selected_chat", json.dumps(selected, ensure_ascii=False))
+            self._notice("Чат выбран: %s. Теперь нажмите «Начать экспорт»." % str(title))
+        except Exception:
+            self._notice("Не удалось выбрать чат. Повторите выбор в активном аккаунте.")
+
+    def start_selected(self):
+        selected = self._selection()
+        if not selected.get("dialog_id"):
+            return self._notice("Сначала нажмите «Выбрать чат»")
+        if self._session and not self._session.stopped:
+            return self._notice(self._status + ". Экспорт уже выполняется.")
+        def prepare():
+            try:
+                account = int(selected["account"])
+                owner = int(jclass("org.telegram.messenger.UserConfig").getInstance(account).getClientUserId())
+                if owner <= 0 or owner != int(selected["owner"]):
+                    return self._notice("Аккаунт изменился. Выберите чат заново.")
+                info = client.get_dialog_info(int(selected["dialog_id"]), account=account)
+                if info.get("type") == "secret":
+                    return self._notice("Секретные чаты не поддерживаются")
+                # The dedicated Start button confirms this local export. No chat-menu fragment is needed.
+                self._start(selected, info)
+            except Exception:
+                self._notice("Не удалось открыть выбранный чат. Выберите его заново.")
+        client.run_in_bg(prepare)
 
     def cancel(self):
         if self._session and not self._session.stopped:
@@ -439,6 +487,10 @@ class Plugin(BasePlugin):
             self._notice("Не удалось открыть подтверждение экспорта")
 
     def _start(self, ctx, info):
+        with self._start_lock:
+            self._start_locked(ctx, info)
+
+    def _start_locked(self, ctx, info):
         if not self._active or self._session and not self._session.stopped:
             return
         try:
