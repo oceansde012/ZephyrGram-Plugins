@@ -7,6 +7,7 @@ class TestNoInstantBigMessages(Base):
         super().setUp()
         self.enable()
         self.p.settings["owner_active"] = "0"
+        self.p.settings["max_parts"] = "4"
         self.p.settings["disclosure"] = False
         self.sleeps = []
         mod.time.sleep = lambda s: self.sleeps.append(s)
@@ -68,3 +69,4 @@ class TestNoInstantBigMessages(Base):
         self.assertEqual(len(CLIENT.ai_calls), 2)
         self.assertIn("under about 120 characters", CLIENT.ai_calls[1]["system"])
         self.assertEqual([s[1] for s in CLIENT.sent], ["ок", "зараз гляну"])
+

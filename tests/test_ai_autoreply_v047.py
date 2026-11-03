@@ -78,7 +78,7 @@ class TestPauseFollowsLength(Base):
         self.enable()
         self.sleeps = []
         mod.time.sleep = lambda s: self.sleeps.append(s)
-        self.p.settings.update(owner_active="0", human_timing=True, split_gap_min="1", split_gap_max="1", type_ms="40")
+        self.p.settings.update(owner_active="0", human_timing=True, max_parts="4", split_gap_min="1", split_gap_max="1", type_ms="40")
         self.p.settings["disclosure"] = False
 
     def send_parts(self, *parts):
@@ -118,3 +118,4 @@ class TestPauseFollowsLength(Base):
         t_one = p._make_timing(self.key(), p._state(self.key()), "warm", self.clock[0], batch, ["ок"], 0)
         t_many = p._make_timing(self.key(), p._state(self.key()), "warm", self.clock[0], batch, ["ок", "x" * 2000], 0)
         self.assertLess(abs(t_many["type"] - t_one["type"]), 6.0)
+

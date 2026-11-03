@@ -275,7 +275,7 @@ class TestAutonomous(Cmd):
         did, text, _ = CLIENT.sent[0]
         self.assertEqual(did, DID)
         self.assertNotIn("**", text)
-        self.assertNotIn("Звісно", text)
+        self.assertIn("Звісно, зараз гляну", text)  # preserve an ordinary confirmation
         self.assertIn("зараз гляну", text)
         self.assertTrue(4.0 <= self.clock[0] - t0 <= 6.5, self.clock[0] - t0)
         d = self.p.decisions_text()
@@ -524,7 +524,7 @@ class TestMetadata(unittest.TestCase):
     def test_version(self):
         self.assertTrue(open(mod.__file__ if hasattr(mod, "__file__") and mod.__file__ else
                              __import__("test_ai_autoreply").PLUGIN, encoding="utf-8").read()
-                        .count('__version__ = "0.7.0"\n__version_code__ = 31') == 1)
+                        .count('__version__ = "0.7.1"\n__version_code__ = 32') == 1)
 
 
 if __name__ == "__main__":

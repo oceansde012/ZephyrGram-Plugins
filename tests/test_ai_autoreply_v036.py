@@ -127,7 +127,7 @@ class TestLatencyModel(unittest.TestCase):
         rng = random.Random(5)
         longs = shorts = 0
         for _ in range(600):
-            total, _t = mod.latency_seconds(rng, "cold", 10, 20, self.P)
+            total, _t = mod.latency_seconds(rng, "cold", 10, 20, dict(self.P, lat_long_pct=10))
             self.assertTrue(8.0 <= total <= 130.0, total)
             if total > 55:
                 longs += 1
@@ -301,6 +301,7 @@ class TestLiveFlow(LiveBase):
         self.enable()
         self.p.settings["short_msgs"] = False      # the random 2-part split of the older mode
         self.p.settings["split2_pct"] = "100"
+        self.p.settings["natural_split"] = True
         CLIENT.ai_result = lambda messages, **kw: u"ну дивись, там вроде все гаразд. потім напишу тобі точно"
         self.incoming(text=u"що там")
         self.fire_timers()
@@ -819,8 +820,8 @@ class TestLanguage(LiveBase):
 
 class TestMeta(unittest.TestCase):
     def test_header(self):
-        self.assertEqual(mod.__version__, "0.7.0")
-        self.assertEqual(mod.__version_code__, 31)
+        self.assertEqual(mod.__version__, "0.7.1")
+        self.assertEqual(mod.__version_code__, 32)
         self.assertIn("network.requests", mod.__permissions__)
         self.assertEqual(len(mod.PRESET_NAMES), len(mod.PRESETS))
 

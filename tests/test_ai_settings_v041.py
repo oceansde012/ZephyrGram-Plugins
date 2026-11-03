@@ -16,7 +16,7 @@ GLOBAL = {
     "cmd_any_private": ("Switch", False), "cmd_openers": ("Input", ""),
     "humanize": ("Switch", True), "learn_style": ("Switch", True), "learn_n": ("Input", "40"),
     "style_share": ("Switch", False), "style_cache_min": ("Input", "30"), "tone": ("Selector", 0),
-    "short_msgs": ("Switch", True), "max_parts": ("Input", "4"), "split_msgs": ("Switch", True),
+    "short_msgs": ("Switch", True), "max_parts": ("Input", "2"), "split_msgs": ("Switch", True),
     "typing_delay": ("Switch", True), "typing_cap": ("Input", ""), "banned_words": ("Input", ""),
     "skip_emoji": ("Switch", True), "answer_detail": ("Selector", 1), "max_reply": ("Input", ""),
     "temperature": ("Input", "0.95"), "default_prompt": ("Input", ""), "context_n": ("Input", "40"),
@@ -217,9 +217,9 @@ class TestSections(Screen):
         self.assertEqual(rows["chat_hourly"].subtext, "Empty = 20")
         self.assertEqual(rows["typing_cap"].subtext, "Empty = 2.5")
         self.assertIn("preset: off", rows["human_timing"].subtext)
-        self.assertEqual(rows["max_reply"].subtext, "Empty = 1200 (by answer detail)")
+        self.assertEqual(rows["max_reply"].subtext, "Empty = 600 (by answer detail)")
         self.p.settings["answer_detail"] = 0
-        self.assertEqual(by_key(all_settings(self.p))["max_reply"].subtext, "Empty = 400 (by answer detail)")
+        self.assertEqual(by_key(all_settings(self.p))["max_reply"].subtext, "Empty = 240 (by answer detail)")
 
     def test_log_section_shows_ten_rows(self):
         self.enable()
@@ -280,3 +280,4 @@ class TestChatList(Screen):
 
 if __name__ == "__main__":
     unittest.main()
+

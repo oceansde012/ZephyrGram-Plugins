@@ -84,6 +84,7 @@ class TestShortMessages(Base):
         self.assertIn("SHORT separate chat messages", CLIENT.ai_calls[0]["system"])
 
     def test_lines_become_separate_messages(self):
+        self.p.settings["max_parts"] = "3"
         CLIENT.ai_result = lambda m, **kw: "не\nзавтра\nне встиг ще"
         self.incoming(text="ти щось робив?")
         self.fire_timers()
@@ -210,3 +211,4 @@ class TestRevive(Base):
         n = self.now
         CLIENT.history[:] = [{"id": 4, "out": True, "date": n - 1800, "text": "ку", "dialog_id": DID}]
         self.assertEqual(self.run_pass(), 0)
+

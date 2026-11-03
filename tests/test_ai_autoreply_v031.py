@@ -43,7 +43,8 @@ class TestSilentPaths(Base):
         self.round("а ти де зараз")
         self.assertEqual(len(CLIENT.sent), 2)
 
-    def test_banned_words_regenerated_then_sent_anyway(self):
+    def test_explicit_banned_words_regenerated_then_sent_anyway(self):
+        self.p.settings["banned_words"] = "дійсно"
         CLIENT.ai_result = lambda m, **kw: "Звісно, я розумію, це дійсно важливо"
         self.round("привіт, як справи")
         self.assertEqual(len(CLIENT.ai_calls), 2)
@@ -51,7 +52,8 @@ class TestSilentPaths(Base):
         self.assertEqual(len(CLIENT.sent), 1)
         self.assertIn("ok_fallback", self.decisions())
 
-    def test_banned_retry_can_succeed(self):
+    def test_explicit_banned_retry_can_succeed(self):
+        self.p.settings["banned_words"] = "безумовно"
         replies = iter(["Безумовно, звісно", "та глянув уже"])
         CLIENT.ai_result = lambda m, **kw: next(replies)
         self.round("привіт, як справи")
@@ -243,7 +245,7 @@ class TestSilentPaths(Base):
         sysmsg = CLIENT.ai_calls[0]["system"]
         self.assertIn("Chinese", sysmsg)
         self.assertIn("Ukrainian", sysmsg)
-        self.assertIn("звісно", sysmsg)
+        self.assertIn("Use their texting style without claiming to be them", sysmsg)
         self.assertIn("Chinese", mod.DEFAULT_PROMPT)
 
     def test_same_message_not_answered_twice(self):
@@ -261,3 +263,4 @@ class TestSilentPaths(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
