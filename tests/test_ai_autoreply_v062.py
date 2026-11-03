@@ -58,14 +58,16 @@ class TestGroupParticipants(Base):
         calls=[]
         with patch.object(self.p,'_process',lambda key,batch:calls.append((self.p._work_context.group_scope,list(batch))) or 'ok'):
             self.p.process(self.group_key,[(1,11,'тема один'),(2,22,'тема два')])
-        self.assertEqual([c[0][1] for c in calls],[11,22])
-        self.assertEqual([len(c[1]) for c in calls],[1,1])
+        self.assertEqual([c[0][1] for c in calls],[11])
+        self.assertEqual([len(c[1]) for c in calls],[1])
+        self.assertEqual(self.p._state(self.group_key).pending,[(2,22,'тема два')])
 
     def test_unknown_topics_do_not_get_batched_together(self):
         calls=[]
         with patch.object(self.p,'_process',lambda key,batch:calls.append(list(batch)) or 'ok'):
             self.p.process(self.group_key,[(1,11,'один'),(2,22,'два')])
-        self.assertEqual(len(calls),2)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0],[(2,22,'два')])
         self.assertTrue(all(len(c)==1 for c in calls))
         partitions=self.p._group_batches(self.group_key,[(None,11,'первый'),(None,22,'второй')])
         self.assertEqual(len(partitions),2)
