@@ -120,7 +120,30 @@
           "human_text": "Теперь в группе различает, кто написал и кому ответили. Разные темы не смешивает. Если тема неизвестна, учитывает только текущее сообщение. Старую общую память группы пока отключили, чтобы не приписывать людям чужие слова."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.6.3",
+      "sha256": "9961a9a4f7500d2185093f1be5fa84804fc66ee486ff0f80c8fa3576861742d9",
+      "checks": "674 Python regression tests, plugin validation and PR CI passed; no paid provider calls.",
+      "items": [
+        {
+          "id": "GROUP-BURST",
+          "title": "Без серии ответов подряд",
+          "scope": "complete",
+          "details": "One group partition per tick; at least 20 seconds between replies, at least 6 seconds burst debounce, one text bubble and no optional after-text sticker. Unknown-topic fragments coalesce to newest; known topics remain queued.",
+          "limitations": "Phone unverified. Without topic metadata earlier fragments/questions in a burst are deliberately skipped.",
+          "human_text": "В группах больше не выдаёт серию ответов подряд: отвечает одним сообщением и выдерживает паузу. Если тема неизвестна, из короткой серии берёт только последнюю реплику — предыдущие может пропустить."
+        },
+        {
+          "id": "LANGUAGE-SIGNAL",
+          "title": "Ник не меняет язык",
+          "scope": "complete",
+          "details": "Shared conservative English evidence helper excludes bare handles, links and code identifiers; explicit language selection preserved.",
+          "limitations": "Heuristic, not a universal language classifier; live provider behaviour unverified.",
+          "human_text": "Латинский ник или случайный набор букв больше не переключают ответ на английский. Сохраняется выбранный язык или язык доступного контекста."
+        }
+      ]
     }
   ]
 }
-
