@@ -813,6 +813,47 @@ def reactable(text):
     return is_ack(text) or (is_emoji_only(text) and bool(EMOJI_RE.search(str(text or ""))))
 
 
+EN_STANDALONE = frozenset(("hello", "thanks", "thankyou", "sorry", "please", "goodbye", "welcome",
+                           "congratulations", "congrats"))
+EN_WORDS = frozenset(("i", "you", "he", "she", "we", "they", "it", "this", "that", "these", "those",
+                      "a", "an", "the", "am", "is", "are", "was", "were", "be", "been", "being",
+                      "have", "has", "had", "do", "does", "did", "can", "could", "would", "should",
+                      "will", "shall", "may", "might", "must", "not", "don't", "doesn't", "can't",
+                      "i'm", "you're", "we're", "it's", "that's", "i'll", "let's", "what's", "how's",
+                      "who's", "where's", "when's", "what", "which",
+                      "who", "where", "when", "why", "how", "my", "your", "his", "her", "our", "their",
+                      "me", "him", "us", "them", "with", "without", "for", "from", "to", "of", "in",
+                      "on", "at", "and", "or", "but", "if", "then", "than", "so", "because", "about",
+                      "some", "any", "more", "much", "many", "all", "every", "only", "just", "really",
+                      "very", "good", "nice", "great", "fine", "help", "need", "want", "know", "think",
+                      "tell", "say", "see", "look", "try", "work", "works", "working", "doing", "going",
+                      "today", "tomorrow", "yesterday", "now", "later", "again", "please", "thank", "hello",
+                      "thanks", "sorry", "english", "reply", "answer", "send", "read", "write", "fix",
+                      "broken", "crash", "crashes", "failed", "error", "plugin", "update", "meeting"))
+
+
+def english_signal(text):
+    """Conservative evidence of English, rather than simply a Latin-script identifier.
+
+    A handle, URL, code-like token or language-neutral acknowledgement alone has no signal.
+    This is not a general language classifier: ambiguous bare names/terms inherit chat language.
+    """
+    value = str(text or "")
+    value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s<>]+", " ", value, flags=re.I)
+    value = re.sub(r"(?<!\w)[@#][A-Za-z0-9_]+", " ", value)
+    value = re.sub(r"\b[A-Za-z0-9_]+\.(?:com|ua|ru|org|net|me)(?:/[^\s<>]*)?", " ", value, flags=re.I)
+    value = re.sub(r"\b[A-Za-z][A-Za-z0-9]*(?:[._/\\:=][A-Za-z0-9]+)+\b", " ", value)
+    if re.search(u"[\u0400-\u04ff]", value):
+        return False
+    # Do not turn the alphabetic pieces of user_123 / StasikAWP into words.
+    raw = re.findall(r"[A-Za-z][A-Za-z0-9_'’]*", value)
+    words = [word.replace("’", "'").lower() for word in raw
+             if not re.search(r"[0-9_]|[a-z][A-Z]", word)]
+    if len(words) == 1:
+        return words[0] in EN_STANDALONE
+    return len(set(words)) >= 2 and any(word in EN_WORDS for word in words)
+
+
 def detect_lang(text):
     """'Ukrainian' / 'Russian' / 'English' of the incoming text; Ukrainian when unsure."""
     t = str(text or "")
@@ -820,9 +861,7 @@ def detect_lang(text):
         return "Ukrainian"
     if RU_RE.search(t) or RU_HINT_RE.search(t):
         return "Russian"
-    lat = len(re.findall(r"[A-Za-z]", t))
-    cyr = len(re.findall(u"[\u0400-\u04ff]", t))
-    if lat >= 6 and lat > cyr:
+    if english_signal(t):
         return "English"
     return "Ukrainian"
 
@@ -888,7 +927,7 @@ def incoming_language(batch, recent):
         if uk and last:
             return last
         joined = " ".join(texts)
-        if not re.search(u"[\u0400-\u04ff]", joined) and len(re.findall(r"[A-Za-z]", joined)) >= 6:
+        if english_signal(joined):
             return "English"
     return None
 
