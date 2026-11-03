@@ -32,7 +32,7 @@ class TestReportContent(ReportBase):
         text = self.report()
         for part in ("=== ai_autoreply diagnostic report ===", "v" + mod.__version__,
                      "no message texts included", "preset Balanced", "master ON", "settings: reply_all=off",
-                     "skip_links=on", "max_parts=4", "owner_active=45s", "debounce=3s", "cooldown=20s",
+                     "skip_links=on", "max_parts=2", "owner_active=45s", "debounce=3s", "cooldown=20s",
                      "chat_hourly=20", "hourly_cap=30", "daily_cap=50", "scan=off", "stickers=on",
                      "chats: 1 listed, 1 enabled", "--- summary (window) ---", "outcomes:",
                      "== chat 0:%d | user | mode auto | enabled" % DID, "state: pending 0", "since: last_in",
@@ -345,3 +345,4 @@ class TestDecisionLogStorage(Base):
         p2.on_plugin_load()
         self.assertEqual(len(p2._decisions), 0)
         self.assertIn("no chat had decisions", p2.build_report()[0])
+

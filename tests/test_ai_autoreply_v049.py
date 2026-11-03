@@ -116,6 +116,7 @@ class TestVaryParts(Base):
             self.assertEqual(out[0], u"ок, гаразд")
 
     def test_setting_controls_it_in_replies(self):
+        self.p.settings["max_parts"] = "4"
         self.enable()
         self.p.settings["owner_active"] = "0"
         self.p.settings["natural_split"] = True

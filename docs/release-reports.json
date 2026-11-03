@@ -176,6 +176,38 @@
           "human_text": "Добавили память чатов в Neon. В настройках нужного чата можно включить её и перенести уже сохранённый итог личной переписки. Копия на телефоне останется. Сначала нужен ZephyrGram0.2.2; память включается отдельно для каждого чата."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.1",
+      "sha256": "d2d7caa45e60afdf2b93a7d72c7cd3236f22df47bb3c741891ad3afc1e56d322",
+      "checks": "750 combined Python tests and plugin validation passed; no live provider calls. Phone UI and subjective wording remain unverified.",
+      "items": [
+        {
+          "id": "CHAT-PRESETS",
+          "title": "Простые стили общения",
+          "scope": "complete",
+          "details": "Four global/per-chat wording presets, optional humor, reply-target and fragment context; normal acknowledgements no longer stripped or retried. Explicit owner bans preserved.",
+          "limitations": "Live provider naturalness and phone UI need user feedback.",
+          "human_text": "Добавили четыре стиля: обычный, тёплый, по делу и сдержанный. Можно выбрать свой для каждого чата. Убрали обязательные шутки и перестали вырезать обычные слова вроде «розумію» и «конечно»."
+        },
+        {
+          "id": "SPLIT-CONTROLS",
+          "title": "Кнопки разбиения действительно управляют ответом",
+          "scope": "complete",
+          "details": "max_parts hard ceiling in natural and short-off modes; disabling natural_split also disables late random split.",
+          "limitations": "Actual phone interaction still unverified; tested setting callbacks and delivery pipeline.",
+          "human_text": "Исправили разбиение: лимит «одно сообщение» теперь работает и в естественном режиме. Если выключить разбиение, случайная вторая часть тоже не появится."
+        },
+        {
+          "id": "SHORTER-DEFAULTS",
+          "title": "Короче и без случайных минут ожидания",
+          "scope": "complete",
+          "details": "Default2parts;240/600/1600character budgets; cold base8–25s and optional long delay0%; elapsed generation remains subtracted. Explicit saved settings retained.",
+          "limitations": "Configured saved values remain; group anti-flood and generation time still affect latency.",
+          "human_text": "Новые значения по умолчанию: до двух сообщений и более короткий текст, без случайного ожидания на минуту-две. Если вы раньше задали свои длину и задержки, они сохранятся."
+        }
+      ]
     }
   ]
 }

@@ -90,13 +90,13 @@ class TestContextV039(Base):
 
     def test_reply_detail_modes_and_explicit_limit(self):
         self.assertEqual(self.p._answer_detail(), 1)
-        self.assertEqual(self.p._reply_limit(), 1200)
+        self.assertEqual(self.p._reply_limit(), 600)
         self.assertIn("Balanced answer", self.p._detail_rule())
         self.p.settings["answer_detail"] = 2
-        self.assertEqual(self.p._reply_limit(), 3000)
+        self.assertEqual(self.p._reply_limit(), 1600)
         self.assertIn("all parts", self.p._detail_rule())
         self.p.settings["answer_detail"] = 0
-        self.assertEqual(self.p._reply_limit(), 400)
+        self.assertEqual(self.p._reply_limit(), 240)
         self.p.settings["max_reply"] = "300"
         self.p.settings["answer_detail"] = 2
         self.assertEqual(self.p._reply_limit(), 300)
@@ -138,3 +138,4 @@ class TestContextV039(Base):
             self.assertEqual(rows["max_reply"].default, "")
             self.assertFalse(rows["style_share"].default)
             self.assertNotEqual(self.p.t("answer_detail"), "answer_detail")
+
