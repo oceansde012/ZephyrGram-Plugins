@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.6.3"
-__version_code__ = 29
+__version__ = "0.6.4"
+__version_code__ = 30
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -4606,33 +4606,30 @@ class Plugin(BasePlugin):
 
     def _live_wait(self, key, c, st, did, account, timing):
         """Sleep the human latency in short chunks; typing indicator during the last part. False = stop."""
-        total, tsecs = float(timing["wait"]), float(timing["type"])
+        total = max(0.0, float(timing["wait"]))
+        tsecs = max(0.0, min(total, float(timing["type"])))
+        base_guard = timing.get("_wait_guard")
+        if not callable(base_guard):
+            base_guard = self._typing_guard(key, account, did, st=st)
+
+        def alive():
+            return base_guard() and self._alive(key, st, timing["arr"])
+
+        if not alive():
+            self._send_typing(did, account, cancel=True)
+            return False
         self._awake(total + 40)
         quiet = max(0.0, total - tsecs)
-        waited = 0.0
-        while waited < quiet - 1e-9:
-            ch = min(TYPING_REFRESH_SEC, quiet - waited)
-            time.sleep(ch)
-            waited += ch
-            if not self._alive(key, st, timing["arr"]):
-                return False
+        ok, _shown = self._wait_phase(did, account, quiet, alive, show=False)
+        if not ok:
+            return False
         if timing.get("read_id"):
             self._mark_read(key, timing["read_id"])
-        shown = False
         show = bool(self.get_setting("show_typing", True))
-        while waited < total - 1e-9:
-            if show and self._send_typing(did, account):
-                shown = True
-            ch = min(TYPING_REFRESH_SEC, total - waited)
-            time.sleep(ch)
-            waited += ch
-            if not self._alive(key, st, timing["arr"]):
-                if shown:
-                    self._send_typing(did, account, cancel=True)
-                return False
-        if shown:
+        ok, shown = self._wait_phase(did, account, tsecs, alive, show=show)
+        if ok and shown:
             self._decide(key, "info", "typing_sent")
-        return True
+        return ok
 
     # ---- reading and typing (TL through client.send_request; helpers of newer apps are preferred)
     def _read_enabled(self):
@@ -5732,11 +5729,13 @@ class Plugin(BasePlugin):
         if self._is_group(key) and parts:
             sticker = None
         owner_seq = st.owner_seq
+        wait_epoch = self._epoch(key)
         bodies = list(parts)
         if parts and self._first_reply_disclosure() and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
         reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
         account = int(c.get("account", 0))
+        wait_guard = self._typing_guard(key, account, did, st=st, owner_seq=owner_seq, epoch=wait_epoch)
         cap = self._pnum("typing_cap", 0, 15)
         budget = cap
         sent = []
@@ -5749,8 +5748,10 @@ class Plugin(BasePlugin):
             if voice_wait:
                 timing = dict(timing or {"arr": self._now(), "type": 0})
                 timing["wait"] = max(float(timing.get("wait", 0)), voice_wait)
-        if timing is not None and not self._live_wait(key, c, st, did, account, timing):
-            return False
+        if timing is not None:
+            timing = dict(timing, _wait_guard=wait_guard)
+            if not self._live_wait(key, c, st, did, account, timing):
+                return False
         st.sending = timing is None
         try:
             for i, part in enumerate(parts):
@@ -5759,7 +5760,9 @@ class Plugin(BasePlugin):
                         if self._explicit("typing_cap") is None:
                             # no explicit cap: every part takes as long as a person needs to type it
                             d = 0.3 + len(part) * PART_TYPE_MS / 1000.0 * self._rng.uniform(0.85, 1.25)
-                            self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else 0.5, d)))
+                            if self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else 0.5, d)),
+                                                 guard=wait_guard) is False:
+                                return False
                         else:                       # the owner set 'typing_cap': one total budget for all parts
                             d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
                             if i == 0:
@@ -5767,14 +5770,16 @@ class Plugin(BasePlugin):
                             d = max(0.0, min(budget, d))
                             budget -= d
                             if d > 0:
-                                self._awake(d + 10)
-                                time.sleep(d)
+                                if self._wait_typing(did, account, d, guard=wait_guard, show=False) is False:
+                                    return False
                 elif i:
                     # every part takes as long as a person needs to type it: long messages go out later
                     lo = self._pnum("split_gap_min", 0, 60)
                     gap = self._rng.uniform(lo, max(lo, self._pnum("split_gap_max", 0, 60)))
                     typing_s = (len(part) * self._pnum("type_ms", 0, 1000) / 1000.0) * self._rng.uniform(0.85, 1.2)
-                    self._wait_typing(did, account, min(MAX_PART_GAP, max(gap, typing_s)))
+                    if self._wait_typing(did, account, min(MAX_PART_GAP, max(gap, typing_s)),
+                                         guard=wait_guard) is False:
+                        return False
                 if i:
                     cur = self._chats.get(key)
                     if not cur or not cur.get("enabled") or not self.get_setting("master", True):
@@ -5810,17 +5815,65 @@ class Plugin(BasePlugin):
                         st.recent.append(norm_text(" ".join(texts)))
         return True
 
-    def _wait_typing(self, did, account, seconds):
-        """Sleep `seconds`, showing 'typing...' and refreshing it while waiting (a typing action fades after ~5 s)."""
-        show = bool(self.get_setting("show_typing", True))
-        left = max(0.0, float(seconds))
-        self._awake(left + 15)
-        while left > 1e-9:
-            if show:
-                self._send_typing(did, account)
+    def _typing_guard(self, key, account, did, st=None, owner_seq=None, epoch=None):
+        """Capture one wait's cancellation tokens, including direct delivery without a work context."""
+        tracked = key in self._chats
+        st = st or self._states.get(key)
+        if st is None and tracked:
+            st = self._state(key)
+        if owner_seq is None and st is not None:
+            owner_seq = st.owner_seq
+        if epoch is None:
+            epoch = self._epoch(key)
+
+        def alive():
+            owner_guard = getattr(self._work_context, "owner_guard", None)
+            current = self._states.get(key) or st
+            if current is not None and ((owner_seq is not None and current.owner_seq != owner_seq)
+                    or (owner_guard is not None and owner_guard[0] == key and owner_guard[1] != current.owner_seq)):
+                current.abort = "owner replied"
+                return False
+            task = getattr(self._work_context, "task", None)
+            if (self._scan_stop or not self.get_setting("master", True) or epoch != self._epoch(key)
+                    or ((tracked or task is not None or owner_guard is not None)
+                        and not self._task_alive(key, account, did))):
+                if current is not None:
+                    current.abort = "disabled meanwhile"
+                return False
+            return True
+
+        return alive
+
+    def _wait_phase(self, did, account, seconds, alive, show=False):
+        """One cancellable phase: no read/typing refresh after its token has expired."""
+        left, shown = max(0.0, float(seconds)), False
+        while True:
+            if not alive():
+                self._send_typing(did, account, cancel=True)
+                return False, shown
+            if left <= 1e-9:
+                return True, shown
+            if show and self._send_typing(did, account):
+                shown = True
+            if not alive():
+                self._send_typing(did, account, cancel=True)
+                return False, shown
             chunk = min(TYPING_REFRESH_SEC, left)
             time.sleep(chunk)
             left -= chunk
+
+    def _wait_typing(self, did, account, seconds, guard=None, show=None):
+        """Wait with periodic cancellation checks; return False immediately when the reply becomes obsolete."""
+        if guard is None:
+            guard = self._typing_guard(self.chat_key(account, did), account, did)
+        if not guard():
+            self._send_typing(did, account, cancel=True)
+            return False
+        seconds = max(0.0, float(seconds))
+        self._awake(seconds + 15)
+        ok, _shown = self._wait_phase(did, account, seconds, guard,
+                                     show=bool(self.get_setting("show_typing", True)) if show is None else bool(show))
+        return ok
 
     def send(self, did, text, reply_to, account=None):
         if account is not None:
