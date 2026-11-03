@@ -32,7 +32,7 @@ EXPIRES_DAYS = 60
 DEFAULT_REPO = "oceansde012/ZephyrGram-Plugins"
 KNOWN_PERMISSIONS = {
     "network.requests", "updates.read", "messages.send", "ui.menu", "internet", "java.raw",
-    "ai.complete", "chat.read",
+    "ai.complete", "ai.memory", "chat.read",
 }
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 SEMVER_RE = re.compile(
@@ -542,3 +542,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
+
