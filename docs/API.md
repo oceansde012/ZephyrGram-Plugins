@@ -38,6 +38,7 @@ Keep the file <= 512 KB, LF line endings, no BOM.
 | `updates.read` | `add_update_hook`, `add_on_new_message_hook` (incoming updates/messages) |
 | `messages.send` | `add_on_send_message_hook`, `client.send_text`, `client.send_sticker`, `client.set_draft` |
 | `chat.read` | `client.get_recent_messages`, `client.get_recent_stickers`, `client.get_dialog_info`, `client.search_dialogs` (cached chat data), `client.resolve_username` (may use the network) |
+| `ai.memory` | Explicit-account server memory via the native host, available in app0.2.2; separate permission and per-scope consent. No token exposed. |
 | `ai.complete` | `client.ai_complete` (the user's configured AI server; the token is never exposed) |
 | `ui.menu` | `add_menu_item` |
 | `internet` | `client.http_get` (outside Telegram) |
@@ -747,3 +748,20 @@ Group messages use app-added sender identity and reply-to metadata for both owne
 APIv1 guarantees from_id, out and reply_to, but does not guarantee forum/topic IDs. Optional topic_id/thread_id/message_thread_id/reply_to_top_id fields are used when supplied; native incoming MessageObject reply headers can add forum_topic/reply_to_top_id metadata. An ordinary reply_to is never guessed to be a topic. Messages of known different topics form separate reply batches. Cached history is restricted to the exact account, dialog and known topic. Basic groups positively identified as non-forum may retain normal group history. Otherwise the safe fallback is one current message without historical context, rather than mixing unknown forum topics. Replies keep an explicit source-message target; older hosts that cannot preserve it fail without sending to General.
 
 Until local long-term group summaries and automatic learned notes can preserve topic and sender provenance, they are not updated or injected in groups. Existing data is retained, not deleted. The per-group settings show this limitation and hide the ineffective group memory/gender controls. Private-chat memory and preferences are unaffected. Optional style examples for groups use only allowed current-topic history and never borrow examples from other chats. Server-side scoped memory is a separate integration. No new permissions or provider calls were added. Device/native bridge compatibility still requires phone verification.
+
+
+## Server memory bridge (app0.2.2; API capability1)
+
+`client.MEMORY_API_VERSION == 1` advertises native support. Every method requires `ai.memory` and runs in a worker. Old hosts fail closed. The credential stays in the native AI client; arbitrary authenticated HTTP and the database connection string are never exposed.
+
+- `ai_memory_status(account, timeout=10)` returns verified owner/status plus opaque `binding`.
+- `ai_memory_consent(account, dialog_id, topic_id, retention_days=30, timeout=10, expected_binding=None)` explicitly grants that scope.
+- `ai_memory_write(account, dialog_id, topic_id, messages, timeout=10, expected_binding=None)` writes bounded new source rows.
+- `ai_memory_context(account, dialog_id, topic_id, query="", timeout=10, expected_binding=None)` returns bounded untrusted records and separate imported summary notes.
+- `ai_memory_delete(account, dialog_id, topic_id, timeout=10, expected_binding=None)` deletes the exact scope even while collection is disabled.
+- `ai_memory_import(account, dialog_id, topic_id, record, timeout=10, expected_binding=None)` imports only a private-chat/topic0 local AI summary, with `summary`, `throughId`, `revision`, `updatedAt`. Mixed/unknown authorship is preserved; it is not a Telegram message.
+- `ai_memory_cancel()` synchronously invalidates this plugin's native operations, without networking.
+
+All data operations require the accepted status binding and perform a fresh account handshake before sending text. The binding changes with endpoint/token/account/owner and grants no access itself. Timeout is one total deadline across handshake and operation. HTTPS fixed paths, no redirects, bounded bodies, no automatic retries. Scope0 is valid only for private or positively identified ordinary chats, never a guessed forum topic. AiError exposes stable sanitized codes; permission errors stay PermissionError. Already-transmitted bytes cannot be recalled.
+
+The autoreply plugin asks separately for each scope and does not inherit consent from local memory_auto. Disabling stops new reading/writing; Delete remains pending until an explicit server acknowledgement. API failure never triggers an extra model call. Returned chat rows and AI summaries are untrusted context with provenance, not instructions or verified owner facts.
