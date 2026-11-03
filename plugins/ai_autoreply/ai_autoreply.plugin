@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.6.2"
-__version_code__ = 28
+__version__ = "0.6.3"
+__version_code__ = 29
 __api_version__ = 1
 __min_app_version__ = "0.1.0"
 __permissions__ = ["ai.complete", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -813,6 +813,47 @@ def reactable(text):
     return is_ack(text) or (is_emoji_only(text) and bool(EMOJI_RE.search(str(text or ""))))
 
 
+EN_STANDALONE = frozenset(("hello", "thanks", "thankyou", "sorry", "please", "goodbye", "welcome",
+                           "congratulations", "congrats"))
+EN_WORDS = frozenset(("i", "you", "he", "she", "we", "they", "it", "this", "that", "these", "those",
+                      "a", "an", "the", "am", "is", "are", "was", "were", "be", "been", "being",
+                      "have", "has", "had", "do", "does", "did", "can", "could", "would", "should",
+                      "will", "shall", "may", "might", "must", "not", "don't", "doesn't", "can't",
+                      "i'm", "you're", "we're", "it's", "that's", "i'll", "let's", "what's", "how's",
+                      "who's", "where's", "when's", "what", "which",
+                      "who", "where", "when", "why", "how", "my", "your", "his", "her", "our", "their",
+                      "me", "him", "us", "them", "with", "without", "for", "from", "to", "of", "in",
+                      "on", "at", "and", "or", "but", "if", "then", "than", "so", "because", "about",
+                      "some", "any", "more", "much", "many", "all", "every", "only", "just", "really",
+                      "very", "good", "nice", "great", "fine", "help", "need", "want", "know", "think",
+                      "tell", "say", "see", "look", "try", "work", "works", "working", "doing", "going",
+                      "today", "tomorrow", "yesterday", "now", "later", "again", "please", "thank", "hello",
+                      "thanks", "sorry", "english", "reply", "answer", "send", "read", "write", "fix",
+                      "broken", "crash", "crashes", "failed", "error", "plugin", "update", "meeting"))
+
+
+def english_signal(text):
+    """Conservative evidence of English, rather than simply a Latin-script identifier.
+
+    A handle, URL, code-like token or language-neutral acknowledgement alone has no signal.
+    This is not a general language classifier: ambiguous bare names/terms inherit chat language.
+    """
+    value = str(text or "")
+    value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s<>]+", " ", value, flags=re.I)
+    value = re.sub(r"(?<!\w)[@#][A-Za-z0-9_]+", " ", value)
+    value = re.sub(r"\b[A-Za-z0-9_]+\.(?:com|ua|ru|org|net|me)(?:/[^\s<>]*)?", " ", value, flags=re.I)
+    value = re.sub(r"\b[A-Za-z][A-Za-z0-9]*(?:[._/\\:=][A-Za-z0-9]+)+\b", " ", value)
+    if re.search(u"[\u0400-\u04ff]", value):
+        return False
+    # Do not turn the alphabetic pieces of user_123 / StasikAWP into words.
+    raw = re.findall(r"[A-Za-z][A-Za-z0-9_'’]*", value)
+    words = [word.replace("’", "'").lower() for word in raw
+             if not re.search(r"[0-9_]|[a-z][A-Z]", word)]
+    if len(words) == 1:
+        return words[0] in EN_STANDALONE
+    return len(set(words)) >= 2 and any(word in EN_WORDS for word in words)
+
+
 def detect_lang(text):
     """'Ukrainian' / 'Russian' / 'English' of the incoming text; Ukrainian when unsure."""
     t = str(text or "")
@@ -820,9 +861,7 @@ def detect_lang(text):
         return "Ukrainian"
     if RU_RE.search(t) or RU_HINT_RE.search(t):
         return "Russian"
-    lat = len(re.findall(r"[A-Za-z]", t))
-    cyr = len(re.findall(u"[\u0400-\u04ff]", t))
-    if lat >= 6 and lat > cyr:
+    if english_signal(t):
         return "English"
     return "Ukrainian"
 
@@ -888,7 +927,7 @@ def incoming_language(batch, recent):
         if uk and last:
             return last
         joined = " ".join(texts)
-        if not re.search(u"[\u0400-\u04ff]", joined) and len(re.findall(r"[A-Za-z]", joined)) >= 6:
+        if english_signal(joined):
             return "English"
     return None
 
@@ -2003,6 +2042,7 @@ def fold_cmd(text):
 
 DEFAULT_TRIGGERS = u".ai, .аі, .аи"
 R["pending_timer_recovered"] = ("Recovered a pending reply timer", "Відновлено таймер відповіді", "Восстановлен таймер ожидающего ответа")
+R["group_burst_coalesced"] = ("Skipped older unscoped group fragments to avoid a reply burst", "Пропущено старі короткі репліки без теми, щоб не засипати групу відповідями", "Пропущены старые реплики без темы, чтобы не засыпать группу ответами")
 R["group_topic_unavailable"] = ("Topic metadata is unavailable; keeping only the current message",
                                 "Тема недоступна; враховано лише поточне повідомлення",
                                 "Тема недоступна; учтено только текущее сообщение")
@@ -3824,6 +3864,8 @@ class Plugin(BasePlugin):
         try:
             now = self._now()
             deb = self._debounce()
+            if self._is_group(key):
+                deb = max(6.0, deb)
             batch = None
             with self._lock:
                 if not st.pending:
@@ -4210,12 +4252,42 @@ class Plugin(BasePlugin):
         self._work_context.images = []
         try:
             if self._is_group(key):
-                result = None
-                for topic, partition in self._group_batches(key, batch):
-                    self._work_context.group_scope = (key, topic)
-                    if topic is None:
-                        self._decide(key, "info", "group_topic_unavailable")
-                    result = self._process(key, partition)
+                st = self._state(key)
+                # A single tick must not drain a group into many immediate replies.
+                # Keep known topics separate and queue the remaining ones for later.
+                with self._lock:
+                    remaining = st.last_reply_ts + 20.0 - self._now() if st.replies else 0
+                    if remaining > 0:
+                        st.pending = list(batch) + st.pending
+                        st.cooldown_until = max(st.cooldown_until, self._now() + remaining)
+                        return "group cooldown"
+                partitions = self._group_batches(key, batch)
+                # Without topic metadata even adjacent messages may belong to
+                # different threads. Answer only the newest unscoped message;
+                # never merge their text or replay a backlog of isolated fragments.
+                unknown = [i for i, (topic, _part) in enumerate(partitions) if topic is None]
+                if len(unknown) > 1:
+                    superseded = set(unknown[:-1])
+                    with self._lock:
+                        for i in superseded:
+                            for mid, _sender, _text in partitions[i][1]:
+                                if mid is not None:
+                                    st.answered.append(mid)
+                    partitions = [p for i, p in enumerate(partitions) if i not in superseded]
+                    self._decide(key, "skip", "group_burst_coalesced")
+                if not partitions:
+                    return None
+                topic, partition = partitions[0]
+                with self._lock:
+                    deferred = [entry for _topic, entries in partitions[1:] for entry in entries]
+                    st.pending = deferred + st.pending
+                self._work_context.group_scope = (key, topic)
+                if topic is None:
+                    self._decide(key, "info", "group_topic_unavailable")
+                result = self._process(key, partition)
+                with self._lock:
+                    if st.replies:
+                        st.cooldown_until = max(st.cooldown_until, st.last_reply_ts + 20.0)
                 return result
             return self._process(key, batch)
         except Exception as e:
@@ -4442,9 +4514,13 @@ class Plugin(BasePlugin):
             else:
                 if live:
                     parts = self._maybe_split2(parts)
+                if self._is_group(key) and len(parts) > 1:
+                    parts = ["\n".join(parts)]
                 sticker = self._maybe_sticker(c, did, account, batch, parts, ack_hint, key=key, hist=hist)
                 if sticker and sticker.get("instead"):
                     parts = []
+                elif self._is_group(key) and parts:
+                    sticker = None  # optional after-text sticker must not create a second group post
                 timing = self._make_timing(key, st, kind, arrival, batch, parts, cold_read) if live else None
                 if read_id and not live:
                     self._mark_read(key, read_id)
@@ -5651,6 +5727,10 @@ class Plugin(BasePlugin):
         """Send the parts one by one with a short typing delay (or the human timing); raises on send failure.
         Returns False when the delivery was stopped while waiting (st.abort has the reason)."""
         parts = list(parts)
+        if self._is_group(key) and len(parts) > 1:
+            parts = ["\n".join(parts)]
+        if self._is_group(key) and parts:
+            sticker = None
         owner_seq = st.owner_seq
         bodies = list(parts)
         if parts and self._first_reply_disclosure() and not c.get("disclosed"):
