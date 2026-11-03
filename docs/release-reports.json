@@ -160,6 +160,22 @@
           "human_text": "Если вы ответили сами или выключили автоответчик, он теперь прекращает ожидание и убирает «печатает…» — не позднее чем через 4 секунды."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.0",
+      "sha256": "e0396f5f1aef658c5bc596f54de5962354f40ff7721b7963e0071bc8c613cf2d",
+      "checks": "726 Python tests, plugin validation and publication CI passed. Full Android0.2.2 preview build succeeded; public signer matches0.2.1. Actual phone install and import remain unverified; no paid provider calls.",
+      "items": [
+        {
+          "id": "NEON-MEMORY",
+          "title": "Память чатов в Neon",
+          "scope": "partial",
+          "details": "Per-owner and per-chat/topic cloud memory with explicit opt-in, retention and cancellation. Imports the latest exact private-chat SQLite summary while preserving the local copy. Unknown topics and old group summaries are skipped.",
+          "limitations": "Requires ZephyrGram0.2.2 and ai.memory permission; APK preview is available. User must install the app update and opt in per chat. No phone import has been verified.",
+          "human_text": "Добавили память чатов в Neon. В настройках нужного чата можно включить её и перенести уже сохранённый итог личной переписки. Копия на телефоне останется. Сначала нужен ZephyrGram0.2.2; память включается отдельно для каждого чата."
+        }
+      ]
     }
   ]
 }
