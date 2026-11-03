@@ -144,6 +144,22 @@
           "human_text": "Латинский ник или случайный набор букв больше не переключают ответ на английский. Сохраняется выбранный язык или язык доступного контекста."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.6.4",
+      "sha256": "5a21e728fc18d37ee82894ce2c204b8881bc0bfc5100d93f5656d5c3cf6a013f",
+      "checks": "685 Python regression tests, plugin validation, independent review and PR CI passed; no paid provider calls.",
+      "items": [
+        {
+          "id": "TYPING-CANCEL",
+          "title": "Останавливает набор после вашего ответа",
+          "scope": "complete",
+          "details": "Cancellable normal, explicit-cap and Live waiting phases check owner sequence and epoch before/after each chunk; cancel typing without waiting for remaining delay.",
+          "limitations": "Cancellation is detected within at most 4 seconds; phone unverified. This completes the specific wait-cancellation defect, not all ZG-007 timing/UI work.",
+          "human_text": "Если вы ответили сами или выключили автоответчик, он теперь прекращает ожидание и убирает «печатает…» — не позднее чем через 4 секунды."
+        }
+      ]
     }
   ]
 }
