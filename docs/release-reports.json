@@ -224,6 +224,22 @@
           "human_text": "Исправили замечания по приватности: пароли, коды и данные карт не уходят в облачную память — вместо них сохраняется «(hidden)», остальной текст остаётся; команда .ai ничего не отправит, если за время генерации чат или аккаунт изменились; собеседник не сможет подделать вашу служебную инструкцию."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.3",
+      "sha256": "f0a32c7e861921527f30cacc94b07dbb2136ac0ef7726cef2c50a845404d008c",
+      "checks": "784 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "HUMAN-VOICE",
+          "title": "Ответы снова звучат как вы",
+          "scope": "complete",
+          "details": "HUMAN_PROMPT rewritten to ask for the owner's next message in his own voice; style block (measurements, examples, one concrete instruction) is placed last before the language rule; on trimming, lore and rules shrink before examples and at least 12 examples stay; request size within +0.1% of 0.7.1.",
+          "limitations": "Model output quality was not measured against a live provider. Assistant-style intro stripping and the retry from 0.5.x were deliberately not restored (extra cost). Phone behaviour unverified.",
+          "human_text": "Ответы автоответчика снова пишутся вашим голосом, а ваши настоящие сообщения не пропадают из запроса при длинном лоре."
+        }
+      ]
     }
   ]
 }
