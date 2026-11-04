@@ -208,6 +208,22 @@
           "human_text": "Новые значения по умолчанию: до двух сообщений и более короткий текст, без случайного ожидания на минуту-две. Если вы раньше задали свои длину и задержки, они сохранятся."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.2",
+      "sha256": "0019e66900cab62d7442261ea68aaf12f611b4685bd04a6543deb8b2caf9e3d6",
+      "checks": "766 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "PRIVACY-REVIEW",
+          "title": "Закрытие замечаний по приватности",
+          "scope": "complete",
+          "details": "Cloud memory skips sensitive messages; .ai re-validates chat, master switch, epoch and owner before every send; busy cloud flush keeps its batch; local summary import requires the memory flag; forged owner-instruction brackets in contact text are neutralized.",
+          "limitations": "Sensitive-data filter is conservative pattern matching, not a guarantee; real phone behaviour unverified.",
+          "human_text": "Исправили замечания по приватности: пароли, коды и данные карт не уходят в облачную память; команда .ai ничего не отправит, если за время генерации чат или аккаунт изменились; собеседник не сможет подделать вашу служебную инструкцию."
+        }
+      ]
     }
   ]
 }

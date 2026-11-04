@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.7.1"
-__version_code__ = 32
+__version__ = "0.7.2"
+__version_code__ = 33
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -294,6 +294,22 @@ LEARN_SYSTEM = (
 SENSITIVE_RE = re.compile(
     u"(?i)(?:парол|password|passcode|\\bpin\\b|\\bcvv|\\biban\\b|карт[аиоуы]?\\b|\\bcard\\b|\\bкод\\b|"
     u"паспорт|\\bпин\\b|\\d{6,}|https?://|@\\w{4,})")
+
+# Messages that must never reach the cloud memory (raw text is uploaded there): the whole message is skipped.
+CLOUD_SENSITIVE_RE = re.compile(
+    u"(?i)(?:парол|password|passwd|passcode|\\bcv[vc]2?\\b|\\biban\\b|\\botp\\b|\\b2fa\\b|\\bпин\\b|\\bpin\\b|"
+    u"одноразов|one[- ]?time|(?:код|кода|коде|кодом|code)\\b[^\\d\\n]{0,25}\\d{3,}|"
+    u"\\b[a-z]{2}\\d{2}[a-z0-9]{10,30}\\b|(?<!\\d)(?:\\d[ -]?){12,18}\\d(?!\\d)|(?<!\\d)\\d{6,}(?!\\d))")
+
+# Owner-instruction markers used in prompts; a contact must not be able to forge them.
+OWNER_MARKER_RE = re.compile(
+    u"(?i)\\[\\s*(?=(?:private\\s+instruction|instruction|system|owner|incoming|auto)\\b)")
+
+
+def contact_text(text):
+    """Contact-written text for a prompt: forged owner-instruction brackets are turned into parentheses."""
+    return OWNER_MARKER_RE.sub("(", str(text or ""))
+
 
 MIN_STATS = 8                # fewer own messages than this: no style rules, no post-style
 MIN_OWN = 12                 # cross-chat style borrowing only with explicit style_share consent
@@ -3108,7 +3124,10 @@ class Plugin(BasePlugin):
             metadata += "; reply_to:%s; reply_sender:%s" % (reply_to, self._speaker(key, target) if target else "unknown")
         # Incoming metadata uses one existing [user ...] delimiter so language/style analysis removes it intact.
         label = "owner" if row.get("out") else "user"
-        return "[%s %s] %s" % (label, metadata, str(row.get("text") or "").strip())
+        body = str(row.get("text") or "").strip()
+        if not row.get("out"):
+            body = contact_text(body)
+        return "[%s %s] %s" % (label, metadata, body)
 
     @staticmethod
     def _dialog_id_of(mo, m):
@@ -3457,7 +3476,7 @@ class Plugin(BasePlugin):
         for h in hist:
             text = str(h.get("text") or "").strip().replace("\n", " ")
             if text:
-                lines.append(("Owner: " if h.get("out") else "Other: ") + text[:300])
+                lines.append(("Owner: " + text if h.get("out") else "Other: " + contact_text(text))[:308])
         if len(lines) < 6:
             return
         sk = self._sk(key)
@@ -5094,6 +5113,8 @@ class Plugin(BasePlugin):
         text = str(message.get("text") or "").strip()
         if not text or len(text) > 4000 or "\0" in text or text.startswith("[incoming "):
             return
+        if CLOUD_SENSITIVE_RE.search(text):
+            return  # passwords, codes, card/bank data are never uploaded
         if message.get("out") and (self._is_bot_text(text) or self.parse_admin(text) is not None
                                    or self.parse_command(text) is not None):
             return
@@ -5138,7 +5159,18 @@ class Plugin(BasePlugin):
         if not rows or not self._cloud_active(key, topic, record):
             return
         if not self._cloud_network_lock.acquire(blocking=False):
-            self._cloud_notes[token] = self.t("cloud_dropped")
+            # Busy: keep the extracted batch and try again shortly instead of losing it.
+            with self._lock:
+                bucket = self._cloud_pending.setdefault(token, {})
+                for item in pending:
+                    bucket.setdefault(item[0]["messageId"], item)
+                while len(bucket) > 50:
+                    bucket.pop(next(iter(bucket)))
+                schedule = token not in self._cloud_scheduled
+                if schedule:
+                    self._cloud_scheduled.add(token)
+            if schedule:
+                self._run_later(2.0, lambda: self._cloud_flush(key, topic))
             return
         try:
             if not self._cloud_active(key, topic, record):
@@ -5320,6 +5352,8 @@ class Plugin(BasePlugin):
         account, did = int(c.get("account", 0)), int(c.get("dialog_id", 0))
         if did <= 0 or topic != 0 or not self._cloud_active(key, topic, record):
             return
+        if not self._memory_flag(key):
+            return  # the local summary leaves the phone only while local memory is enabled for this chat
         try:
             store = self._memory_for_owner(account, int(record["ownerId"]))
             local = store.get_summary(account, did, enabled=True) if store else None
@@ -6677,6 +6711,8 @@ class Plugin(BasePlugin):
             text = str(h["text"]).strip()
             if group:
                 text = self._group_text(key, h, hist)
+            elif role == "user":
+                text = contact_text(text)
             out.append({"role": role, "content": text})
         while out and out[0]["role"] == "assistant":
             out.pop(0)
@@ -6848,6 +6884,8 @@ class Plugin(BasePlugin):
             text = str(row["text"]).strip()
             if group:
                 text = self._group_text(key, row, rows)
+            elif role == "user":
+                text = contact_text(text)
             if not out and role == "assistant":
                 continue
             if row.get("_current"):
@@ -7820,6 +7858,19 @@ class Plugin(BasePlugin):
             self._lang_cache[key] = (now, found)
         return found or detect_lang(last_in)
 
+    def _command_still_valid(self, key, account, did, epoch, owner):
+        """Re-check a `.ai` command after slow generation: same epoch, chat enabled, master on, same owner."""
+        try:
+            if self.is_enabled(key):
+                alive = self._task_alive(key, account, did)
+            else:       # allowed only through "any private chat": keep the same gate as _command_gate
+                alive = bool(not self._scan_stop and self.get_setting("cmd_any_private", False) and did > 0
+                             and self.chat_key(account, did) == key)
+            return bool(alive and self._epoch(key) == epoch
+                        and self.get_setting("master", True) and self._memory_owner_id(account) == owner)
+        except Exception:
+            return False
+
     def _run_command(self, account, did, key, draft, topic):
         try:
             info = self._dialog_info(account, did)
@@ -7832,13 +7883,15 @@ class Plugin(BasePlugin):
             return
         c = dict(self._chats.get(key) or {"type": (info or {}).get("type") or "user"})
         st = self._state(key)
+        epoch = self._epoch(key)
+        owner0 = self._memory_owner_id(account)
         to_draft = bool(draft) or self._int("cmd_mode", 0, 0, 1) == 1
         now = self._now()
         hist = [h for h in self._load_history(key, account, did, 15)
                 if h.get("date") is None or now - float(h.get("date") or 0) <= 86400]
         msgs = self._hist_messages(c, hist)
         if hist and not msgs:                    # only the owner's own messages are fresh
-            msgs = [{"role": "assistant" if h.get("out") else "user", "content": str(h["text"]).strip()}
+            msgs = [{"role": "assistant" if h.get("out") else "user", "content": str(h["text"]).strip() if h.get("out") else contact_text(str(h["text"]).strip())}
                     for h in hist]
         inc_texts = [str(h["text"]) for h in hist if not h.get("out")]
         lang_text = inc_texts[-1] if inc_texts else (str(hist[-1]["text"]) if hist else topic)
@@ -7876,6 +7929,8 @@ class Plugin(BasePlugin):
             self._decide(key, "error", "owner_command_ai_failed")
             client.bulletin(self.t("bl_cmd_failed", self.rt(why or "ai failed")))
             return
+        if not self._command_still_valid(key, account, did, epoch, owner0):
+            return  # chat switched off, settings or account changed while generating: stay silent
         for p in parts:
             self._remember_bot_text(p)
         if to_draft:
@@ -7887,10 +7942,14 @@ class Plugin(BasePlugin):
         st.sending = True
         try:
             for i, part in enumerate(parts):
+                if not self._command_still_valid(key, account, did, epoch, owner0):
+                    return
                 if self.get_setting("typing_delay", True):
                     d = typing_delay_s(part, self._rng.uniform(0.85, 1.2), cap)
                     if d > 0:
                         time.sleep(d)
+                    if not self._command_still_valid(key, account, did, epoch, owner0):
+                        return
                 self.send(did, part, None, account=account)
         except Exception as e:
             self.log("command send failed in %s: %s" % (key, e))
