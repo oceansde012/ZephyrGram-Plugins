@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.7.4"
-__version_code__ = 35
+__version__ = "0.7.5"
+__version_code__ = 36
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -1903,6 +1903,8 @@ R = {
     "owner_replied_partial": ("you answered part of it yourself: the bot answers only what came after your message and takes your message into account",
                               "ви відповіли на частину самі: бот відповідає лише на те, що прийшло після вашого, і враховує його",
                               "вы ответили на часть сами: бот отвечает только на то, что пришло после вашего, и учитывает его"),
+    "ai_err": ("the AI request failed after %s s: %s",
+               "запит до ШІ не вдався через %s с: %s", "запрос к ИИ не удался через %s с: %s"),
     "ai_slow": ("the AI needed %s s to write the answer (slow AI server)",
                 "ШІ писав відповідь %s с (повільний ШІ-сервер)", "ИИ писал ответ %s с (медленный ИИ-сервер)"),
     "latency_wait": ("waiting %s s before replying (human pace)", "чекаю %s с перед відповіддю (людський темп)",
@@ -2147,6 +2149,19 @@ def tr(lang, key):
     return row[i] or row[0]
 
 
+AI_CODE_NAMES = {            # ZephyrGram AiError.code -> (en, uk, ru)
+    1: ("AI server not configured", "ШІ-сервер не налаштований", "ИИ-сервер не настроен"),
+    2: ("AI server refused the token", "ШІ-сервер відхилив токен", "ИИ-сервер отклонил токен"),
+    3: ("limit or quota reached", "ліміт або квота вичерпані", "лимит или квота исчерпаны"),
+    4: ("AI server is starting", "ШІ-сервер запускається", "ИИ-сервер запускается"),
+    5: ("no answer in time (network or timeout)", "немає відповіді вчасно (мережа або таймаут)",
+        "нет ответа вовремя (сеть или таймаут)"),
+    6: ("AI server error", "помилка ШІ-сервера", "ошибка ИИ-сервера"),
+    0: ("other error", "інша помилка", "другая ошибка"),
+}
+TRANSIENT_AI_CODES = (3, 4, 5, 6)   # passing reasons: they never switch a chat off
+
+
 def reason_text(lang, code):
     """Plain-language explanation of a stored reason code (unknown codes are shown as they are)."""
     code = str(code or "")
@@ -2160,6 +2175,12 @@ def reason_text(lang, code):
     if row is None and ma:
         base = R["ai_slow"]
         return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % ma.group(1)
+    me = re.match(r"^ai_err_(\d+)_(\d+)$", code)
+    if row is None and me:
+        base = R["ai_err"]
+        names = AI_CODE_NAMES.get(int(me.group(1)), AI_CODE_NAMES[0])
+        return (base[LANGS.index(lang) if lang in LANGS else 0] or base[0]) % (
+            me.group(2), names[LANGS.index(lang) if lang in LANGS else 0] or names[0])
     mw = re.match(r"^latency_wait_(\d+)$", code)
     if row is None and mw:
         base = R["latency_wait"]
@@ -4404,9 +4425,13 @@ class Plugin(BasePlugin):
                 self._load_chats()
                 return
             try:
-                fails = int(c.get("fails", 0) or 0) + 1
+                fails = int(c.get("fails", 0) or 0)
             except (TypeError, ValueError):
-                fails = 1
+                fails = 0
+            # A slow or unreachable AI server is a passing problem: the batch is retried, but it never counts
+            # towards switching the chat off for 30 minutes (that looked like the bot going silent at random).
+            if getattr(err, "code", None) not in TRANSIENT_AI_CODES:
+                fails += 1
             upd = {"fails": fails}
             # Only a running chat is paused by errors. A chat the owner switched off meanwhile stays off: an
             # auto_off_ts on it would switch it back on after AUTH_RESUME_SEC.
@@ -4674,6 +4699,7 @@ class Plugin(BasePlugin):
             if self._now() - ai_started >= AI_SLOW_SEC:
                 self._decide(key, "info", "ai_slow_%d" % int(self._now() - ai_started))
         except Exception as e:
+            self._decide(key, "info", "ai_err_%d_%d" % (int(getattr(e, "code", 0) or 0), int(self._now() - ai_started)))
             self._fail(key, e)
             if self._requeue(key, st, batch, "ai_failed"):
                 return "retry"
@@ -6776,7 +6802,12 @@ class Plugin(BasePlugin):
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
-            raw_reply = self._complete_for_chat(key, account, did, messages, _kind=kind, **kwargs)
+            try:
+                raw_reply = self._complete_for_chat(key, account, did, messages, _kind=kind, **kwargs)
+            except Exception:
+                if attempt and cands:        # the second try timed out: keep the first reply instead of losing it
+                    break
+                raise
             leaked = has_leak(raw_reply)
             reply = clean_humanized(raw_reply, limit, preserve_filler=True)
             if not reply:
