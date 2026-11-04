@@ -256,6 +256,22 @@
           "human_text": "Из ответов убран мусор в конце вроде «not possible in tool»: такие ответы отрезаются и пишутся заново."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.5",
+      "sha256": "363233e46a8f12455c59e6d06f7fc3420e8c0bf4d4b1724bd4866eb06d31c418",
+      "checks": "792 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "AI-OUTAGE",
+          "title": "Бот не замолкает при медленном ИИ-сервере",
+          "scope": "complete",
+          "details": "Transient AiError codes (rate limit, server starting, network/timeout, server error) no longer count towards MAX_FAILURES, so slow gateway periods cannot auto-disable a chat for 30 minutes; the journal records the AiError code and elapsed seconds; a failed second generation attempt keeps the first candidate.",
+          "limitations": "Does not make the AI gateway faster: the proxy timeouts are a separate change in ZephyrGram-AI. Phone behaviour unverified.",
+          "human_text": "Бот больше не выключает чат на полчаса из-за медленного ИИ-сервера, а в журнале видна настоящая причина сбоя."
+        }
+      ]
     }
   ]
 }
