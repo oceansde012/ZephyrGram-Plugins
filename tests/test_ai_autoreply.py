@@ -547,7 +547,7 @@ class TestHumanize(Base):
         self.assertIn("ща гляну", sysmsg)               # few-shot example
         self.assertIn("lowercase", sysmsg)              # derived rule
         self.assertIn("No lists", sysmsg)               # anti-AI rules
-        self.assertEqual(CLIENT.ai_calls[0]["temperature"], 0.95)
+        self.assertEqual(CLIENT.ai_calls[0]["temperature"], 0.85)
 
     def test_custom_prompt_is_extra_layer_and_tone(self):
         self.p.settings["default_prompt"] = "Call me Vova."
