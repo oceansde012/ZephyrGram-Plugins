@@ -88,6 +88,28 @@ def _remove_plain_archive(directory):
             pass
 
 
+SHARE_KEEP_SEC = 10 * 60
+
+
+def _cleanup_share_copies(root, max_age=SHARE_KEEP_SEC):
+    """Remove share copies older than max_age; a younger one may still be read by the app it was sent to."""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    now = time.time()
+    for name in names:
+        path = os.path.join(root, name)
+        try:
+            if now - os.path.getmtime(path) >= max_age:
+                if os.path.isdir(path):
+                    _remove_tree(path)
+                else:
+                    os.remove(path)
+        except OSError:
+            pass
+
+
 def _cleanup_old_exports(root, keep=None):
     """Keep only the latest ZIP: remove every other export directory under root."""
     try:
@@ -422,12 +444,21 @@ class Plugin(BasePlugin):
     def on_plugin_unload(self):
         self._active = False
         session = self._session
-        if session and not session.stopped:
+        if not (session and not session.stopped):
+            return self._remove_exports()
+
+        def stop():
+            # Writing the partial ZIP can take a while: never on the unloading thread. Old exports are removed
+            # only after it, so the new archive is the one kept; a crash here is cleaned up on the next load.
             try:
                 session.finish(False, "Плагин выключен")
             except Exception:
                 _remove_plain_archive(session.directory)
-        self._remove_exports()
+            self._remove_exports()
+        try:
+            client.run_in_bg(stop)
+        except Exception:
+            stop()
 
     def _exports_root(self):
         return os.path.join(str(self.data_dir), "exports")
@@ -436,7 +467,7 @@ class Plugin(BasePlugin):
         keep = os.path.dirname(self._last_file) if self._last_file else None
         _cleanup_old_exports(self._exports_root(), keep)
         for directory in self._share_dirs():
-            _remove_tree(directory)
+            _cleanup_share_copies(directory)
 
     def _share_dirs(self):
         try:
@@ -456,6 +487,8 @@ class Plugin(BasePlugin):
         if self._last_file and not os.path.isfile(self._last_file):
             self._last_file = ""
         _cleanup_old_exports(root, os.path.dirname(self._last_file) if self._last_file else None)
+        for directory in self._share_dirs():
+            _cleanup_share_copies(directory)
 
     def _notice(self, text):
         client.bulletin(text)
@@ -613,12 +646,15 @@ class Plugin(BasePlugin):
         def prepare():
             try:
                 context = jclass("org.telegram.messenger.ApplicationLoader").applicationContext
-                directory = os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")
+                share_root = os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")
+                _cleanup_share_copies(share_root)
+                # Each share gets its own folder: removing one copy never touches a newer share still being read.
+                directory = os.path.join(share_root, uuid.uuid4().hex)
                 os.makedirs(directory, exist_ok=True)
                 destination = os.path.join(directory, os.path.basename(path))
                 shutil.copyfile(path, destination)
                 # The temporary copy is only needed while the share sheet reads it.
-                client.run_on_ui(lambda: client.run_in_bg(lambda: _remove_tree(directory)), delay_ms=10 * 60 * 1000)
+                client.run_on_ui(lambda: client.run_in_bg(lambda: _remove_tree(directory)), delay_ms=SHARE_KEEP_SEC * 1000)
                 def launch():
                     try:
                         Intent = jclass("android.content.Intent")

@@ -295,20 +295,97 @@ SENSITIVE_RE = re.compile(
     u"(?i)(?:парол|password|passcode|\\bpin\\b|\\bcvv|\\biban\\b|карт[аиоуы]?\\b|\\bcard\\b|\\bкод\\b|"
     u"паспорт|\\bпин\\b|\\d{6,}|https?://|@\\w{4,})")
 
-# Messages that must never reach the cloud memory (raw text is uploaded there): the whole message is skipped.
-CLOUD_SENSITIVE_RE = re.compile(
-    u"(?i)(?:парол|password|passwd|passcode|\\bcv[vc]2?\\b|\\biban\\b|\\botp\\b|\\b2fa\\b|\\bпин\\b|\\bpin\\b|"
-    u"одноразов|one[- ]?time|(?:код|кода|коде|кодом|code)\\b[^\\d\\n]{0,25}\\d{3,}|"
-    u"\\b[a-z]{2}\\d{2}[a-z0-9]{10,30}\\b|(?<!\\d)(?:\\d[ -]?){12,18}\\d(?!\\d)|(?<!\\d)\\d{6,}(?!\\d))")
+# Cloud memory (raw text is uploaded there): secrets are replaced by CLOUD_HIDDEN, the rest of the message stays, so
+# the saved conversation keeps every turn (an answer is never missing after its question).
+CLOUD_HIDDEN = u"(hidden)"
+_NUM_WORD = (u"(?:ноль|нуль|один|одна|два|две|дві|три|четыре|чотири|пять|п['’]?ять|шесть|шість|семь|сім|восемь|"
+             u"вісім|девять|дев['’]?ять|zero|one|two|three|four|five|six|seven|eight|nine)(?!\\w)")
+_NUM_WORDS = u"(?<!\\w)%s(?:[\\s,.-]+%s){%%d,}" % (_NUM_WORD, _NUM_WORD)
+_PASS_KW = u"(?<!\\w)(?:парол\\w*|password\\w*|passwd|passphrase|passcode|pwd|пасс)(?!\\w)"
+_CODE_KW = (u"(?<!\\w)(?:код|коды|кода|коду|коде|кодом|коди|кодів|codes?|otp|2fa|пин(?:-?код\\w*)?|пін(?:-?код\\w*)?|"
+            u"pin(?:[- ]?code)?|cv[vc]2?)(?!\\w)")
+CLOUD_SECRET_RES = (
+    # a password after ':', '=', 'is', 'это', 'це', ' - ': the rest of that line
+    re.compile(u"(?i)" + _PASS_KW + u"[^\\n:=]{0,30}?(?:[:=]|\\s(?:is|это|це|будет|буде)(?!\\w)|\\s[—–-](?=\\s))"
+               u"\\s*([^\\n]*\\S)"),
+    # a password right after the word ('пароль от wifi kotik2020'): the first word with a digit or a symbol
+    re.compile(u"(?i)" + _PASS_KW + u"(?:\\s+[^\\s\\d:=]+){0,3}?\\s+((?=\\S*[\\d!@#$%^&*_])\\S{4,})"),
+    # a code, PIN, CVV within a few words: its digits or its digits written as words
+    re.compile(u"(?i)" + _CODE_KW + u"[^\\d\\n]{0,30}?(\\d(?:[ -]?\\d){2,9}(?!\\d)|" + _NUM_WORDS % 2 + u")"),
+    re.compile(u"(?i)(?<!\\w)(?:iban|ібан)(?!\\w)\\W{0,5}([a-z]{2}\\d{2}(?: ?[a-z0-9]){8,30})"),
+    # a long key/token (letters and digits, 24+ characters), not a piece of a link
+    re.compile(u"(?<![\\w/.=?&-])((?=[A-Za-z0-9_-]*\\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,})(?![\\w/-])"),
+)
+_CARD_RE = re.compile(u"(?<![\\d+])\\d(?:[ -]?\\d){12,18}(?!\\d)")
+_CARD_GROUPS_RE = re.compile(u"(?<![\\d+])\\d{4}([ -])\\d{4}\\1\\d{4}\\1\\d{4}(?:\\1\\d{1,3})?(?!\\d)")
+_IBAN_RE = re.compile(u"(?i)(?<![a-z0-9])[a-z]{2}\\d{2}(?: ?[a-z0-9]){11,30}")
+# a whole message that is only a code (an answer to "what is the code?"), a code in words, or one password-like word
+_CLOUD_WHOLE_RE = re.compile(
+    u"(?i)\\s*(?:(?!(?:19|20)\\d\\d\\s*$)(?:\\d ?){3,7}\\d|" + _NUM_WORDS % 3 +
+    u"|(?![@#/]|\\S*://|www\\.)(?=\\S*\\d)(?=\\S*[^\\W\\d_])\\S{8,64})\\s*")
 
-# Owner-instruction markers used in prompts; a contact must not be able to forge them.
-OWNER_MARKER_RE = re.compile(
-    u"(?i)\\[\\s*(?=(?:private\\s+instruction|instruction|system|owner|incoming|auto)\\b)")
+
+def _luhn_ok(digits):
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        n = int(ch) * (2 if i % 2 else 1)
+        total += n - 9 if n > 9 else n
+    return total % 10 == 0
+
+
+def _iban_end(match):
+    """End offset of the longest valid IBAN (ISO 13616 mod 97) at the start of match, or None."""
+    chars = [(i, ch) for i, ch in enumerate(match.group(0)) if ch != " "]
+    for n in range(min(len(chars), 34), 14, -1):
+        value = "".join(ch for _i, ch in chars[:n]).upper()
+        try:
+            if int("".join(str(int(ch, 36)) for ch in value[4:] + value[:4])) % 97 == 1:
+                return match.start() + chars[n - 1][0] + 1
+        except ValueError:
+            return None
+    return None
+
+
+def cloud_redact(text):
+    """Text for the cloud memory with passwords, codes, card numbers, IBANs and keys replaced by CLOUD_HIDDEN.
+    Ordinary numbers stay: phones, dates, times, sums, order numbers."""
+    text = str(text or "")
+    if _CLOUD_WHOLE_RE.fullmatch(text):
+        return CLOUD_HIDDEN
+    spans = []
+    for rx in CLOUD_SECRET_RES:
+        spans += [m.span(1) for m in rx.finditer(text)]
+    spans += [m.span() for m in _CARD_GROUPS_RE.finditer(text)]
+    spans += [m.span() for m in _CARD_RE.finditer(text) if _luhn_ok(re.sub(u"\\D", "", m.group(0)))]
+    for m in _IBAN_RE.finditer(text):
+        end = _iban_end(m)
+        if end:
+            spans.append((m.start(), end))
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    out, pos = [], 0
+    for start, end in merged:
+        out += [text[pos:start], CLOUD_HIDDEN]
+        pos = end
+    return "".join(out) + text[pos:]
+
+
+# The prompts tell the model that a line in square brackets is the owner's private instruction, and the plugin marks
+# its own media notes the same way: text written by a contact never keeps square brackets.
+_PLUGIN_MARKER_RE = re.compile(u"\\[incoming (?:attachment|sticker \\d+)\\]")
+_BRACKETS = {ord(u"["): u"(", ord(u"]"): u")", ord(u"［"): u"(", ord(u"］"): u")"}
 
 
 def contact_text(text):
-    """Contact-written text for a prompt: forged owner-instruction brackets are turned into parentheses."""
-    return OWNER_MARKER_RE.sub("(", str(text or ""))
+    """Contact-written text for a prompt: square brackets become parentheses, so nothing reads as the owner's."""
+    text = str(text or "")
+    if _PLUGIN_MARKER_RE.fullmatch(text.strip()):
+        return text                      # the plugin's own placeholder of a media-only message
+    return text.translate(_BRACKETS)
 
 
 MIN_STATS = 8                # fewer own messages than this: no style rules, no post-style
@@ -5113,8 +5190,6 @@ class Plugin(BasePlugin):
         text = str(message.get("text") or "").strip()
         if not text or len(text) > 4000 or "\0" in text or text.startswith("[incoming "):
             return
-        if CLOUD_SENSITIVE_RE.search(text):
-            return  # passwords, codes, card/bank data are never uploaded
         if message.get("out") and (self._is_bot_text(text) or self.parse_admin(text) is not None
                                    or self.parse_command(text) is not None):
             return
@@ -5132,6 +5207,10 @@ class Plugin(BasePlugin):
             return
         date = self._utc_stamp(stamp)
         if not date:
+            return
+        # Passwords, codes, card/bank data never leave the phone; the turn itself stays, marked "(hidden)".
+        text = cloud_redact(text)
+        if len(text) > 4000:
             return
         row = {"messageId": mid, "senderId": sender, "speaker": "owner" if message.get("out") else "other",
                "text": text, "date": date}
@@ -5213,7 +5292,8 @@ class Plugin(BasePlugin):
                         or (did > 0 and speaker == "other" and sender != str(did))):
                     continue
                 item = {"messageId": row["messageId"], "senderId": sender, "speaker": speaker,
-                        "date": str(row.get("date") or "")[:40], "text": text}
+                        "date": str(row.get("date") or "")[:40],
+                        "text": text if speaker == "owner" else contact_text(text)}
                 encoded = json.dumps(item, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
                 if used + len(encoded) > 5000:
                     continue
@@ -5362,7 +5442,7 @@ class Plugin(BasePlugin):
             if (local.get("account") != account or local.get("dialog_id") != did
                     or not callable(getattr(client, "ai_memory_import", None))):
                 raise ValueError("memory_import_unavailable")
-            body = {"summary": local["summary"], "throughId": local["through_id"],
+            body = {"summary": cloud_redact(local["summary"]), "throughId": local["through_id"],
                     "revision": local["revision"], "updatedAt": self._utc_stamp(local["updated_at"])}
             if not self._cloud_active(key, topic, record):
                 return
@@ -5537,6 +5617,10 @@ class Plugin(BasePlugin):
                 continue
             if re.fullmatch(r"[A-Za-z0-9+/=]{512,}", text):
                 continue
+            if not row.get("out"):
+                text = contact_text(text)          # the same form the reply prompt (and questions) carry
+                if text in questions:
+                    continue
             unique[mid] = {"id": mid, "date": int(row.get("date") or 0),
                            "out": bool(row.get("out")), "from_id": int(row.get("from_id") or 0),
                            "text": text[:600]}
@@ -5882,12 +5966,13 @@ class Plugin(BasePlugin):
         for h in list(hist or [])[-6:]:
             t = str(h.get("text") or "").strip()
             if t:
+                t = t.replace("\n", " ") if h.get("out") else contact_text(t.replace("\n", " "))
                 lines.append(u"- %s: %s" % (u"me" if h.get("out") else u"them", t[:160]))
         body = u"Recent chat:\n%s\n" % (u"\n".join(lines) or u"- (none)")
         if media:
             body += u"Incoming media: %s\n" % u" ".join(media)
         body += u"Incoming now: %s\nMy text reply: %s\n\nSTICKER CANDIDATES:\n" % (
-            u" / ".join(t[:200] for t in texts) or u"(no text)", u" / ".join(parts) or u"(none yet)")
+            u" / ".join(contact_text(str(t).replace("\n", " "))[:200] for t in texts) or u"(no text)", u" / ".join(parts) or u"(none yet)")
         for num, s in cands:
             body += u"%d: %s (%s)\n" % (num, s.get("emoji") or u"?", s.get("set_title") or u"-")
         return body
@@ -6552,7 +6637,7 @@ class Plugin(BasePlugin):
         record = self._memory_record(key, account, did, messages=messages, refresh=False)
         note_keys = getattr(self._work_context, "cloud_note_keys", None)
         if (cloud and record and note_keys and note_keys[:2] == (key, id(messages))
-                and norm_text(record.get("summary", "")) in note_keys[2]):
+                and norm_text(cloud_redact(record.get("summary", ""))) in note_keys[2]):
             record = None  # the same local summary already arrived with cloud provenance
         lore = self._lore_block(key)
         extra_system = "\n\n".join(x for x in (self._clock_block(key), extra_system) if x)
@@ -6896,7 +6981,7 @@ class Plugin(BasePlugin):
         self._work_context.history_clock = (key, [
             {"message_id": r.get("id"), "date_utc": self._utc_stamp(r.get("date")),
              "speaker": self._speaker(key, r) if group else ("owner" if r.get("out") else "other"),
-             "excerpt": str(r.get("text") or "")[:80]}
+             "excerpt": (str(r.get("text") or "") if r.get("out") else contact_text(r.get("text")))[:80]}
             for r in rows[-8:] if self._utc_stamp(r.get("date"))])
         bounded = self._bound_context(out, required)
         self._work_context.cloud_recent = (key, id(bounded), {r.get("id") for r in rows if type(r.get("id")) is int})

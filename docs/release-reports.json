@@ -212,16 +212,16 @@
     {
       "product": "ai_autoreply",
       "version": "0.7.2",
-      "sha256": "0019e66900cab62d7442261ea68aaf12f611b4685bd04a6543deb8b2caf9e3d6",
-      "checks": "766 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "sha256": "e61f6510bdaf1c27c548035fc1a77b0d38776d57aafa86a69759ef03b15aada2",
+      "checks": "774 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
       "items": [
         {
           "id": "PRIVACY-REVIEW",
           "title": "Закрытие замечаний по приватности",
           "scope": "complete",
-          "details": "Cloud memory skips sensitive messages; .ai re-validates chat, master switch, epoch and owner before every send; busy cloud flush keeps its batch; local summary import requires the memory flag; forged owner-instruction brackets in contact text are neutralized.",
-          "limitations": "Sensitive-data filter is conservative pattern matching, not a guarantee; real phone behaviour unverified.",
-          "human_text": "Исправили замечания по приватности: пароли, коды и данные карт не уходят в облачную память; команда .ai ничего не отправит, если за время генерации чат или аккаунт изменились; собеседник не сможет подделать вашу служебную инструкцию."
+          "details": "Cloud memory replaces passwords, codes (digits or words), card numbers (Luhn or 4-4-4-4), IBANs (mod 97) and keys with (hidden) and keeps the rest of the message, so no turn goes missing; the imported local summary is redacted the same way; .ai re-validates chat, master switch, epoch and owner before every send; busy cloud flush keeps its batch; local summary import requires the memory flag; square brackets in contact text become parentheses in every prompt (reply, .ai, groups, notes, memory summary, sticker picker, cloud excerpts).",
+          "limitations": "Sensitive-data filter is pattern matching, not a guarantee: a password sent alone in a later message is hidden only when it is one word mixing letters and digits; a lone 4-8 digit message is treated as a code. Real phone behaviour unverified.",
+          "human_text": "Исправили замечания по приватности: пароли, коды и данные карт не уходят в облачную память — вместо них сохраняется «(hidden)», остальной текст остаётся; команда .ai ничего не отправит, если за время генерации чат или аккаунт изменились; собеседник не сможет подделать вашу служебную инструкцию."
         }
       ]
     }
