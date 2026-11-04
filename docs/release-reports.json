@@ -272,6 +272,22 @@
           "human_text": "Бот больше не выключает чат на полчаса из-за медленного ИИ-сервера, а в журнале видна настоящая причина сбоя."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.6",
+      "sha256": "7f782dd3db102adb00d623b0f955ab0e496730b666c6e387bd1bbd282d9968b4",
+      "checks": "794 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "BROKEN-WORD",
+          "title": "Ответы с битыми словами пишутся заново",
+          "scope": "complete",
+          "details": "Letter pairs that never occur in Russian/Ukrainian words (ь+й, ь+ь, ъ+ь, ь+ъ, ъ+й) mark a reply as defective; it is regenerated once and leak/typo-free candidates are preferred as fallback.",
+          "limitations": "Catches only impossible letter pairs, not every misspelling. Phone behaviour unverified.",
+          "human_text": "Если в ответе бота оказалось сломанное слово вроде «дависьй», он перепишет ответ."
+        }
+      ]
     }
   ]
 }
