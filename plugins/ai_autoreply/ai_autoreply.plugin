@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or in every private chat with 'answer everyone'), in your own writing style (learns from your sent messages, splits and delays replies). Auto, draft or .ai command mode; typing .ai yourself makes the bot write first. Presets (Live human-like by default, Balanced, Chatty, Quiet): a periodic safety-net scan of the chats, human reply timing with a typing indicator, read marks, occasional stickers, fewer blocking rules, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.7.5"
-__version_code__ = 36
+__version__ = "0.7.6"
+__version_code__ = 37
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -662,6 +662,8 @@ LEAK_RE = re.compile(
     u"(?:\\s|^)(?:\"\"|\u00ab\u00bb|''|\u201c\u201d)(?=\\s|$)"
     u"|(?i:\\b(?:not possible in|in tool\\b|tool[_ ]?(?:call|use|result)s?|function[_ ]?call|"
     u"<\\s*/?\\s*(?:tool|function|think|thinking|reasoning)\\b|\\[?(?:TOOL|SYSTEM)_?(?:CALL|RESULT)?\\]))")
+# Letter pairs that never occur in Russian/Ukrainian words: a sign of a broken word ("дависьй").
+BROKEN_WORD_RE = re.compile(u"(?i)[\u0430-\u044f\u0451\u0456\u0457\u0454\u0491]*(?:\u044c\u0439|\u044c\u044c|\u044a\u044c|\u044c\u044a|\u044a\u0439)")
 SENT_END_RE = re.compile(u"[.!?\u2026\\n]")
 
 
@@ -6841,7 +6843,7 @@ class Plugin(BasePlugin):
         if not usable:
             return [], "duplicate reply"
         # best available: no AI-tell / wrong language first, then fewest banned hits
-        usable.sort(key=lambda cd: (any(p in ("ai-tell", "wrong-lang", "leak") for p in cd[1]), len(cd[1])))
+        usable.sort(key=lambda cd: (any(p in ("ai-tell", "wrong-lang", "leak", "typo") for p in cd[1]), len(cd[1])))
         return usable[0][0], "fallback"
 
     @staticmethod
@@ -6876,6 +6878,8 @@ class Plugin(BasePlugin):
             if (len(letters) >= 8 and re.search(u"[Ѐ-ӿ]", last_in or "")
                     and sum(1 for ch in letters if ch.isascii()) > 0.7 * len(letters)):
                 out.append("wrong-lang")
+        if BROKEN_WORD_RE.search(text):
+            out.append("typo")
         n = norm_text(text)
         if st is not None and len(n) >= 12 and st.recent:
             prev = st.recent[-1]

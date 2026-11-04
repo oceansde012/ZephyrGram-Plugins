@@ -28,3 +28,13 @@ class TestLeak(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBrokenWord(unittest.TestCase):
+    def test_flags_impossible_pairs(self):
+        self.assertTrue(mod.BROKEN_WORD_RE.search(u"только сушняком не дависьй"))
+        self.assertTrue(mod.BROKEN_WORD_RE.search(u"щось не те ьь"))
+
+    def test_normal_words_pass(self):
+        for t in (u"ну погнали, чай пей", u"подъезд, объём, мій, свій, їй, ахахах", u"ыыы норм", u"hello brother"):
+            self.assertFalse(mod.BROKEN_WORD_RE.search(t), t)
