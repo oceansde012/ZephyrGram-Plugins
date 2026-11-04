@@ -240,6 +240,22 @@
           "human_text": "Ответы автоответчика снова пишутся вашим голосом, а ваши настоящие сообщения не пропадают из запроса при длинном лоре."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.4",
+      "sha256": "fb956fecc184294bee04520eaaab901036aff99e54b57f263658e28358ca0bd2",
+      "checks": "789 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "MODEL-LEAK",
+          "title": "Мусор в конце ответа",
+          "scope": "complete",
+          "details": "Service-text markers (tool-call remnants, empty quote pairs, 'not possible in tool') are cut from the reply; a leaked reply counts as a problem, is regenerated at a lower temperature, and the last finished sentence is the fallback. Default temperature 0.95 -> 0.85 (saved values unchanged).",
+          "limitations": "The leak markers are a fixed list; new kinds of model garbage are not covered. Quality against a live provider was not measured. Phone behaviour unverified.",
+          "human_text": "Из ответов убран мусор в конце вроде «not possible in tool»: такие ответы отрезаются и пишутся заново."
+        }
+      ]
     }
   ]
 }
