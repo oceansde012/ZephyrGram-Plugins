@@ -2,8 +2,8 @@ __id__ = "chat_history_export"
 __name__ = "Экспорт истории чата"
 __description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
 __author__ = "ZephyrGram"
-__version__ = "1.0.1"
-__version_code__ = 2
+__version__ = "1.0.2"
+__version_code__ = 3
 __api_version__ = 1
 __min_app_version__ = "0.1.4"
 __permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
@@ -70,6 +70,58 @@ def _peer(peer):
         if value:
             return prefix + str(value)
     return None
+
+
+def _remove_tree(path):
+    try:
+        shutil.rmtree(path, ignore_errors=True)
+    except Exception:
+        pass
+
+
+def _remove_plain_archive(directory):
+    """Delete the whole-chat plaintext SQLite working copy (and its journals)."""
+    for suffix in ("", "-journal", "-wal", "-shm"):
+        try:
+            os.remove(os.path.join(directory, "history.sqlite3" + suffix))
+        except OSError:
+            pass
+
+
+SHARE_KEEP_SEC = 10 * 60
+
+
+def _cleanup_share_copies(root, max_age=SHARE_KEEP_SEC):
+    """Remove share copies older than max_age; a younger one may still be read by the app it was sent to."""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    now = time.time()
+    for name in names:
+        path = os.path.join(root, name)
+        try:
+            if now - os.path.getmtime(path) >= max_age:
+                if os.path.isdir(path):
+                    _remove_tree(path)
+                else:
+                    os.remove(path)
+        except OSError:
+            pass
+
+
+def _cleanup_old_exports(root, keep=None):
+    """Keep only the latest ZIP: remove every other export directory under root."""
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(root, name)
+        if keep and os.path.abspath(path) == os.path.abspath(keep):
+            continue
+        if os.path.isdir(path):
+            _remove_tree(path)
 
 
 def message_record(message, fallback_topic=None):
@@ -178,6 +230,13 @@ class Archive:
                     target.write((line + "\n").encode("utf-8"))
         self.db.close()
         return output
+
+    def discard(self):
+        try:
+            self.db.close()
+        except Exception:
+            pass
+        _remove_plain_archive(os.path.dirname(self.path))
 
 
 class Session:
@@ -354,7 +413,11 @@ class Session:
                 self.timer.cancel()
             output = os.path.join(self.directory, "zephyr-history-%s.zip" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
             try:
-                self.archive.finish(output, complete, reason)
+                try:
+                    self.archive.finish(output, complete, reason)
+                finally:
+                    # The plaintext working copy must never outlive the export.
+                    self.archive.discard()
                 self.plugin._last_file = output
                 self.plugin.set_setting("last_file", output)
                 self.plugin._status = "%s · сообщений: %s" % ("Готово" if complete else "НЕПОЛНЫЙ экспорт", self.archive.count)
@@ -362,6 +425,7 @@ class Session:
                 if self.plugin._active:
                     client.run_on_ui(lambda: self.plugin._offer(output, complete))
             except Exception:
+                _remove_plain_archive(self.directory)
                 self.plugin._status = "Ошибка сохранения архива"
                 self.plugin._notice(self.plugin._status)
 
@@ -373,14 +437,58 @@ class Plugin(BasePlugin):
         self._start_lock = threading.Lock()
         self._last_file = self.get_setting("last_file", "")
         self._status = "Экспорт ещё не запускался"
+        self._cleanup_stale()
         self.add_menu_item(MenuItem(MenuType.CHAT_ACTION, "Экспорт истории (все темы)", self.on_export,
                                    key="chat_history_export", condition=lambda ctx: bool(ctx.get("dialog_id"))))
 
     def on_plugin_unload(self):
         self._active = False
         session = self._session
-        if session and not session.stopped:
-            client.run_in_bg(lambda: session.finish(False, "Плагин выключен"))
+        if not (session and not session.stopped):
+            return self._remove_exports()
+
+        def stop():
+            # Writing the partial ZIP can take a while: never on the unloading thread. Old exports are removed
+            # only after it, so the new archive is the one kept; a crash here is cleaned up on the next load.
+            try:
+                session.finish(False, "Плагин выключен")
+            except Exception:
+                _remove_plain_archive(session.directory)
+            self._remove_exports()
+        try:
+            client.run_in_bg(stop)
+        except Exception:
+            stop()
+
+    def _exports_root(self):
+        return os.path.join(str(self.data_dir), "exports")
+
+    def _remove_exports(self):
+        keep = os.path.dirname(self._last_file) if self._last_file else None
+        _cleanup_old_exports(self._exports_root(), keep)
+        for directory in self._share_dirs():
+            _cleanup_share_copies(directory)
+
+    def _share_dirs(self):
+        try:
+            context = jclass("org.telegram.messenger.ApplicationLoader").applicationContext
+            return [os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")]
+        except Exception:
+            return []
+
+    def _cleanup_stale(self):
+        # Leftovers of a crashed run: plaintext databases and ZIPs older than the latest one.
+        try:
+            root = self._exports_root()
+            for name in os.listdir(root):
+                _remove_plain_archive(os.path.join(root, name))
+        except (OSError, AttributeError):
+            return
+        if self._last_file and not os.path.isfile(self._last_file):
+            self._last_file = ""
+        _cleanup_old_exports(root, os.path.dirname(self._last_file) if self._last_file else None)
+        for directory in self._share_dirs():
+            _cleanup_share_copies(directory)
 
     def _notice(self, text):
         client.bulletin(text)
@@ -503,13 +611,29 @@ class Plugin(BasePlugin):
             if peer is None or "Empty" in _name(peer):
                 raise ValueError("peer")
             chat = controller.getChat(-did) if did < 0 else None
-            if bool(getattr(chat, "noforwards", False)):
+            restricted = bool(getattr(chat, "noforwards", False))
+            if did > 0 and not restricted:
+                restricted = self._private_restricted(controller, did)
+            if restricted:
                 return self._notice("В этом чате ограничено сохранение содержимого. Экспорт не выполняется.")
+            _cleanup_old_exports(self._exports_root())
             self._session = Session(self, ctx, info, peer, bool(getattr(chat, "forum", False)), owner)
             self._notice("Экспорт начат. Держите ZephyrGram открытым; статус — в настройках плагина.")
             self._session.request()
         except Exception:
             self._notice("Не удалось начать экспорт. Возможно, версия приложения не поддерживается.")
+
+    def _private_restricted(self, controller, did):
+        # Private chats can forbid saving too (user/full-user flags); unknown means not restricted.
+        for getter in ("getUser", "getUserFull"):
+            try:
+                obj = getattr(controller, getter)(did)
+            except Exception:
+                continue
+            for flag in ("noforwards", "noforwards_peer_enabled"):
+                if bool(getattr(obj, flag, False)):
+                    return True
+        return False
 
     def _offer(self, path, complete):
         # The owner chooses the next action from settings, avoiding automatic uploads.
@@ -522,10 +646,15 @@ class Plugin(BasePlugin):
         def prepare():
             try:
                 context = jclass("org.telegram.messenger.ApplicationLoader").applicationContext
-                directory = os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")
+                share_root = os.path.join(str(context.getFilesDir().getAbsolutePath()), "cache", "zephyr_exports")
+                _cleanup_share_copies(share_root)
+                # Each share gets its own folder: removing one copy never touches a newer share still being read.
+                directory = os.path.join(share_root, uuid.uuid4().hex)
                 os.makedirs(directory, exist_ok=True)
                 destination = os.path.join(directory, os.path.basename(path))
                 shutil.copyfile(path, destination)
+                # The temporary copy is only needed while the share sheet reads it.
+                client.run_on_ui(lambda: client.run_in_bg(lambda: _remove_tree(directory)), delay_ms=SHARE_KEEP_SEC * 1000)
                 def launch():
                     try:
                         Intent = jclass("android.content.Intent")

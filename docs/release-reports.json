@@ -208,6 +208,38 @@
           "human_text": "Новые значения по умолчанию: до двух сообщений и более короткий текст, без случайного ожидания на минуту-две. Если вы раньше задали свои длину и задержки, они сохранятся."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.2",
+      "sha256": "e61f6510bdaf1c27c548035fc1a77b0d38776d57aafa86a69759ef03b15aada2",
+      "checks": "774 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "PRIVACY-REVIEW",
+          "title": "Закрытие замечаний по приватности",
+          "scope": "complete",
+          "details": "Cloud memory replaces passwords, codes (digits or words), card numbers (Luhn or 4-4-4-4), IBANs (mod 97) and keys with (hidden) and keeps the rest of the message, so no turn goes missing; the imported local summary is redacted the same way; .ai re-validates chat, master switch, epoch and owner before every send; busy cloud flush keeps its batch; local summary import requires the memory flag; square brackets in contact text become parentheses in every prompt (reply, .ai, groups, notes, memory summary, sticker picker, cloud excerpts).",
+          "limitations": "Sensitive-data filter is pattern matching, not a guarantee: a password sent alone in a later message is hidden only when it is one word mixing letters and digits; a lone 4-8 digit message is treated as a code. Real phone behaviour unverified.",
+          "human_text": "Исправили замечания по приватности: пароли, коды и данные карт не уходят в облачную память — вместо них сохраняется «(hidden)», остальной текст остаётся; команда .ai ничего не отправит, если за время генерации чат или аккаунт изменились; собеседник не сможет подделать вашу служебную инструкцию."
+        }
+      ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.3",
+      "sha256": "f0a32c7e861921527f30cacc94b07dbb2136ac0ef7726cef2c50a845404d008c",
+      "checks": "784 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "HUMAN-VOICE",
+          "title": "Ответы снова звучат как вы",
+          "scope": "complete",
+          "details": "HUMAN_PROMPT rewritten to ask for the owner's next message in his own voice; style block (measurements, examples, one concrete instruction) is placed last before the language rule; on trimming, lore and rules shrink before examples and at least 12 examples stay; request size within +0.1% of 0.7.1.",
+          "limitations": "Model output quality was not measured against a live provider. Assistant-style intro stripping and the retry from 0.5.x were deliberately not restored (extra cost). Phone behaviour unverified.",
+          "human_text": "Ответы автоответчика снова пишутся вашим голосом, а ваши настоящие сообщения не пропадают из запроса при длинном лоре."
+        }
+      ]
     }
   ]
 }
