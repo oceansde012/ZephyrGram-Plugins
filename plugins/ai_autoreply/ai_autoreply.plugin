@@ -1592,7 +1592,7 @@ S = {
         "Встроенный список (конечно, понимаю...) действует всегда."),
     "reply_all": ("Answer everyone in private chats", "Відповідати всім в особистих", "Отвечать всем в личных чатах"),
     "reply_all_s": ("New private chats are added by themselves. Never bots, groups, channels; paused and removed stay so.", "Нові особисті чати додаються самі. Ніколи боти, групи, канали; призупинені й видалені такими й лишаються.", "Новые личные чаты добавятся сами. Никогда боты, группы, каналы; приостановленные и удалённые остаются такими."),
-    "all_accounts": ("Answer everyone: only accounts № (1, 2; empty = all)",
+    "all_accounts": ("Answer everyone: only accounts (1, 2; empty = all)",
         "Відповідати всім: лише акаунти № (1, 2; порожньо = усі)",
         "Отвечать всем: только аккаунты № (1, 2; пусто = все)"),
     "chat_gender": ("Their gender (for “you” forms)", "Стать співрозмовника (для форм «ти»)",
@@ -1836,8 +1836,8 @@ S = {
     "lat_cold_min": ("Cold start: reply after, min (s)", "Холодний старт: відповідь через, мін (с)", "Холодный старт: ответ через, мин (с)"),
     "lat_cold_max": ("Cold start: reply after, max (s)", "Холодний старт: відповідь через, макс (с)", "Холодный старт: ответ через, макс (с)"),
     "lat_long_pct": ("Cold start: chance of a long wait, %", "Холодний старт: шанс довгого очікування, %", "Холодный старт: шанс долгого ожидания, %"),
-    "lat_long_min": ("Long wait min (s)", "Довге очікування, мін (с)", "Долгое ожидание, мин (с)"),
-    "lat_long_max": ("Long wait max (s)", "Довге очікування, макс (с)", "Долгое ожидание, макс (с)"),
+    "lat_long_min": ("Long wait, min (s)", "Довге очікування, мін (с)", "Долгое ожидание, мин (с)"),
+    "lat_long_max": ("Long wait, max (s)", "Довге очікування, макс (с)", "Долгое ожидание, макс (с)"),
     "warm_window": ("Talk counts as warm if the pause is under (s)", "Розмова жвава, якщо пауза менша за (с)", "Беседа живая, если пауза меньше (с)"),
     "cold_after": ("Talk has cooled after (s)", "Розмова охолола після (с)", "Беседа остыла после (с)"),
     "type_ms": ("Typing speed (ms per character)", "Швидкість набору (мс на символ)", "Скорость набора (мс на символ)"),
@@ -2341,6 +2341,7 @@ pg_model|Model and prompt|Модель і промпт|Модель и пром�
 pg_cmd|.ai command|Команда .ai|Команда .ai
 pg_service|Service|Сервіс|Сервис
 pg_style_adv|Fine tuning|Тонке налаштування|Тонкая настройка
+pg_add|Add chat|Додати чат|Добавить чат
 pg_time_cold|Cold start|Холодний старт|Холодный старт
 pg_time_adv|Delays in detail|Затримки докладно|Задержки подробно
 pg_type_adv|Typing, two parts, revival|Набір, дві частини, оживлення|Набор, две части, оживление
@@ -2359,7 +2360,7 @@ h_split|Splitting|Розбиття|Разбиение
 h_learn|Style learning|Навчання стилю|Обучение стилю
 h_collect|Collecting messages (s)|Збір повідомлень (с)|Сбор сообщений (с)
 h_warm|Warm talk (s)|Жвава розмова (с)|Живая беседа (с)
-h_cold|Cold start (s)|Після тиші (с)|После тишины (с)
+h_cold|Cold start (s)|Холодний старт (с)|Холодный старт (с)
 h_skip|What to skip|Що пропускати|Что пропускать
 h_safety|Safety net|Страховка|Страховка
 h_cost|Usage|Витрата|Расход
@@ -8789,7 +8790,8 @@ class Plugin(BasePlugin):
     # anything else is a setting row by key ("{}" = the chat suffix). Rows without a match are left out.
     PAGES = {
         "": "@root",
-        "chats": "#h_whom reply_all all_accounts @chats #h_add add_pick add_username !add_cmds",
+        "chats": "#h_whom reply_all all_accounts @chats >add",
+        "add": "#h_add add_pick add_username !add_cmds",
         "persona": "lore_name lore_age lore_city lore owner_gender lore_learn !persona_note",
         "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
                  "laugh_control banned_words >style_adv",
@@ -8824,7 +8826,7 @@ class Plugin(BasePlugin):
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
     ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
-    ICONS = dict(x.split(":") for x in ("chats:chats queue:timing persona:prompts style:style media:general "
+    ICONS = dict(x.split(":") for x in ("chats:chats add:chats queue:timing persona:prompts style:style media:general "
                  "timing:timing memory:memory model:prompts cmd:commands service:log log:log setup1:general").split())
 
     def _adv(self):

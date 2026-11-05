@@ -52,6 +52,18 @@ class TestFourteenRows(Pages):
                 self.assertEqual(any(getattr(r, "key", None) == "chats_all" for r in rows), len(shown) < n,
                                  (accounts, n))
 
+    def test_add_chat_on_own_page_and_six_chats_fit(self):
+        self.add_chats(10)
+        rows = self.p.create_settings("pg_chats")
+        self.assertIn("pg_add", keys_of(rows))
+        self.assertNotIn("add_pick", keys_of(rows))
+        self.assertEqual(sum(1 for r in rows if isinstance(r, Page) and r.key.startswith("pg_chat:")), 6)
+        self.assertEqual(len(rows), 14)
+        self.assertEqual(keys_of(self.p.create_settings("pg_add")), ["add_pick", "add_username"])
+
+    def test_add_chat_reachable_without_chats(self):
+        self.assertIn("pg_add", keys_of(self.p.create_settings("pg_chats")))
+
     def test_show_all_still_lists_every_chat(self):
         self.add_chats(20)
         self.p._toggle_all_chats()

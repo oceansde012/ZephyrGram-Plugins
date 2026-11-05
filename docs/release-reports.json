@@ -476,8 +476,8 @@
     {
       "product": "ai_autoreply",
       "version": "0.9.0",
-      "sha256": "90106b56a47f4a551c9e177e716498b1a4b540a18f1f49b19c0a60d61a6feaf4",
-      "checks": "902 Python tests (888 before) and plugin validation passed; no live provider calls; Mistral cross-review of the code diff, findings checked by hand. Phone behaviour unverified (menu language switch and dialog-cache contents depend on the app).",
+      "sha256": "751c614beaf268abe94de1a1e475ee84ab7f38d5206c0433419205204744c72f",
+      "checks": "904 Python tests (888 before) and plugin validation passed; no live provider calls; Mistral cross-review of the code diff, findings checked by hand. Phone behaviour unverified (menu language switch and dialog-cache contents depend on the app).",
       "items": [
         {
           "id": "PRESET-SWITCHES",
@@ -499,9 +499,9 @@
           "id": "PAGES-14",
           "title": "Страницы не длиннее 14 пунктов",
           "scope": "partial",
-          "details": "pg_chats shows as many chats as fit in 14 rows with the add-chat rows; time_adv split, cold start on pg_time_cold.",
-          "limitations": "With one account only 3 chats fit before «Показать все»; the expanded list is longer than 14 by design; per-chat page (16) unchanged. Phone behaviour unverified.",
-          "human_text": "Длинные страницы укорочены, холодный старт на отдельной странице."
+          "details": "Add-chat rows moved to their own page pg_add; pg_chats shows as many chats as fit in 14 rows (6 with one account); time_adv split, cold start on pg_time_cold.",
+          "limitations": "Expanded «Показать все» list is longer than 14 by design; with several accounts fewer chats fit (account headers); per-chat page (16) unchanged. Phone behaviour unverified.",
+          "human_text": "Длинные страницы укорочены: «Добавить чат» и холодный старт на отдельных страницах."
         },
         {
           "id": "MENU-LANG",
@@ -541,7 +541,7 @@
       "product": "chat_history_export",
       "version": "1.0.3",
       "sha256": "6d37c1eb42372cb458bd8c259a5fd8dd356ee1a2c032b20201f8badfb995fee8",
-      "checks": "902 Python tests and plugin validation passed. Phone behaviour unverified.",
+      "checks": "904 Python tests and plugin validation passed. Phone behaviour unverified.",
       "items": [
         {
           "id": "MENU-LABEL",
