@@ -552,6 +552,78 @@
           "human_text": "Пункт меню называется «Экспорт истории чата» и не виден в секретных чатах."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.1",
+      "sha256": "41eb4b7dede70d075f4d9677e5094816df7f713f4305dad6491799b2259b5e5b",
+      "checks": "939 Python tests (904 before) and plugin validation passed; no live provider calls. Size 526663 B is over 524288 B: minAppVersion 0.2.5, listed only in index-v2.json (D-020); build dry run keeps 0.9.0 as latest in index.json.",
+      "items": [
+        {
+          "id": "MIRROR-LENGTH",
+          "title": "Длина ответа как у входящего",
+          "scope": "complete",
+          "details": "Reply kind with answer_detail < 2: MIRROR_RULE in the system prompt; total = max(60, 2 x incoming chars), max(60, incoming) when annoyed; per-part cap 160; over total -> 'big' rewrite with the total, then mirror_trim cuts at a sentence/clause end. Balanced detail rule no longer says 'one to three paragraphs'.",
+          "limitations": "Phone behaviour unverified; no live provider calls.",
+          "human_text": "На короткое сообщение бот отвечает коротко, без лекций."
+        },
+        {
+          "id": "TWO-PARTS",
+          "title": "Не больше 2 сообщений в «Живом» темпе",
+          "scope": "complete",
+          "details": "max_parts capped at 2 when short replies are off (natural chat or short_msgs off) or with human timing.",
+          "limitations": "Phone behaviour unverified; no live provider calls.",
+          "human_text": "В «Живом человеке», «Естественном общении» и без «Коротких сообщений» не больше двух сообщений подряд."
+        },
+        {
+          "id": "NO-DASH-QUOTES",
+          "title": "Без тире и кавычек",
+          "scope": "complete",
+          "details": "clean_humanized: removes «»„“”, leading dialogue dashes, ' — ' / ' – ' -> ', '.",
+          "limitations": "Applies to humanized replies only; hyphens inside words kept.",
+          "human_text": "В ответах нет длинных тире и кавычек-ёлочек."
+        },
+        {
+          "id": "ANNOYED",
+          "title": "Раздражение собеседника",
+          "scope": "complete",
+          "details": "ANNOYED_RE matches whole words only (хватит/досить/годі only before end, punctuation or уже/про/этого; стоп, stop, отстань, достал(а|и), набрид*...); adds the conditional ANNOYED_RULE and caps the total at max(60, incoming).",
+          "limitations": "Keyword list only, no sentiment model. Phone behaviour unverified; no live provider calls.",
+          "human_text": "Если просят прекратить, бот коротко соглашается и бросает тему."
+        },
+        {
+          "id": "QUOTE",
+          "title": "Цитата сообщения, на которое отвечает",
+          "scope": "complete",
+          "details": "_quote_target: groups quote the last message (as before); in private chats the answered message (last with a request, else last) is quoted when it is not the last one in the batch, otherwise with chance quote_pct (default 10, style_adv page). Only the first part quotes.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Если бот отвечает не на последнее сообщение, он его цитирует."
+        },
+        {
+          "id": "STICKER-WORDS",
+          "title": "На стикер чаще словами",
+          "scope": "complete",
+          "details": "A sticker-only batch goes to the sticker route with STICKER_BACK_PCT = 30, otherwise to the text path with STICKER_TEXT_RULE.",
+          "limitations": "Constant, no setting. The AI sees the sticker as [incoming sticker id], without the emoji. Phone behaviour unverified.",
+          "human_text": "На стикер бот обычно отвечает словами, иногда стикером."
+        },
+        {
+          "id": "TYPING-VISIBLE",
+          "title": "«Печатает» видно заранее",
+          "scope": "complete",
+          "details": "Typing shown for at least TYPING_SHOWN_MIN = 2 s before the first part (Live and length-based paths), proportional to length, refreshed every TYPING_REFRESH_SEC = 4 s. The explicit typing_cap path is unchanged (no indicator, as before).",
+          "limitations": "Ghost mode can hide typing. Phone behaviour unverified.",
+          "human_text": "Перед ответом видно «печатает» хотя бы пару секунд."
+        },
+        {
+          "id": "PAUSE-RESUME",
+          "title": "После паузы читает свежие сообщения",
+          "scope": "complete",
+          "details": "Already present: each reply loads context_n recent messages; scan answers only incoming after the newest outgoing. Tests added, no code change.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "После паузы бот учитывает, что писали, и не отвечает на уже отвеченное."
+        }
+      ]
     }
   ]
 }

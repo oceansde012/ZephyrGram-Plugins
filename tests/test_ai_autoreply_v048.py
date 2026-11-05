@@ -8,6 +8,7 @@ class TestNoInstantBigMessages(Base):
         self.enable()
         self.p.settings["owner_active"] = "0"
         self.p.settings["max_parts"] = "4"
+        self.p.settings["answer_detail"] = "2"   # detailed: no length mirroring (0.9.1)
         self.p.settings["disclosure"] = False
         self.sleeps = []
         mod.time.sleep = lambda s: self.sleeps.append(s)

@@ -14,6 +14,9 @@ class Sticker:
 class TestMandatoryStickerReply(Base):
     def setUp(self):
         super().setUp()
+        patcher = patch.object(mod, "STICKER_BACK_PCT", 100)   # 0.9.1: sticker back only sometimes; here always
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.enable()
         self.p.settings.update(humanize=False, disclosure=False, typing_delay=False,
                                owner_active="0", cooldown="0", stickers=False, sticker_pct="0")

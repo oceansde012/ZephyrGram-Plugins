@@ -2,10 +2,10 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.0"
-__version_code__ = 41
+__version__ = "0.9.1"
+__version_code__ = 42
 __api_version__ = 1
-__min_app_version__ = "0.2.2"
+__min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
 import difflib
@@ -103,7 +103,6 @@ NATURAL_CHAT_PROMPT = (
     "Write the next message of this Telegram account's owner, in the owner's own voice, without claiming "
     "to be them. Write only the message text, in the language and conversational register of the current chat. "
     "Use the owner's examples for tone and rhythm, never as facts or lines to copy. "
-    "A casual reaction can be a few words; an explanation or emotional topic may need more. "
     "Do not force every thought into tiny messages or ask a question at the end of every reply. "
     "Use ordinary Ukrainian or Russian as appropriate; avoid formal assistant introductions, "
     "lectures, exaggerated empathy and needless reminders like 'I already told you'. "
@@ -118,6 +117,17 @@ NATURAL_CHAT_PROMPT = (
     "Return plain chat text, no headings or markdown unless the task genuinely needs a list."
 )
 NO_DISCLOSE_RULE = DISCLOSE_RULE
+MIRROR_RULE = ("Length: reply to the last message about as long as it is; a short message gets a few words. No lectures, "
+               "lists, dashes, quotation marks or explanations nobody asked for.")
+ANNOYED_RULE = "If they sound annoyed or ask you to stop, acknowledge it in a few words and drop the topic."
+ANNOYED_RE = re.compile(u"(?i)(?<!\\w)(?:(?:хватит|досить|годі)(?=\\s*(?:[.!?,)]|$|уже|вже|про|этого|цього|с меня|з мене))|"
+                        u"харе|отстань|отвали|відчепись|відвали|надоел\\w*|набрид\\w*|достал[аи]?|задолбал\\w*|"
+                        u"заткнись|замолчи|бесишь|дратуєш|стоп|stop)(?!\\w)")
+MIRROR_MIN = 60
+PART_CAP = 160
+STICKER_BACK_PCT = 30        # a sticker gets a sticker back this often, otherwise words
+STICKER_TEXT_RULE = "They sent a sticker: react in a few words, as a person would."
+TYPING_SHOWN_MIN = 2.0       # shorter typing is not visible in the other app
 
 CHAT_PROMPT_PRESETS = (
     "Conversation style: everyday chat. Use direct, ordinary wording that fits the relationship shown here. "
@@ -689,9 +699,21 @@ def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
         f = FILLER_RE.sub("", t, count=1).strip()
         if f:
             t = f
-    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(u"(?m)^[—–] *", "", re.sub(u"[«»„“”]", "", t))
+    t = re.sub(u",? +[—–] +", ", ", re.sub(r"[ \t]+", " ", t))
     t = re.sub(r"\n\s*\n+", "\n", t).strip()
     return cap_text(t, limit) if cap else t
+
+
+def mirror_trim(parts, total):
+    """Keep parts within total chars; cut the last at a sentence/clause end."""
+    out = []
+    for p in parts:
+        room = total - sum(map(len, out))
+        if room < 15:
+            break
+        out.append(p if len(p) <= room else chunk_text(p, room)[0])
+    return out or parts[:1]
 
 
 def apply_style(text, st):
@@ -1812,6 +1834,10 @@ S = {
         "Інколи надсилає ваш недавній стікер, коли пасує; ніколи на питання.",
         "Иногда отправляет ваш недавний стикер, когда подходит; никогда на вопросы."),
     "sticker_pct": ("Sticker: chance (%)", "Стікер: шанс (%)", "Стикер: шанс (%)"),
+    "quote_pct": ("Quote the message: chance (%)", "Цитувати повідомлення: шанс (%)", "Цитировать сообщение: шанс (%)"),
+    "quote_pct_s": ("Default 10. If the answered message is not the last one, it is always quoted.",
+                    "Типово 10. Якщо відповідь на не останнє повідомлення, воно цитується завжди.",
+                    "По умолчанию 10. Если ответ на не последнее сообщение, оно цитируется всегда."),
     "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
     "transcribe_voice": ("Transcribe voice messages", "Розпізнавати голосові", "Распознавать голосовые"),
     "memory": ("Compact chat memory", "Стисла пам’ять чату", "Краткая память чата"),
@@ -4821,7 +4847,7 @@ class Plugin(BasePlugin):
             if auto and window and self._owner_active_in(hist, window):
                 st.owner_ts = self._now()
                 return self._defer_owner(key, st, batch, window)
-            if sticker_only:
+            if sticker_only and self._rng.random() * 100.0 < STICKER_BACK_PCT:
                 return self._reply_sticker_only(key, c, st, did, account, batch, hist)
             messages = self.build_messages(key, account, did, batch, hist)
         except Exception as e:
@@ -4970,8 +4996,9 @@ class Plugin(BasePlugin):
 
     def _live_wait(self, key, c, st, did, account, timing):
         """Sleep the human latency in short chunks."""
-        total = max(0.0, float(timing["wait"]))
-        tsecs = max(0.0, min(total, float(timing["type"])))
+        tsecs = float(timing["type"])
+        tsecs = max(TYPING_SHOWN_MIN, tsecs) if tsecs > 0 else 0.0
+        total = max(tsecs, float(timing["wait"]))
         base_guard = timing.get("_wait_guard")
         if not callable(base_guard):
             base_guard = self._typing_guard(key, account, did, st=st)
@@ -6359,6 +6386,16 @@ class Plugin(BasePlugin):
         client.run_on_ui(send)
         return True
 
+    def _quote_target(self, c, batch):
+        """Message id to quote: groups the last one; private the answered one if not last, else quote_pct."""
+        ids = [b for b in batch or () if isinstance(b[0], int)]
+        if not ids or c.get("type") == "group":
+            return ids[-1][0] if ids else None
+        mid = next((b[0] for b in reversed(ids) if has_request(b[2] or "")), ids[-1][0])
+        if mid != ids[-1][0] or self._rng.random() * 100.0 < self._float("quote_pct", 10.0, 0.0, 100.0):
+            return mid
+        return None
+
     def _reply_sticker_only(self, key, c, st, did, account, batch, hist):
         """Mandatory selection: no sticker_pct/AI-decline gate and never a..."""
         if not self._task_alive(key, account, did) or not self._sticker_only_batch(key, batch):
@@ -6528,7 +6565,7 @@ class Plugin(BasePlugin):
         bodies = list(parts)
         if parts and self._first_reply_disclosure() and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
-        reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
+        reply_to = self._quote_target(c, batch)
         account = int(c.get("account", 0))
         wait_guard = self._typing_guard(key, account, did, st=st, owner_seq=owner_seq, epoch=wait_epoch)
         cap = self._pnum("typing_cap", 0, 15)
@@ -6554,7 +6591,7 @@ class Plugin(BasePlugin):
                     if self.get_setting("typing_delay", True):
                         if self._explicit("typing_cap") is None:
                             d = 0.3 + len(part) * PART_TYPE_MS / 1000.0 * self._rng.uniform(0.85, 1.25)
-                            if self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else 0.5, d)),
+                            if self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else TYPING_SHOWN_MIN, d)),
                                                  guard=wait_guard) is False:
                                 return False
                         else:                       # the owner set 'typing_cap': one total budget for all parts
@@ -6727,6 +6764,8 @@ class Plugin(BasePlugin):
                  CHAT_PROMPT_PRESETS[self._chat_style_index(key)], CHAT_CONTEXT_RULE, self._detail_rule(),
                  TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
                  DISCLOSE_RULE if natural or self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
+        if self._answer_detail() < 2:
+            parts.append(MIRROR_RULE)
         if self.get_setting("short_msgs", True) and not natural:
             parts.append(SHORT_RULE % max(2, self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6)))
         c = self._chats.get(key) or {}
@@ -6883,6 +6922,10 @@ class Plugin(BasePlugin):
             rules.append(IDENTITY_RULE)     # facts about two people are in the prompt: keep them apart
         if is_trivia_question(incoming):
             rules.append(TRIVIA_RULE)       # only when it is needed: the typical request stays as small as before
+        if ANNOYED_RE.search(last_in):
+            rules.append(ANNOYED_RULE)
+        if last_in.startswith("[incoming sticker"):
+            rules.append(STICKER_TEXT_RULE)
         owner_last = OWNER_RULES_LAST if self._owner_rules(key) else ""
         system, messages = self._fit_prompt(
             lambda _n: self.build_system(key, profile, with_style=False), lore, [extra_system, gender] + rules, record,
@@ -6898,8 +6941,12 @@ class Plugin(BasePlugin):
         natural = bool(self.get_setting("natural_chat", False))
         short = bool(self.get_setting("short_msgs", True)) and not natural
         max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6)
-        if not short:
+        if not short or self._live():
             max_parts = min(2, max_parts)
+        mirror = kind == "reply" and self._answer_detail() < 2
+        total = max(MIRROR_MIN, (1 if ANNOYED_RE.search(last_in) else 2) * len(incoming)) if mirror else 1 << 30
+        if mirror:
+            limit = min(limit, PART_CAP)
         split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")
                      else (SHORT_SPLIT_CHARS if short else SPLIT_MIN_CHARS))
         max_msgs = max_parts if (not split or self.get_setting("split_msgs", True)) else 1
@@ -6924,6 +6971,8 @@ class Plugin(BasePlugin):
                 if "big" in problems:
                     kwargs["system"] += (" Every message must stay under about 120 characters: put each idea on its "
                                          "own line instead of writing paragraphs.")
+                    if mirror:
+                        kwargs["system"] += " The whole reply under %d characters." % total
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
@@ -6962,13 +7011,13 @@ class Plugin(BasePlugin):
                 problems = problems + ["leak"]
             if short and longest_sentence_words(reply) > SHORT_MAX_WORDS:
                 problems = problems + ["long"]
-            if short and any(len(p) > BIG_PART_CHARS for p in parts):
+            if short and any(len(p) > BIG_PART_CHARS for p in parts) or len(reply) > total:
                 problems = problems + ["big"]
             if any(echoes(p, refs) for p in parts):
                 problems = problems + ["copy"]
             cands.append((parts, problems))
             if not problems:
-                return parts, ""
+                return mirror_trim(parts, total), ""
         if not cands:
             return [], "empty"
         usable = [cd for cd in cands if not any(p in ("repeat", "copy") for p in cd[1])]
@@ -6981,7 +7030,7 @@ class Plugin(BasePlugin):
             safe = [p for p in best if not unsupported_facts(p, fact_ctx)]
             if safe:
                 best = safe
-        return best, "fallback"
+        return mirror_trim(best, total), "fallback"
 
     @staticmethod
     def _incoming_texts(messages, lang_text=None):
@@ -7147,8 +7196,7 @@ class Plugin(BasePlugin):
     def _detail_rule(self):
         detail = (
             "Short answer: use a few clear sentences, but answer the actual question and every essential part.",
-            "Balanced answer: give enough explanation to be useful, normally one to three compact paragraphs. "
-            "For a simple message one line is enough; a question with several parts needs several concrete answers.",
+            "Balanced answer: useful but brief; a question with several parts gets several short answers.",
             "Detailed answer: explain the reasoning and practical steps relevant to the question in clear short "
             "paragraphs. Cover all parts without padding; do not force everything into a one-line chat reaction."
         )[self._answer_detail()]
@@ -8578,6 +8626,7 @@ class Plugin(BasePlugin):
             Input(key="max_parts", text=t("max_parts"), default=str(DEFAULT_MAX_PARTS)),
             Switch(key="natural_split", text=t("natural_split"), default=True, subtext=t("natural_split_s")),
             Switch(key="split_msgs", text=t("split"), default=True, subtext=t("split_s")),
+            Input(key="quote_pct", text=t("quote_pct"), default="10", subtext=t("quote_pct_s")),
             Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
             self._pinput("typing_cap"),
             Input(key="banned_words", text=t("banned"), default="", multiline=True, subtext=t("banned_s")),
@@ -8795,7 +8844,7 @@ class Plugin(BasePlugin):
         "persona": "lore_name lore_age lore_city lore owner_gender lore_learn !persona_note",
         "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
                  "laugh_control banned_words >style_adv",
-        "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs #h_learn learn_style "
+        "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs quote_pct #h_learn learn_style "
                      "learn_n style_share style_cache_min",
         "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
         "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
