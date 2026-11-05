@@ -820,8 +820,8 @@
     {
       "product": "ai_autoreply",
       "version": "0.9.5",
-      "sha256": "b434017e281b5ef6d70f9746652fe99c1958dea02f4883e0cc7f6401dbf0bda4",
-      "checks": "1041 Python tests and plugin validation passed; no live provider calls. Size 581795 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings (1 fix taken, 5 suggestions rejected as changing established UI terms). GLM (glm-proxy) diff review was started through ai_parallel; it was still running when the PR was opened.",
+      "sha256": "c202584c054e3b68ba148b11b27e926d7b25592c5bd60973e3c361983a39f608",
+      "checks": "1042 Python tests and plugin validation passed; no live provider calls. Size 582015 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings (1 fix taken, 5 suggestions rejected as changing established UI terms). GLM (glm-proxy, via ai_parallel + ai_task_status) reviewed the diff: 2 findings, 1 taken (a storage error in restore no longer wipes the saved notes), 1 rejected (chat records always have dialog_id).",
       "items": [
         {
           "id": "MEM-RESET",

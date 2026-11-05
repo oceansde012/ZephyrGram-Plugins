@@ -91,6 +91,15 @@ class TestResetRestore(Chat):
         self.assertFalse(self.p._memory_restore(self.key()))
         self.assertIn(self.p.t("bl_mem_nothing"), CLIENT.bulletins)
 
+    def test_storage_error_keeps_the_saved_notes(self):
+        self.p.settings["learned_prev_" + self.sk] = u"заметка"
+        st = self.store()
+        st.restore = lambda *a, **k: False
+        st.last_error = "storage_unavailable_or_full"
+        self.assertFalse(self.p._memory_restore(self.key()))
+        self.assertEqual(self.p.settings["learned_prev_" + self.sk], u"заметка")
+        self.assertIn(self.p.t("bl_mem_fail"), CLIENT.bulletins)
+
     def test_removing_the_chat_clears_the_saved_notes(self):
         self.p.settings["learned_prev_" + self.sk] = "x"
         self.p.chat_off(self.key(), remove=True)

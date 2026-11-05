@@ -9870,6 +9870,9 @@ class Plugin(BasePlugin):
         ctx = self._memory_ctx(key, account, did)
         ok = bool(ctx) and ctx[0].restore(account, did, enabled=True)
         prev = str(self.get_setting("learned_prev_" + sk, "") or "")
+        if not ok and ctx and ctx[0].last_error not in (None, "nothing_to_restore"):
+            client.bulletin(self.t("bl_mem_fail"))          # storage trouble: keep the saved notes untouched
+            return False
         if prev.strip():
             self.set_setting("learned_" + sk, prev)
             self.set_setting("learned_prev_" + sk, "")
