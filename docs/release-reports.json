@@ -944,6 +944,30 @@
           "human_text": "Все переключатели «что ИИ может смотреть» собраны на одной странице чата."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.8",
+      "sha256": "a6f8e64483941f768ed1b00b8dea66a921f2a750a1399cfe0f31d35b5668bc7a",
+      "checks": "1094 Python tests and plugin validation passed; no live provider calls. Size 620131 B: minAppVersion 0.2.5, index-v2.json only (D-020). New tests in tests/test_ai_header_v098.py.",
+      "items": [
+        {
+          "id": "HDR-BUTTON",
+          "title": "Кнопка «ИИ» в шапке чата",
+          "scope": "partial",
+          "details": "MenuType.CHAT_HEADER_BUTTON (icon ai_chat, permission ui.menu) is added only when the app has MenuType.CHAT_HEADER_BUTTON and client.HEADER_BUTTON; shown where the plugin can work. A tap opens an Android AlertDialog (setItems) with: turn on/off, mode auto/draft, start a conversation, study the chat, start memory over (private chats). The listener only stores the chosen index; a poll started inside a plugin callback runs the action, because client.* is refused in Java-thread callbacks.",
+          "limitations": "Dialog and header placement not checked on a phone. No settings page is opened (the API has no call for it). The old chat menu items stay.",
+          "human_text": "В шапке чата есть кнопка «ИИ» с быстрым меню: включить или выключить бота, режим, начать диалог, изучить чат."
+        },
+        {
+          "id": "MEM-CLOUD-LINE",
+          "title": "Облачная строка шкалы памяти",
+          "scope": "partial",
+          "details": "The status counters of the server (usage, AI PR #14) are read through client.ai_memory_status in a worker at most every 5 minutes while cloud memory of a private chat is on; owner and ranges are checked; the line shows messages of 200, chats of 20 and the keep-until date. No usage means no line.",
+          "limitations": "App 0.2.7's ZephyrMemoryClient copies only a fixed set of status fields and drops usage, so the line stays hidden until the app passes the sanitized usage object through.",
+          "human_text": "Под шкалой памяти будет видно, сколько хранится в облаке, когда приложение начнёт отдавать эти данные."
+        }
+      ]
     }
   ]
 }
