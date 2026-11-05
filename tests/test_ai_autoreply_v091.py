@@ -6,10 +6,15 @@
 4. no dashes and no quotation marks in human replies;
 5. annoyance or "stop" in the last message: the prompt says to acknowledge and drop the topic, the reply is tiny;
 6. Detailed answers are not mirrored.
+7. (#47) quote the message answered when several are new; otherwise quote_pct;
+8. (#46) a sticker gets words most of the time, a sticker back only STICKER_BACK_PCT;
+9. (#44) typing is shown at least TYPING_SHOWN_MIN and refreshed every few seconds;
+10. (#18) after a pause the reply reads what was written meanwhile and does not answer what the owner answered.
 """
 import unittest
+from unittest.mock import patch
 
-from test_ai_autoreply import Base, CLIENT, mod
+from test_ai_autoreply import Base, CLIENT, DID, mod
 
 LONG = (u"Слухай, тут така історія вийшла. Я вчора довго думав про це все і зрозумів кілька речей. "
         u"По-перше, треба менше працювати вечорами. По-друге, варто частіше гуляти. "
@@ -138,6 +143,134 @@ class TestAnnoyed(Chat):
     def test_no_rule_for_a_normal_message(self):
         self.answer(u"ок", text=u"як справи?")
         self.assertNotIn(mod.ANNOYED_RULE, self.calls[0]["system"])
+
+
+
+class TestQuote(Chat):
+    def replies_to(self):
+        return [s[2] for s in CLIENT.sent]
+
+    def test_several_new_messages_quote_the_question(self):
+        self.p.settings["quote_pct"] = "0"
+        CLIENT.ai_result = lambda m, **kw: u"о сьомій"
+        self.incoming(text=u"привіт", mid=501)
+        self.incoming(text=u"коли приїдеш?", mid=502)
+        self.incoming(text=u"я вдома", mid=503)
+        self.fire_timers()
+        self.assertEqual(self.replies_to()[:1], [502])
+
+    def test_single_message_follows_the_chance(self):
+        self.p.settings["quote_pct"] = "0"
+        self.answer(u"ок")
+        self.assertEqual(self.replies_to(), [None])
+        CLIENT.sent[:] = []
+        self.p.settings["quote_pct"] = "100"
+        self.answer(u"ок")
+        self.assertIsNotNone(self.replies_to()[0])
+
+    def test_only_the_first_part_quotes(self):
+        self.p.settings.update(quote_pct="100", max_parts="3", short_msgs=True)
+        self.answer(u"перше\nдруге")
+        self.assertEqual(len(CLIENT.sent), 2)
+        self.assertIsNone(CLIENT.sent[1][2])
+
+    def test_setting_on_the_page(self):
+        self.assertIn("quote_pct", mod.Plugin.PAGES["style_adv"].split())
+        self.assertIn("quote_pct", self.p._rows())
+
+
+class Sticker:
+    id = 1777
+
+
+class TestStickerGetsWords(Chat):
+    def setUp(self):
+        super().setUp()
+        self.native = []
+        self.p._is_sticker_document = lambda doc: isinstance(doc, Sticker)
+        self.p._memory_owner_id = lambda account: 123
+        self.p._cached_sticker_document = lambda *a: None
+        self.p._queue_sticker_document = lambda *a, **kw: self.native.append(a) or True
+
+    def sticker(self):
+        m = self.msg(text="", mid=601)
+        m.update(has_media=True, is_sticker=True, _sticker_document=Sticker())
+        CLIENT.ai_result = lambda m, **kw: u"ахах, точно"
+        self.p._handle_dict(0, DID, m)
+        self.fire_timers()
+
+    def test_words_when_the_dice_say_so(self):
+        with patch.object(mod, "STICKER_BACK_PCT", 0):
+            self.sticker()
+        self.assertEqual(self.native, [])
+        self.assertEqual([s[1] for s in CLIENT.sent], [u"ахах, точно"])
+        self.assertIn(mod.STICKER_TEXT_RULE, CLIENT.ai_calls[0]["system"])
+
+    def test_sticker_back_sometimes(self):
+        with patch.object(mod, "STICKER_BACK_PCT", 100):
+            self.sticker()
+        self.assertEqual(len(self.native), 1)
+        self.assertEqual(CLIENT.sent, [])
+
+    def test_mostly_words_by_default(self):
+        self.assertLessEqual(mod.STICKER_BACK_PCT, 40)
+
+
+class TestTypingVisible(Chat):
+    def setUp(self):
+        super().setUp()
+        self.sleeps, self.typing = [], []
+        orig = mod.time.sleep
+        mod.time.sleep = lambda s: self.sleeps.append(s)
+        self.addCleanup(setattr, mod.time, "sleep", orig)
+        self.p._send_typing = lambda did, account, cancel=False: self.typing.append(cancel) or True
+
+    def test_short_reply_types_long_enough_to_be_seen(self):
+        self.p.settings.update(human_timing=False, typing_delay=True)
+        self.answer(u"ок")
+        self.assertIn(False, self.typing)
+        self.assertGreaterEqual(sum(self.sleeps), 1.9)   # at least ~2 s of visible typing
+
+    def test_live_typing_is_visible_and_refreshed(self):
+        self.p.settings.update(human_timing=True, type_ms="40")
+        self.p._live_wait(self.key(), self.p._chats[self.key()], self.p._state(self.key()), DID, 0,
+                          {"wait": 0.5, "type": 0.3, "arr": self.clock[0]})
+        self.assertGreaterEqual(sum(self.sleeps), 1.9)   # at least ~2 s of visible typing
+        self.assertIn(False, self.typing)
+        self.assertLessEqual(mod.TYPING_REFRESH_SEC, 5.0)
+
+    def test_long_text_types_longer(self):
+        self.p.settings.update(human_timing=False, typing_delay=True, answer_detail="2")
+        self.answer(u"ок")
+        short = sum(self.sleeps)
+        self.sleeps[:] = []
+        self.answer(u"а " * 120)
+        self.assertGreater(sum(self.sleeps), short)
+
+
+class TestAfterPause(Chat):
+    def test_resumed_chat_reads_what_was_written_meanwhile(self):
+        self.p.chat_off(self.key(), remove=False)
+        CLIENT.history[:] = [
+            {"id": 701, "from_id": 7, "out": False, "date": int(self.clock[0]) - 600, "text": u"я переїхав у Львів"},
+            {"id": 702, "from_id": 1, "out": True, "date": int(self.clock[0]) - 500, "text": u"о, круто"},
+        ]
+        self.enable()
+        self.answer(u"ок", text=u"як тобі там?")
+        contents = " ".join(str(m.get("content")) for m in self.calls[0]["messages"])
+        self.assertIn(u"Львів", contents)
+        self.assertIn(u"круто", contents)
+
+    def test_scan_skips_what_the_owner_already_answered(self):
+        self.p.chat_off(self.key(), remove=False)
+        now = int(self.clock[0])
+        CLIENT.history[:] = [
+            {"id": 711, "from_id": 7, "out": False, "date": now - 300, "text": u"ти де?"},
+            {"id": 712, "from_id": 1, "out": True, "date": now - 200, "text": u"вдома"},
+        ]
+        self.enable()
+        self.assertEqual(self.p._scan_all(), 0)
+        self.assertEqual(CLIENT.ai_calls, [])
 
 
 if __name__ == "__main__":

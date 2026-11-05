@@ -5,7 +5,7 @@ __author__ = "ZephyrGram"
 __version__ = "0.9.1"
 __version_code__ = 42
 __api_version__ = 1
-__min_app_version__ = "0.2.2"
+__min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
 import difflib
@@ -124,6 +124,9 @@ ANNOYED_RE = re.compile(u"(?i)(?<!\\w)(?:хватит|харе|досить|го
                         u"задолбал|заткнись|замолчи|бесишь|дратуєш|стоп|stop)")
 MIRROR_MIN = 60
 PART_CAP = 160
+STICKER_BACK_PCT = 30        # a sticker gets a sticker back this often, otherwise words
+STICKER_TEXT_RULE = "They sent a sticker: react in a few words, as a person would."
+TYPING_SHOWN_MIN = 2.0       # shorter typing is not visible in the other app
 
 CHAT_PROMPT_PRESETS = (
     "Conversation style: everyday chat. Use direct, ordinary wording that fits the relationship shown here. "
@@ -1830,6 +1833,10 @@ S = {
         "Інколи надсилає ваш недавній стікер, коли пасує; ніколи на питання.",
         "Иногда отправляет ваш недавний стикер, когда подходит; никогда на вопросы."),
     "sticker_pct": ("Sticker: chance (%)", "Стікер: шанс (%)", "Стикер: шанс (%)"),
+    "quote_pct": ("Quote the message: chance (%)", "Цитувати повідомлення: шанс (%)", "Цитировать сообщение: шанс (%)"),
+    "quote_pct_s": ("Default 10. With several new messages the one answered is always quoted.",
+                    "Типово 10. Коли нових повідомлень кілька, завжди цитує те, на яке відповідає.",
+                    "По умолчанию 10. Если новых сообщений несколько, всегда цитирует то, на которое отвечает."),
     "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
     "transcribe_voice": ("Transcribe voice messages", "Розпізнавати голосові", "Распознавать голосовые"),
     "memory": ("Compact chat memory", "Стисла пам’ять чату", "Краткая память чата"),
@@ -4839,7 +4846,7 @@ class Plugin(BasePlugin):
             if auto and window and self._owner_active_in(hist, window):
                 st.owner_ts = self._now()
                 return self._defer_owner(key, st, batch, window)
-            if sticker_only:
+            if sticker_only and self._rng.random() * 100.0 < STICKER_BACK_PCT:
                 return self._reply_sticker_only(key, c, st, did, account, batch, hist)
             messages = self.build_messages(key, account, did, batch, hist)
         except Exception as e:
@@ -4988,8 +4995,9 @@ class Plugin(BasePlugin):
 
     def _live_wait(self, key, c, st, did, account, timing):
         """Sleep the human latency in short chunks."""
-        total = max(0.0, float(timing["wait"]))
-        tsecs = max(0.0, min(total, float(timing["type"])))
+        tsecs = float(timing["type"])
+        tsecs = max(TYPING_SHOWN_MIN, tsecs) if tsecs > 0 else 0.0
+        total = max(tsecs, float(timing["wait"]))
         base_guard = timing.get("_wait_guard")
         if not callable(base_guard):
             base_guard = self._typing_guard(key, account, did, st=st)
@@ -6377,6 +6385,15 @@ class Plugin(BasePlugin):
         client.run_on_ui(send)
         return True
 
+    def _quote_target(self, c, batch):
+        """Message id to quote: always in groups and with several new messages, else quote_pct."""
+        ids = [b for b in batch or () if isinstance(b[0], int)]
+        if not ids:
+            return None
+        if c.get("type") != "group" and len(ids) < 2 and self._rng.random() * 100.0 >= self._float("quote_pct", 10.0, 0.0, 100.0):
+            return None
+        return next((b[0] for b in reversed(ids) if has_request(b[2] or "")), ids[-1][0])
+
     def _reply_sticker_only(self, key, c, st, did, account, batch, hist):
         """Mandatory selection: no sticker_pct/AI-decline gate and never a..."""
         if not self._task_alive(key, account, did) or not self._sticker_only_batch(key, batch):
@@ -6546,7 +6563,7 @@ class Plugin(BasePlugin):
         bodies = list(parts)
         if parts and self._first_reply_disclosure() and not c.get("disclosed"):
             parts[0] = str(self.get_setting("disclosure_text", ROBOT + " ")) + parts[0]
-        reply_to = batch[-1][0] if (c.get("type") == "group" and batch) else None
+        reply_to = self._quote_target(c, batch)
         account = int(c.get("account", 0))
         wait_guard = self._typing_guard(key, account, did, st=st, owner_seq=owner_seq, epoch=wait_epoch)
         cap = self._pnum("typing_cap", 0, 15)
@@ -6572,7 +6589,7 @@ class Plugin(BasePlugin):
                     if self.get_setting("typing_delay", True):
                         if self._explicit("typing_cap") is None:
                             d = 0.3 + len(part) * PART_TYPE_MS / 1000.0 * self._rng.uniform(0.85, 1.25)
-                            if self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else 0.5, d)),
+                            if self._wait_typing(did, account, min(MAX_PART_GAP, max(0.8 if i else TYPING_SHOWN_MIN, d)),
                                                  guard=wait_guard) is False:
                                 return False
                         else:                       # the owner set 'typing_cap': one total budget for all parts
@@ -6905,6 +6922,8 @@ class Plugin(BasePlugin):
             rules.append(TRIVIA_RULE)       # only when it is needed: the typical request stays as small as before
         if ANNOYED_RE.search(last_in):
             rules.append(ANNOYED_RULE)
+        if last_in.startswith("[incoming sticker"):
+            rules.append(STICKER_TEXT_RULE)
         owner_last = OWNER_RULES_LAST if self._owner_rules(key) else ""
         system, messages = self._fit_prompt(
             lambda _n: self.build_system(key, profile, with_style=False), lore, [extra_system, gender] + rules, record,
@@ -8605,6 +8624,7 @@ class Plugin(BasePlugin):
             Input(key="max_parts", text=t("max_parts"), default=str(DEFAULT_MAX_PARTS)),
             Switch(key="natural_split", text=t("natural_split"), default=True, subtext=t("natural_split_s")),
             Switch(key="split_msgs", text=t("split"), default=True, subtext=t("split_s")),
+            Input(key="quote_pct", text=t("quote_pct"), default="10", subtext=t("quote_pct_s")),
             Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
             self._pinput("typing_cap"),
             Input(key="banned_words", text=t("banned"), default="", multiline=True, subtext=t("banned_s")),
@@ -8822,7 +8842,7 @@ class Plugin(BasePlugin):
         "persona": "lore_name lore_age lore_city lore owner_gender lore_learn !persona_note",
         "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
                  "laugh_control banned_words >style_adv",
-        "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs #h_learn learn_style "
+        "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs quote_pct #h_learn learn_style "
                      "learn_n style_share style_cache_min",
         "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
         "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
