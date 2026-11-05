@@ -11,6 +11,7 @@ import re
 import unittest
 
 from test_ai_autoreply import Base, CLIENT, DID, all_settings, mod
+from test_ai_autoreply_v053 import Fakes
 
 TEXT = (u"Сьогодні залишаюся вдома, спокійно дороблю свої справи. Завтра вже зможу приїхати і все показати "
         u"на місці. Тоді й домовимося про зручний час зустрічі.")
@@ -326,6 +327,116 @@ class TestTrivia(Chat):
     def test_short_answer_to_quiz_is_untouched(self):
         self.assertEqual(self.answer(u"хз, канберра вроде", text=u"какая столица Австралии?"),
                          [u"хз, канберра вроде"])
+
+
+# ---------------------------------------------------------------- 6. the owner's prompt is not lost
+OWN = u"Никогда не используй мат. Пиши только по-русски, коротко. "
+
+
+class TestPromptPriority(Fakes):
+    def test_owner_prompt_survives_hard_trimming_and_extras_go_first(self):
+        self.p.settings.update(default_prompt=OWN * 20, lore=u"Я Влад, живу в Киеве. " * 300, prompt_max="8000")
+        self.p._clock_block = lambda key: u"CLOCKBLOCK " + u"q" * 5000
+        self.reply()
+        system = self.reply_calls()[0]["system"]
+        cap = int((8000 - mod.RETRY_RESERVE) * mod.SYSTEM_SHARE)
+        self.assertLessEqual(len(system), cap)
+        self.assertIn((OWN * 20).strip(), system)                                 # the owner's prompt is whole
+        self.assertIn(mod.HUMAN_PROMPT[:60], system)
+        self.assertLess(system.count("q"), 4000)                         # the extra block was cut instead
+        rec = [d for d in self.p._decisions if d.get("r") == "prompt_trimmed"]
+        self.assertTrue(rec)
+        stage, sizes = rec[-1]["x"].split(" ")
+        before, after = (int(v) for v in sizes.split(">"))
+        self.assertGreater(before, after)
+        self.assertLessEqual(after, cap)
+        self.assertNotIn(u"Влад", rec[-1]["x"])                          # sizes only, never text
+
+    def test_memory_never_pushes_the_prompt_out(self):
+        store = self.with_memory()
+        self.p.settings.update(default_prompt=OWN * 10, prompt_max="8000", memory_auto=True)
+        self.p._memory_record = lambda *a, **k: {"summary": u"старое событие. " * 2000, "through_id": 5}
+        self.reply()
+        call = self.reply_calls()[0]
+        self.assertIn((OWN * 10).strip(), call["system"])
+        self.assertLessEqual(len(call["system"]) + sum(len(m["content"]) for m in call["messages"]), 8000)
+
+    def test_owner_rules_pointer_is_last_before_the_language_rule(self):
+        self.p.settings["default_prompt"] = OWN
+        self.reply()
+        system = self.reply_calls()[0]["system"]
+        self.assertIn(mod.OWNER_RULES_LAST, system)
+        self.assertLess(system.index("Extra instructions from the owner"), system.index(mod.OWNER_RULES_LAST))
+        self.assertLess(system.index(mod.OWNER_RULES_LAST), system.rindex("LANGUAGE OF THIS REPLY"))
+
+    def test_no_pointer_without_own_prompt(self):
+        self.reply()
+        self.assertNotIn(mod.OWNER_RULES_LAST, self.reply_calls()[0]["system"])
+
+
+# ---------------------------------------------------------------- 7. model presets
+class TestModelPresets(Base):
+    def test_list_has_the_new_presets(self):
+        for m in ("best-of", "glm-5.3", "kimi-k3", "DeepSeek-V4-Pro", "DeepSeek-V4.1-Flash", "DeepSeek-V4-Flash",
+                  "glm-5.3-flash"):
+            self.assertIn(m, mod.Plugin.MODEL_PRESETS)
+        self.assertEqual(mod.Plugin.MODEL_PRESETS[0], "")              # 'app default' stays first
+
+    def fresh(self, **saved):
+        p = mod.Plugin()
+        p.settings.update(saved)
+        p.on_plugin_load()
+        return p
+
+    def test_new_install_gets_best_of(self):
+        p = self.fresh()
+        self.assertEqual(p._model_for("reply"), "best-of")
+        self.assertEqual(p._model_picker().default, mod.Plugin.MODEL_PRESETS.index("best-of"))
+        p.settings["model"] = ""                                         # the owner picks 'app default' later
+        p.on_plugin_load()
+        self.assertEqual(p._model_for("reply"), "")
+
+    def test_existing_install_keeps_its_value(self):
+        self.assertEqual(self.fresh(model="")._model_for("reply"), "")
+        self.assertEqual(self.fresh(model="glm-5.3")._model_for("reply"), "glm-5.3")
+        self.assertEqual(self.fresh(chats="[]")._model_for("reply"), "")   # used before, model never set
+        self.assertEqual(self.fresh(master=True)._model_for("reply"), "")
+
+    def test_saved_picker_index_follows_the_new_list(self):
+        p = self.fresh(model="DeepSeek-V4.1-Flash", model_pick=2)        # index 2 in the 0.7.6 list
+        self.assertEqual(p.settings["model_pick"], mod.Plugin.MODEL_PRESETS.index("DeepSeek-V4.1-Flash"))
+        p = self.fresh(model="my-own", model_pick=3)                     # 'custom' in the 0.7.6 list
+        self.assertEqual(p.settings["model_pick"], len(mod.Plugin.MODEL_PRESETS))
+        self.assertEqual(p._model_for("reply"), "my-own")
+
+
+# ---------------------------------------------------------------- 8. temperature with strict rules
+class TestTemperature(Chat):
+    def temps(self):
+        return [c.get("temperature") for c in CLIENT.ai_calls]
+
+    def test_default_stays(self):
+        self.answer(u"ок")
+        self.assertEqual(self.temps(), [0.85])
+
+    def test_strict_rules_cap_temperature(self):
+        self.p.settings["default_prompt"] = u"Никогда не пиши матом"
+        self.answer(u"ок")
+        self.assertEqual(self.temps(), [0.8])
+        self.p.settings["temperature"] = "0.5"
+        self.answer(u"ладно")
+        self.assertEqual(self.temps()[-1], 0.5)                          # a lower value is kept
+
+    def test_retry_also_capped(self):
+        self.p.settings["prompt_" + self.p._sk(self.key())] = u"Never mention work"
+        answers = [u"норм, бабушка как?", u"норм все"]
+        self.answer(lambda m, **kw: answers.pop(0), text=u"як справи?")
+        self.assertTrue(all(t <= 0.8 for t in self.temps()), self.temps())
+
+    def test_soft_prompt_keeps_default(self):
+        self.p.settings["default_prompt"] = u"Пиши коротко и по-дружески"
+        self.answer(u"ок")
+        self.assertEqual(self.temps(), [0.85])
 
 
 if __name__ == "__main__":
