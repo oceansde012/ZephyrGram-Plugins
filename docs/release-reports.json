@@ -672,6 +672,150 @@
           "human_text": "Если Telegram не ответил, экспорт завершается, а не ждёт вечно."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.2",
+      "sha256": "1a2b75460086590e710a4e46d43d42631dc87d8696c5f134e5b51dea95aac13e",
+      "checks": "983 Python tests (after merging main) and plugin validation passed; no live provider calls. Size 541582 B: minAppVersion 0.2.5, index-v2.json only (D-020).",
+      "items": [
+        {
+          "id": "CONVERSATION-PLAN",
+          "title": "План общения по дням",
+          "scope": "complete",
+          "details": "Per private chat setting plan_{sk} (lore page): one stage per line. _plan_rule adds PLAN_RULE with the current stage to the reply prompt (no extra AI call). The stage (plan_i/plan_d/plan_h in the chat record) moves +1 on a new day of talk, jumps forward when the incoming text has 2 topic stems of a later stage (plan_jump), never moves back, restarts when the plan text changes. Groups ignored.",
+          "limitations": "Topic jump is a keyword heuristic (word stems), no AI judgement. A pause of several days counts as one day of talk. Phone behaviour unverified.",
+          "human_text": "Можно задать план общения по дням: бот мягко ведёт разговор по нему и подстраивается, если собеседник забежал вперёд."
+        },
+        {
+          "id": "ASK-OWNER",
+          "title": "Спрашивать меня о важном",
+          "scope": "complete",
+          "details": "Opt-in ask_owner (default off), ask_timeout (default 30 min), persona page. ASK_RULE asks the model to start an important reply with [ASK] in the same request; ASK_NET_RE (money, meeting, promise; 'agree' words left to the model) is a safety net; hits the owner marked 'неважно' are remembered per chat (ask_ok, amounts normalized as '# грн') and not asked again. The reply goes to Saved Messages (own user id) with the last incoming lines; client.notify when client.NOTIFY (app 0.2.6), else bulletin. While waiting: no read receipt, no typing, newer messages stay pending. An answer in Saved Messages is caught by the send hook and cancelled only when it is a reply to the request (#N from replyToMsg text), starts with '#N' of an open request, or is a bare verb ('+', 'ок', '-', 'неважно') for the newest one; any other note ('- купить молоко') is left alone; '+' sends, '- text' sends the text ('-' alone sends nothing), 'неважно' sends and appends a note to the chat lore. Timeout: nothing sent, short note to Saved Messages. [ASK] is stripped from everything sent.",
+          "limitations": "Importance is the model's mark plus a keyword net, no separate check. Answers are typed in Saved Messages (no buttons). Open requests are lost when the app restarts (said in the hint). Phone behaviour unverified.",
+          "human_text": "Бот может спрашивать вас в «Избранном» перед важным ответом: встреча, деньги, обещания."
+        }
+      ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.3",
+      "sha256": "7cc7a0e14fb52f617169dbe9dc33a83a56aaf3fca08cf90e623ba6e433cc1537",
+      "checks": "1006 Python tests and plugin validation passed; no live provider calls. Size 553356 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings, reviewed the core diff (one clock-guard taken, other findings checked and false) and drafted human_text.",
+      "items": [
+        {
+          "id": "LOOP-FIX",
+          "title": "Бот перестаёт отвечать (петля)",
+          "scope": "complete",
+          "details": "accept_message returned 'reply burst (possible loop)' when loop_burst replies were sent in LOOP_BURST_SEC; _handle_dict dropped the message after marking it seen, so the safety scan skipped it too and the person got no answer. Now the message is kept pending and cooldown_until is set to when the window frees (_burst_wait); decision defer/reply_burst_hold. 'repeated identical text' still drops.",
+          "limitations": "The 11-02 case is not reproducible from logs (none were kept); this is the only silent permanent drop found in the code. Phone behaviour unverified.",
+          "human_text": "Сообщения больше не теряются: если бот только что много отвечал, он ответит чуть позже."
+        },
+        {
+          "id": "SILENT-LOG",
+          "title": "Все молчания в логе",
+          "scope": "complete",
+          "details": "Every skip/defer goes through _decide, which writes 'decision <outcome> chat#<sha1[:6]> <reason> [seconds]' to the plugin log; added group_cooldown and waiting_owner_answer. All plugin-log lines that had the chat key (account:dialog_id) now use the tag. No texts.",
+          "limitations": "The decision list inside the settings still shows chats by name (local only).",
+          "human_text": "Все случаи, когда бот не ответил или ждёт, записаны в лог с причиной, без текстов и id."
+        },
+        {
+          "id": "COMMA-SKIP",
+          "title": "Пропуск запятых",
+          "scope": "complete",
+          "details": "Selector comma_skip (0/15/30/50/70 %, default 30) on the style page; drop_commas after all checks, before delivery, auto mode with humanize; not after a word-comma in numbers or with links.",
+          "limitations": "",
+          "human_text": "Бот иногда пропускает запятые, как живой человек (по умолчанию 30%)."
+        },
+        {
+          "id": "TYPOS",
+          "title": "Опечатки",
+          "scope": "complete",
+          "details": "Selector typo_pct (0/3/5/10/20 %, default 0) on the style page; add_typo makes one missing, swapped or doubled letter inside a 5+ letter word, first and last letters kept. The prompt rule against typos stays.",
+          "limitations": "Not applied to replies you approved with '+' or wrote yourself.",
+          "human_text": "Можно включить редкие опечатки в словах, по умолчанию выключено."
+        },
+        {
+          "id": "STICKER-PACKS",
+          "title": "Выбор стикерпаков",
+          "scope": "complete",
+          "details": "Input sticker_sets on the media page: comma-separated pack names, case-insensitive substring of set_title; used for picked stickers and for sticker replies. Hint lists packs seen among recent and favorites.",
+          "limitations": "The app API gives only recent and favorite stickers, not all installed packs; a full pack list needs an app change.",
+          "human_text": "Можно выбрать, из каких стикерпаков бот берёт стикеры."
+        },
+        {
+          "id": "ERROR-ROW",
+          "title": "«Отправить лог» под ошибкой",
+          "scope": "complete",
+          "details": "After an error/disabled decision the main page shows '⚠ Последняя ошибка' for 24 h; its page has the error and time, 'Отправить отчёт в чат…', 'Скопировать отчёт' and 'Скрыть'.",
+          "limitations": "A toast cannot have a button (app API), so the button is in settings. The last error is kept in memory until restart.",
+          "human_text": "После ошибки в настройках сразу видно её и кнопку «Отправить лог»."
+        },
+        {
+          "id": "START-BUTTON",
+          "title": "Кнопка «Начать диалог»",
+          "scope": "complete",
+          "details": "Private chat page: row start_<sk> runs the same _start_command as '.ai start'.",
+          "limitations": "",
+          "human_text": "На странице чата есть кнопка «Начать диалог»: бот сразу здоровается."
+        },
+        {
+          "id": "PROFILE",
+          "title": "Ник и био собеседника",
+          "scope": "complete",
+          "details": "Private chats: _profile_block adds the cached @username (get_dialog_info) and bio (MessagesController.getUserFull(did).about, cache only, never network, 140 chars) as untrusted profile data to the reply prompt.",
+          "limitations": "Bio is there only after the app has loaded the profile (opening the chat or profile). Avatar, audio, stories and gifts from #1 are not done.",
+          "human_text": "Бот видит ник и описание профиля собеседника и учитывает их, когда это к месту."
+        }
+      ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.4",
+      "sha256": "6a866ea4902b2d0c5ad0586cd4bf380ad848dc2e0d595c289a12646d0a6aa77d",
+      "checks": "1023 Python tests and plugin validation passed; no live provider calls. Size 568384 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings (3 fixes taken). GLM (glm-proxy) review of the diff timed out: the MCP client stops at 60 s whatever the timeout argument.",
+      "items": [
+        {
+          "id": "TALK-PAGE",
+          "title": "Страница «Общение»",
+          "scope": "complete",
+          "details": "New chat subpage 'talk': start, refresh, learn_now, test, react, vector, vector_days, daily, style sample picker. The chat page is back to 14 rows (was 17).",
+          "limitations": "",
+          "human_text": "Действия и настройки общения с человеком собраны на отдельной странице чата."
+        },
+        {
+          "id": "VECTOR",
+          "title": "Как общаться дальше",
+          "scope": "complete",
+          "details": "vector_{sk} Input + vector_days_{sk} Selector (1/2/3/5/7 days, default 3). VECTOR_RULE goes into the reply and revive prompt; vector_ts in the chat record (set on edit, or on first use); after the days the text is cleared and decision info/vector_expired logged.",
+          "limitations": "",
+          "human_text": "Можно задать временное правило общения с человеком, оно само снимается через несколько дней."
+        },
+        {
+          "id": "LEARN-NOW",
+          "title": "Изучить чат",
+          "scope": "complete",
+          "details": "Button learn_now_{sk}: drops the cached style profile, rebuilds it, runs _learn_notes(force=True) over up to 100 messages; bulletins for each step and the result (examples, facts). Busy guard shared with automatic learning.",
+          "limitations": "Facts are for private chats only, as before.",
+          "human_text": "Кнопка «Изучить чат» сразу изучает стиль и факты из переписки."
+        },
+        {
+          "id": "DAILY",
+          "title": "Писать ежедневно",
+          "scope": "complete",
+          "details": "Switch daily_{sk} (private, auto). _daily_pass from the periodic scan (the scan runs when any chat has it on): per day a random time 09:00-21:00 in the chat record, skipped in quiet hours, after 22:00, when anyone wrote that day or the reviving daily limit is reached; then _revive_run(manual=True, DAILY_INSTR), so caps, chat hourly limit and revive marks apply.",
+          "limitations": "If a limit stops it at send time, that day is skipped. Phone behaviour unverified.",
+          "human_text": "Бот может раз в день писать человеку первым, если вы ещё не общались."
+        },
+        {
+          "id": "STYLE-SAMPLE",
+          "title": "Общаться как в другом чате",
+          "scope": "complete",
+          "details": "DialogPicker style_src_pick_{sk}: chat of the same account; get_profile takes the owner's messages from that chat first and fills up from this chat; cache key includes the sample. 'Стиль этого же чата' clears it.",
+          "limitations": "Other accounts are refused (the picker uses the current account).",
+          "human_text": "Можно выбрать чат, по образцу которого бот будет писать в этом чате."
+        }
+      ]
     }
   ]
 }

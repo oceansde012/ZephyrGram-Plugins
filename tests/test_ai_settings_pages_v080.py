@@ -126,10 +126,12 @@ class TestChatPage(Pages):
         self.enable()
         sk = self.p._sk(self.key())
         rows = self.page("pg_chat:" + self.key())
-        for k in ("keep_", "mode_", "gender_", "rlang_", "conversation_style_", "tone_", "react_", "prompt_",
-                  "test_", "remove_"):
+        for k in ("keep_", "mode_", "gender_", "rlang_", "conversation_style_", "tone_", "prompt_", "remove_"):
             self.assertIn(k + sk, rows)
         self.assertIn("pg_lore:" + self.key(), rows)
+        self.assertIn("pg_talk:" + self.key(), rows)                  # 0.9.4: test and actions moved there
+        self.assertIn("test_" + sk, self.page("pg_talk:" + self.key()))
+        self.assertIn("react_" + sk, self.page("pg_talk:" + self.key()))
         self.assertEqual(rows["tone_" + sk].default, 0)
         rows["remove_" + sk].on_click()
         self.assertIn(self.key(), self.p._chats)
@@ -175,10 +177,10 @@ class TestChatPage(Pages):
         self.p.settings["revive"] = False
         CLIENT.history[:] = [{"id": 1, "from_id": 7, "out": False, "date": int(self.clock[0] - 30), "text": "hey",
                               "is_bot": False, "reply_to": None, "dialog_id": DID}]
-        self.page("pg_chat:" + self.key())["refresh_" + self.p._sk(self.key())].on_click()
+        self.page("pg_talk:" + self.key())["refresh_" + self.p._sk(self.key())].on_click()
         self.assertTrue(CLIENT.sent)
         self.p.settings["mode_" + self.p._sk(self.key())] = mod.MODE_DRAFT
-        self.assertNotIn("refresh_" + self.p._sk(self.key()), self.page("pg_chat:" + self.key()))
+        self.assertNotIn("refresh_" + self.p._sk(self.key()), self.page("pg_talk:" + self.key()))
 
 
 class TestModelLists(Pages):
