@@ -25,6 +25,10 @@ try:
     from zephyr.ui import DialogPicker, UsernameInput
 except ImportError:                      # older app: only the chat header menu can add chats
     DialogPicker = UsernameInput = None
+try:
+    from zephyr.ui import Page           # settings pages, app 0.2.2+ (client.SETTINGS_PAGES)
+except ImportError:
+    Page = None
 
 MODE_AUTO = 0
 MODE_DRAFT = 1
@@ -2323,6 +2327,119 @@ S.update({
     "deleted": ("Removed %s from auto-reply", "%s видалено з автовідповідача", "%s удалён из автоответчика"),
     "add_cmds": (".ai on / off / pause / delete / status / start. Off and pause keep settings.", ".аі увімк / вимк / пауза / видалити / стан / старт. Вимк і пауза зберігають налаштування.", ".аи вкл / офф / пауза / удалить / статус / старт. Офф и пауза сохраняют настройки."),
 })
+for _l in u"""
+pg_queue|Reply queue|Черга відповідей|Очередь ответов
+pg_persona|About me (lore)|Про мене (лор)|Обо мне (лор)
+pg_style|Conversation manner|Манера спілкування|Манера общения
+pg_media|Stickers and media|Стікери й медіа|Стикеры и медиа
+pg_timing|Pace and limits|Темп і ліміти|Темп и лимиты
+pg_memory|Memory|Пам'ять|Память
+pg_model|Model and prompt|Модель і промпт|Модель и промпт
+pg_cmd|.ai command|Команда .ai|Команда .ai
+pg_service|Service|Сервіс|Сервис
+pg_style_adv|Fine tuning|Тонке налаштування|Тонкая настройка
+pg_time_adv|Delays in detail|Затримки докладно|Задержки подробно
+pg_type_adv|Typing, two parts, revival|Набір, дві частини, оживлення|Набор, две части, оживление
+pg_limits_adv|Limits and filters|Ліміти й фільтри|Лимиты и фильтры
+pg_model_custom|Own values|Власні значення|Свои значения
+pg_news|What's new in %s|Що нового в %s|Что нового в %s
+pg_bulk|Change several at once|Змінити кілька одразу|Изменить несколько сразу
+pg_setup1|Quick setup (1 min)|Швидке налаштування (1 хв)|Быстрая настройка (1 мин)
+pg_setup2|Next: about me|Далі: про мене|Далее: обо мне
+pg_setup3|Next: where to answer|Далі: де відповідати|Далее: где отвечать
+pg_lore|Lore and notes|Лор і нотатки|Лор и заметки
+pg_access|AI access|Доступ ШІ|Доступ ИИ
+h_whom|Whom to answer|Кому відповідати|Кому отвечать
+h_len|Length|Довжина|Длина
+h_split|Splitting|Розбиття|Разбиение
+h_learn|Style learning|Навчання стилю|Обучение стилю
+h_collect|Collecting messages (s)|Збір повідомлень (с)|Сбор сообщений (с)
+h_warm|Live talk (s)|Жвава розмова (с)|Живая беседа (с)
+h_cold|After silence (s)|Після тиші (с)|После тишины (с)
+h_skip|What to skip|Що пропускати|Что пропускать
+h_safety|Safety net|Страховка|Страховка
+h_cost|Usage|Витрата|Расход
+h_person|The other person|Співрозмовник|Собеседник
+h_manner|Manner|Манера|Манера
+h_new|New|Нове|Новое
+st_work|Working · on in %d of %d chats · today %d replies|Працює · увімк. у %d з %d чатів · сьогодні %d відповідей|Работает · вкл. в %d из %d чатов · сегодня %d ответов
+sum_chats|on %d of %d · add a chat|увімк. %d з %d · додати чат|вкл. %d из %d · добавить чат
+sum_none|not filled|не заповнено|не заполнено
+sum_media|stickers %s%% · reactions: %s|стікери %s%% · реакції: %s|стикеры %s%% · реакции: %s
+sum_service|log, test, report, language, what's new|журнал, тест, звіт, мова, що нового|журнал, тест, отчёт, язык, что нового
+q_empty|Queue is empty|Черга порожня|Очередь пуста
+q_n|%d waiting|%d чекають|%d ждут
+q_wait|%d messages waiting · in %d s|%d повідомлень чекають · через %d с|%d сообщений ждут · через %d с
+q_busy|answering…|відповідає…|отвечает…
+q_now|Send now|Надіслати зараз|Отправить сейчас
+q_stop|Stop|Зупинити|Остановить
+q_stop_all|Stop all|Зупинити все|Остановить всё
+q_rev|Refresh|Оновити|Обновить
+ui_more|Show all settings|Показати всі налаштування|Показать все настройки
+ui_mode|Settings view|Вигляд налаштувань|Вид настроек
+ui_mode_0|Simple|Простий|Простой
+ui_mode_1|Advanced|Розширений|Расширенный
+setup_fin|Done|Готово|Готово
+bl_setup|Done, the bot is on|Готово, бот увімкнено|Готово, бот включён
+setup_again|Run the quick setup again|Пройти налаштування знову|Пройти настройку заново
+setup_quiet|Quiet hours 01:00-08:00|Тихі години 01:00-08:00|Тихие часы 01:00-08:00
+persona_note|One person's lore: on their page in Chats.|Лор окремої людини: на її сторінці в «Чатах».|Лор отдельного человека: на его странице в «Чатах».
+reset_pace|Restore pace values|Повернути значення темпу|Вернуть значения темпа
+bl_reset|Delays follow the pace again|Затримки знову за темпом|Задержки снова по темпу
+chat_sort|Sort|Сортування|Сортировка
+sort_0|By interest|За інтересом|По интересу
+sort_1|By name|За ім'ям|По имени
+sort_2|Enabled first|Спершу увімкнені|Сначала включённые
+interest|interest %s %d|інтерес %s %d|интерес %s %d
+mem_bar|memory %s %d%%|пам'ять %s %d%%|память %s %d%%
+mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Резюме чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Резюме чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
+refresh|Refresh the topic now|Освіжити тему зараз|Освежить тему сейчас
+refresh_s|Writes first on a new topic, no invented facts. Auto only.|Напише першим на нову тему, без вигадок. Лише Авто.|Напишет первым на новую тему, без выдумок. Только Авто.
+bl_refresh|Writing on a new topic…|Пишу на нову тему…|Пишу на новую тему…
+bl_auto_only|Only in Auto mode|Лише в режимі Авто|Только в режиме Авто
+cheap_same|Same as the reply model|Як модель відповідей|Как модель ответов
+model_cheap_pick|Background model|Модель для фону|Модель для фона
+temp_pick|Temperature|Температура|Температура
+temp_0|0.6 more precise|0,6 точніше|0,6 точнее
+temp_1|0.85 default|0,85 типово|0,85 по умолчанию
+temp_2|1.0 livelier|1,0 жвавіше|1,0 живее
+news_open|Open: %s|Відкрити: %s|Открыть: %s
+news_ok|Seen, hide from the main page|Прочитано, сховати з головної|Прочитано, скрыть с главной
+n80a|Settings are split into pages; each person has their own page.|Налаштування розкладено по сторінках; у кожної людини своя.|Настройки разложены по страницам; у каждого человека своя.
+n80b|Reply queue: send a waiting reply now or stop it.|Черга: надіслати відповідь зараз або зупинити.|Очередь: отправить ответ сейчас или остановить.
+n80c|Background model and temperature are picked from lists.|Модель для фону й температура вибираються зі списку.|Модель для фона и температура выбираются из списка.
+n77a|Random reply length: set \u201cReply length, from\u201d.|Випадкова довжина: поле «Довжина відповіді, від».|Случайная длина: поле «Длина ответа, от».
+n77b|Line breaks only between thoughts, with their own chance.|Перенос рядка лише між думками, зі своїм шансом.|Перенос строки только между мыслями, со своим шансом.
+n77c|Natural laughter: no laughing twice in a row or at sad news.|Природний сміх: не двічі поспіль і не на сумне.|Естественный смех: не дважды подряд и не на грустное.
+n76a|A reply with a broken word is written again.|Відповідь зі зламаним словом пишеться заново.|Ответ со сломанным словом пишется заново.
+report_send|Send the report to a chat…|Надіслати звіт у чат…|Отправить отчёт в чат…
+report_send_s|The same last-hour report, without texts and names.|Той самий звіт за годину, без текстів та імен.|Тот же отчёт за час, без текстов и имён.
+bl_report_send|Sending %d messages to %s|Надсилаю %d повідомлень у %s|Отправляю %d сообщений в %s
+bulk_f|Which chats|Яким чатам|Каким чатам
+bulk_f0|All|Усім|Всем
+bulk_f1|Enabled|Увімкненим|Включённым
+bulk_acc|Account %d|Акаунт %d|Аккаунт %d
+bulk_keep|No change|Не змінювати|Не менять
+bulk_apply|Apply to %d chats|Застосувати до %d чатів|Применить к %d чатам
+bl_bulk|Changed %d chats|Змінено %d чатів|Изменено %d чатов
+""".strip().split("\n"):
+    _k, _en, _uk, _ru = _l.split("|")
+    S[_k] = (_en.replace("\\n", "\n"), _uk.replace("\\n", "\n"), _ru.replace("\\n", "\n"))
+NEWS = (("0.8.0", "n80a", "pg_chats"), ("0.8.0", "n80b", "pg_queue"), ("0.8.0", "n80c", "pg_model#model_cheap_pick"),
+        ("0.7.7", "n77a", "pg_style_adv#max_reply_min"), ("0.7.7", "n77b", "pg_style_adv#newline_pct"),
+        ("0.7.7", "n77c", "pg_style#laugh_control"), ("0.7.6", "n76a", ""))
+TEMPS = ("0.6", "0.85", "1.0")
+R["queue_now"] = ("Reply sent now from the queue", "Відповідь надіслано зараз із черги", "Ответ отправлен сейчас из очереди")
+R["queue_stop"] = ("Reply stopped in the queue", "Відповідь зупинено в черзі", "Ответ остановлен в очереди")
+PACE_KEYS = ("debounce cooldown cooldown_jitter owner_defers lat_warm_min lat_warm_max warm_window warm_cap cold_after "
+             "lat_cold_min lat_cold_max lat_long_pct lat_long_min lat_long_max").split()
+
+
+def bar(f, n=8):
+    k = int(round(max(0.0, min(1.0, f)) * n))
+    return u"\u2593" * k + u"\u2591" * (n - k)
+
+
 DEFAULT_OPENERS = [u"ну що там", u"як ти", u"чим займаєшся", u"ти як взагалі", u"що нового", u"є хвилинка?"]
 DEFAULT_OPENERS_RU = [u"ну что там", u"как ты", u"чем занимаешься", u"ты как вообще", u"что нового", u"есть минутка?"]
 DRAFT_WORDS = ("?", "draft", u"чернетка", u"черновик")
@@ -2609,6 +2726,14 @@ class ChatState(object):
 
 
 class Plugin(BasePlugin):
+    @property
+    def _settings(self):
+        return self.__dict__.setdefault("_cbs", {})
+
+    @_settings.setter
+    def _settings(self, items):
+        self._settings.update(items)       # a reloaded main screen must not drop the callbacks of an open page
+
     def _natural_profile_changed(self, value):
         """An explicit, local profile action."""
         enabled = value is True or str(value).strip().lower() == "true"
@@ -2683,6 +2808,7 @@ class Plugin(BasePlugin):
                 self.log("updates hook %s unavailable: %s" % (hook_name, e))
         self._lang_cache = {}              # chat key -> (ts, 'Ukrainian' | 'Russian' | None)
         self._open_key = None              # chat whose options are expanded in the settings screen
+        self._rush, self._mem_len, self._interest = set(), {}, None
         self._cmd_busy = set()
         self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
         self._cmd_fallback = {}
@@ -3383,7 +3509,7 @@ class Plugin(BasePlugin):
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
-                          "see_media", "transcribe_voice", "lore_mode"):
+                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city"):
                 self.set_setting(field + "_" + sk, None)
         return title
 
@@ -3572,6 +3698,10 @@ class Plugin(BasePlugin):
         if self._int("lore_mode_" + sk, 0, 0, 1) == 1:
             mine = ""
         here = str(self.get_setting("lore_" + sk, "") or "").strip()[:LORE_CHAT_MAX_CHARS]
+        who = ", ".join(v for v in (str(self.get_setting(f + "_" + sk, "") or "").strip()[:80]
+                                    for f in ("lore_name", "lore_age", "lore_city")) if v)
+        if who and not self._is_group(key):
+            here = (who + "\n" + here).strip()
         learned = str(self.get_setting("learned_" + sk, "") or "").strip()[:LORE_CHAT_MAX_CHARS]
         if self._is_group(key):
             learned = ""  # old undifferentiated summaries cannot safely identify people/topics
@@ -3739,7 +3869,7 @@ class Plugin(BasePlugin):
             n += 1
         return n
 
-    def _revive_run(self, key):
+    def _revive_run(self, key, manual=False):
         st = self._state(key)
         with self._lock:
             if st.inflight or st.pending:
@@ -3750,7 +3880,7 @@ class Plugin(BasePlugin):
         self._work_context.task = (key, self._epoch(key))
         self._work_context.images = []
         try:
-            self._revive_send(key, st)
+            self._revive_send(key, st, manual)
         except Exception as e:
             self.error(e)
             self._decide(key, "error", "revive_exception_%s" % type(e).__name__)
@@ -3767,21 +3897,21 @@ class Plugin(BasePlugin):
             if again:
                 self._schedule(key, self._debounce(jitter=True))
 
-    def _revive_send(self, key, st):
+    def _revive_send(self, key, st, manual=False):
         self._awake(150)
         """Runs with st.inflight held by _revive_run."""
         c = self._chats.get(key)
-        if (not c or not c.get("enabled") or not self.get_setting("master", True) or not self._revive_on()
-                or self._chat_mode(key) != MODE_AUTO):
+        if (not c or not c.get("enabled") or not self.get_setting("master", True)
+                or not (manual or self._revive_on()) or self._chat_mode(key) != MODE_AUTO):
             return
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
         started = self._now()
-        if started - st.owner_ts < 120 or self.caps_ok(key) or not self.chat_hourly_ok(st):
+        if (not manual and started - st.owner_ts < 120) or self.caps_ok(key) or not self.chat_hourly_ok(st):
             return
         if self.check_info(self._info(key, did)):
             return
         rows = self._load_history(key, account, did, 15, media=True)
-        if self._revive_check(key, rows):
+        if not manual and self._revive_check(key, rows):
             return
         hist = [h for h in rows if str(h.get("text") or "").strip()]
         msgs = self._hist_messages(c, hist)
@@ -4063,6 +4193,7 @@ class Plugin(BasePlugin):
 
     def _schedule(self, key, delay_s):
         self._awake(delay_s + 45)
+        self._q_bump()
         try:
             client.run_on_ui(lambda: client.run_in_bg(lambda: self.tick(key)),
                              delay_ms=int(max(0.0, delay_s) * 1000))
@@ -4104,6 +4235,8 @@ class Plugin(BasePlugin):
             try:
                 self.process(key, batch)
             finally:
+                self._rush.discard(key)
+                self._q_bump()
                 with self._lock:
                     st.inflight = False
                     again = bool(st.pending) and not st.timer
@@ -4325,22 +4458,23 @@ class Plugin(BasePlugin):
         self._config_epoch += 1
 
     def _model_picker(self):
-        current = str(self.get_setting("model", "") or "").strip()
-        models = self.MODEL_PRESETS
-        selected = models.index(current) if current in models else len(models)
+        return self._pick("model_pick", "model", self.MODEL_PRESETS, "", [self.t("model_inherit")])
+
+    def _pick(self, key, store, vals, empty, first):
+        """Selector over fixed values of a stored text setting."""
+        cur = str(self.get_setting(store, "") or "").strip() or empty
 
         def changed(value):
             try:
-                index = int(value)
+                i = int(value)
             except (TypeError, ValueError):
                 return
-            if 0 <= index < len(models):
-                self.set_setting("model", models[index])
+            if 0 <= i < len(vals):
+                self.set_setting(store, vals[i])
                 self._config_epoch += 1
-
-        return Selector(key="model_pick", text=self.t("model_pick"),
-                        items=[self.t("model_inherit")] + list(models[1:]) + [self.t("model_custom")],
-                        default=selected, on_change=changed)
+        labels = first + list(vals[1:]) if len(first) == 1 else first
+        return Selector(key=key, text=self.t(key), items=labels + [self.t("model_custom")],
+                        default=vals.index(cur) if cur in vals else len(vals), on_change=changed)
 
     def _helper_models(self, kind):
         """Models to try in order."""
@@ -5612,6 +5746,7 @@ class Plugin(BasePlugin):
             return None
         store, owner_id, token = ctx
         record = store.get_summary(account, did, enabled=True)
+        self._mem_len[key] = len(str((record or {}).get("summary") or ""))
         if refresh:
             try:
                 self._memory_refresh(key, account, did, messages, store, owner_id, token, record)
@@ -6497,6 +6632,8 @@ class Plugin(BasePlugin):
             if not alive():
                 self._send_typing(did, account, cancel=True)
                 return False, shown
+            if self.chat_key(account, did) in getattr(self, "_rush", ()):
+                left = 0.0
             if left <= 1e-9:
                 return True, shown
             if show and self._send_typing(did, account):
@@ -6568,10 +6705,9 @@ class Plugin(BasePlugin):
         """System prompt: anti-AI rules + tone + owner's own prompt..."""
         if not self._humanize():
             return self._chat_prompt(key)
-        try:
-            tone = int(self.get_setting("tone", 0))
-        except (TypeError, ValueError):
-            tone = 0
+        tone = self._int("tone_" + self._sk(key), 0, 0, 3) - 1
+        if tone < 0:
+            tone = self._int("tone", 0, 0, 2)
         natural = bool(self.get_setting("natural_chat", False))
         parts = [NATURAL_CHAT_PROMPT if natural else HUMAN_PROMPT,
                  CHAT_PROMPT_PRESETS[self._chat_style_index(key)], CHAT_CONTEXT_RULE, self._detail_rule(),
@@ -6953,7 +7089,10 @@ class Plugin(BasePlugin):
             if mid is not None:
                 seen.add(mid)
             result.append(row)
-        return list(reversed(result))[-n:]
+        out = list(reversed(result))[-n:]
+        if n >= 20 and not self._is_group(key):
+            self._interest_note(key, out)
+        return out
 
     @staticmethod
     def _history_order(row):
@@ -8254,8 +8393,13 @@ class Plugin(BasePlugin):
         return Switch(key=key, text=self.t(label), default=True,
                       subtext=("%s %s" % (self.t(subtext), hint)) if subtext else hint)
 
-    def create_settings(self):
+    def create_settings(self, page=None):
         self._load_chats()
+        if Page is not None and getattr(client, "SETTINGS_PAGES", False):
+            return self._page(page or "")
+        return self._legacy()
+
+    def _legacy(self):
         sid = self._ui_section()
         items = [self._section_selector(sid)]
         if sid == "chats":
@@ -8300,14 +8444,17 @@ class Plugin(BasePlugin):
         items = []
         self._settings_chats(items)
         items.append(Header(text=t("h_add")))
-        if DialogPicker is not None:
-            items.append(DialogPicker(key="add_pick", text=t("add_pick"), on_pick=self.on_chat_added))
-            items.append(UsernameInput(key="add_username", text=t("add_user"), on_resolved=self.on_chat_added,
-                                       subtext=t("add_user_s")))
-        else:
-            items.append(note(t("add_old")))
+        items += self._add_rows()
         items.append(note(t("add_cmds")))
         return items
+
+    def _add_rows(self):
+        t = self.t
+        if DialogPicker is None:
+            return [note(t("add_old"))]
+        return [DialogPicker(key="add_pick", text=t("add_pick"), on_pick=self.on_chat_added),
+                UsernameInput(key="add_username", text=t("add_user"), on_resolved=self.on_chat_added,
+                              subtext=t("add_user_s"))]
 
     def _settings_chats(self, items):
         t = self.t
@@ -8342,47 +8489,53 @@ class Plugin(BasePlugin):
             items.append(self._text_row(("▾ " if opened else "▸ ") + title, "chat_" + sk,
                                         self._toggle_open(key), self.chat_row_sub(key, c)))
             if opened:
-                items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
-                                      items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO,
-                                      subtext=t("chat_mode_s"), on_change=self._mode_cb(key)))
-                items.append(Selector(key="rlang_" + sk, text=t("chat_rlang"),
-                                      items=[t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)], default=0))
-                if not self._is_group(key):
-                    items.append(Selector(key="gender_" + sk, text=t("chat_gender"),
-                                          items=[t("gender_0"), t("gender_1"), t("gender_2")], default=0,
-                                          subtext=t("chat_gender_s")))
-                items.append(Selector(key="react_" + sk, text=t("chat_react"),
-                                      items=[t("chat_react_%d" % i) for i in range(3)], default=0,
-                                      subtext=t("chat_react_s")))
-                items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
-                                    on_change=self._keep_cb(key)))
-                if self._is_group(key):
-                    items.append(note(t("group_memory_safe")))
-                else:
-                    items.append(Switch(key="memory_" + sk, text=t("memory"), default=self._memory_default(key),
-                                        subtext=t("memory_consent"), on_change=self._media_consent_changed))
-                items.extend(self._cloud_settings(key))
-                items.append(Switch(key="see_media_" + sk, text=t("see_media"), default=False,
-                                    subtext=t("media_consent"), on_change=self._media_consent_changed))
-                items.append(Switch(key="transcribe_voice_" + sk, text=t("transcribe_voice"), default=False,
-                                    subtext=t("voice_consent"), on_change=self._media_consent_changed))
-                items.append(Input(key="lore_" + sk, text=t("chat_lore"), default="", multiline=True,
-                                   subtext=t("chat_lore_s")))
-                items.append(Selector(key="lore_mode_" + sk, text=t("lore_mode"),
-                                      items=[t("lore_append"), t("lore_replace")], default=0))
-                if not self._is_group(key):
-                    items.append(Input(key="learned_" + sk, text=t("chat_learned"), default="", multiline=True,
-                                       subtext=t("chat_learned_s")))
-                items.append(Selector(key="conversation_style_" + sk, text=t("chat_style"),
-                                      items=[t("chat_style_default")] + [t("chat_style_%d" % i) for i in range(4)],
-                                      default=0, subtext=t("chat_style_s")))
-                items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
-                                   subtext=t("chat_prompt_s")))
-                items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
-                items.append(self._danger("remove_" + sk, "chat_remove", self._remove_cb(key)))
+                items += self._chat_rows(key, c)
         if long_list:
             items.append(Text(text=t("chats_less") if show_all else t("chats_more", len(self._chats)),
                               key="chats_all", on_click=self._toggle_all_chats))
+
+    def _chat_rows(self, key, c, cloud=True):
+        t, sk, items = self.t, self._sk(key), []
+        items.append(Selector(key="mode_" + sk, text=t("chat_mode"),
+                              items=[t("mode_auto"), t("mode_draft"), t("mode_cmd")], default=MODE_AUTO,
+                              subtext=t("chat_mode_s"), on_change=self._mode_cb(key)))
+        items.append(Selector(key="rlang_" + sk, text=t("chat_rlang"),
+                              items=[t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)], default=0))
+        if not self._is_group(key):
+            items.append(Selector(key="gender_" + sk, text=t("chat_gender"),
+                                  items=[t("gender_0"), t("gender_1"), t("gender_2")], default=0,
+                                  subtext=t("chat_gender_s")))
+        items.append(Selector(key="react_" + sk, text=t("chat_react"),
+                              items=[t("chat_react_%d" % i) for i in range(3)], default=0,
+                              subtext=t("chat_react_s")))
+        items.append(Switch(key="keep_" + sk, text=t("chat_enabled"), default=bool(c.get("enabled")),
+                            on_change=self._keep_cb(key)))
+        if self._is_group(key):
+            items.append(note(t("group_memory_safe")))
+        else:
+            items.append(Switch(key="memory_" + sk, text=t("memory"), default=self._memory_default(key),
+                                subtext=t("memory_consent"), on_change=self._media_consent_changed))
+        if cloud:
+            items.extend(self._cloud_settings(key))
+        items.append(Switch(key="see_media_" + sk, text=t("see_media"), default=False,
+                            subtext=t("media_consent"), on_change=self._media_consent_changed))
+        items.append(Switch(key="transcribe_voice_" + sk, text=t("transcribe_voice"), default=False,
+                            subtext=t("voice_consent"), on_change=self._media_consent_changed))
+        items.append(Input(key="lore_" + sk, text=t("chat_lore"), default="", multiline=True,
+                           subtext=t("chat_lore_s")))
+        items.append(Selector(key="lore_mode_" + sk, text=t("lore_mode"),
+                              items=[t("lore_append"), t("lore_replace")], default=0))
+        if not self._is_group(key):
+            items.append(Input(key="learned_" + sk, text=t("chat_learned"), default="", multiline=True,
+                               subtext=t("chat_learned_s")))
+        items.append(Selector(key="conversation_style_" + sk, text=t("chat_style"),
+                              items=[t("chat_style_default")] + [t("chat_style_%d" % i) for i in range(4)],
+                              default=0, subtext=t("chat_style_s")))
+        items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
+                           subtext=t("chat_prompt_s")))
+        items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
+        items.append(self._danger("remove_" + sk, "chat_remove", self._remove_cb(key)))
+        return items
 
     def _group_style(self):
         t = self.t
@@ -8494,8 +8647,10 @@ class Plugin(BasePlugin):
             Input(key="context_chars", text=t("context_chars"), default="16000"),
             self._model_picker(),
             Input(key="model", text=t("model"), default="", subtext=t("model_s"), on_change=self._model_text_changed),
-            Input(key="model_cheap", text=t("model_cheap"), default="", subtext=t("model_cheap_s")),
-            Input(key="temperature", text=t("temperature"), default="0.85"),
+            Input(key="model_cheap", text=t("model_cheap"), default="", subtext=t("model_cheap_s"),
+                  on_change=lambda _v: self.set_setting("model_cheap_pick", None)),
+            Input(key="temperature", text=t("temperature"), default="0.85",
+                  on_change=lambda _v: self.set_setting("temp_pick", None)),
             Switch(key="natural_disclosure" if self.get_setting("natural_chat", False) else "disclosure",
                    text=t("disclosure"), default=not bool(self.get_setting("natural_chat", False))),
             Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
@@ -8612,3 +8767,420 @@ class Plugin(BasePlugin):
             self._decide(key, "cmd", "settings_mode_" + name)
         return cb
 
+
+    # --- settings pages (app 0.2.2+: ui.Page rows open sub-screens; the flat screen above is the fallback)
+    # Tokens: "#key" header, "!key" note, ">page" navigation row, "@name" rows from _pg_<name>(rows, arg),
+    # anything else is a setting row by key ("{}" = the chat suffix). Rows without a match are left out.
+    PAGES = {
+        "": "@root",
+        "chats": "#h_whom reply_all all_accounts @chats #h_add add_pick add_username !add_cmds",
+        "persona": "lore_name lore_age lore_city lore owner_gender lore_learn !persona_note",
+        "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
+                 "laugh_control banned_words >style_adv",
+        "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs #h_learn learn_style "
+                     "learn_n style_share style_cache_min",
+        "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
+        "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
+                  "polite_stop revive >time_adv >type_adv >limits_adv",
+        "time_adv": "#h_collect debounce cooldown cooldown_jitter owner_defers #h_warm lat_warm_min lat_warm_max "
+                    "warm_window warm_cap #h_cold cold_after lat_cold_min lat_cold_max lat_long_pct lat_long_min "
+                    "lat_long_max @reset",
+        "type_adv": "typing_delay typing_cap type_ms split2_pct split_gap_min split_gap_max revive_after "
+                    "revive_window revive_daily",
+        "limits_adv": "#sec_limits hourly_cap daily_cap loop_burst #h_skip skip_links skip_ack ack_reply_pct "
+                      "skip_emoji group_need_question #h_safety scan scan_interval catchup_min",
+        "memory": "@mem memory_auto memory_daily context_n context_chars",
+        "model": "model_pick model_cheap_pick temp_pick default_prompt disclosure natural_disclosure disclosure_text "
+                 ">model_custom #h_cost prompt_max helper_daily @usage",
+        "model_custom": "model model_cheap temperature",
+        "cmd": "!cmd_note cmd_enable cmd_triggers cmd_mode cmd_any_private cmd_openers trigger",
+        "service": ">news >log @test log_report report_send ui_mode ui_lang @again",
+        "log": "@log",
+        "queue": "@queue",
+        "news": "@news",
+        "bulk": "@bulk",
+        "setup1": "ui_mode preset conversation_style answer_detail reply_lang >setup2",
+        "setup2": "lore_name lore_age lore_city lore >setup3",
+        "setup3": "reply_all add_pick @setup3",
+        "chat": "@chat keep_{} mode_{} @refresh #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
+                "react_{} prompt_{} >lore >access test_{} remove_{}",
+        "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{}",
+        "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
+    }
+    ADV = ("style_adv", "time_adv", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
+    ICONS = dict(x.split(":") for x in ("chats:chats queue:timing persona:prompts style:style media:general "
+                 "timing:timing memory:memory model:prompts cmd:commands service:log log:log setup1:general").split())
+
+    def _adv(self):
+        v = self.get_setting("ui_mode", None)
+        return bool(self._chats) if v is None else str(v) == "1"
+
+    def _page(self, page):
+        """One settings page: 'pg_<name>[:<chat key>][#<key shown first>]'."""
+        page, _, focus = page.partition("#")
+        name, _, arg = page[3:].partition(":")
+        if arg and arg not in self._chats:
+            return [note(self.t("no_chats"))]
+        self._hid = False
+        rows = self._rows(arg)
+        out = []
+        for tok in self.PAGES.get(name, "@root").split():
+            c, n = tok[0], tok[1:]
+            if c == "#":
+                out.append(Header(text=self.t(n)))
+            elif c == "!":
+                out.append(note(self.t(n)))
+            elif c == ">":
+                out.append(self._pg(n, arg))
+            elif c == "@":
+                out += getattr(self, "_pg_" + n)(rows, arg)
+            elif tok != "all_accounts" or self._adv():
+                out.append(rows.get(tok.replace("{}", self._sk(arg) if arg else "")))
+            else:
+                self._hid = True
+        out = [x for x in out if x is not None]
+        f = rows.get(focus)
+        if f is not None:
+            out = [Header(text=self.t("h_new")), f] + [x for x in out if x is not f]
+        if self._hid:
+            out.append(Text(text=self.t("ui_more"), key="ui_more", on_click=lambda: self.set_setting("ui_mode", 1)))
+        return out
+
+    def _pg(self, name, arg="", text=None):
+        if name in self.ADV and not self._adv():
+            self._hid = True
+            return None
+        k = "pg_" + name
+        return Page(key=k + (":" + arg if arg else ""), icon=self.ICONS.get(name),
+                    text=text or self.t(k if k in S else "sec_" + name, *((__version__,) if name == "news" else ())),
+                    subtext=None if arg else self._sum(name))
+
+    def _rows(self, arg=""):
+        """Every row of the flat screen by key, plus the rows only the..."""
+        t, m = self.t, {}
+        for f in (self._section_main, self._group_style, self._group_live, self._group_limits, self._group_cmd,
+                  self._group_media, self._group_prompts, self._add_rows):
+            m.update((i.key, i) for i in f() if getattr(i, "key", None))
+        m["model_cheap_pick"] = self._pick("model_cheap_pick", "model_cheap", self.MODEL_PRESETS, "", [t("cheap_same")])
+        m["temp_pick"] = self._pick("temp_pick", "temperature", TEMPS, "0.85", [t("temp_%d" % i) for i in range(3)])
+        m["ui_mode"] = Selector(key="ui_mode", text=t("ui_mode"), items=[t("ui_mode_0"), t("ui_mode_1")],
+                                default=int(self._adv()))
+        if DialogPicker is not None:
+            m["report_send"] = DialogPicker(key="report_send", text=t("report_send"), on_pick=self._report_send,
+                                            subtext=t("report_send_s"))
+        if arg:
+            sk = self._sk(arg)
+            m.update((i.key, i) for i in self._chat_rows(arg, self._chats[arg], False) if getattr(i, "key", None))
+            m["tone_" + sk] = Selector(key="tone_" + sk, text=t("tone"), default=0,
+                                       items=[t("rl_chat_0")] + [t("tone_%d" % i) for i in range(3)])
+            if not self._is_group(arg):
+                for f in ("lore_name", "lore_age", "lore_city"):
+                    m[f + "_" + sk] = Input(key=f + "_" + sk, text=t(f), default="")
+        return m
+
+    def _sum(self, name):
+        """Second line of a category row on the main page."""
+        t, g = self.t, self.get_setting
+        if name == "chats":
+            return t("sum_chats", sum(1 for c in self._chats.values() if c.get("enabled")), len(self._chats))
+        if name == "queue":
+            n = len(self._queue())
+            return t("q_n", n) if n else t("q_empty")
+        if name == "persona":
+            return ", ".join(x for x in (str(g(k, "") or "").strip() for k in ("lore_name", "lore_age", "lore_city"))
+                             if x) or t("sum_none")
+        if name == "style":
+            return " · ".join((t("chat_style_%d" % self._int("conversation_style", 0, 0, 3)),
+                                     t("tone_%d" % self._int("tone", 0, 0, 2)),
+                                     t("detail_%d" % self._int("answer_detail", 1, 0, 2))))
+        if name == "media":
+            return t("sum_media", self._int("sticker_pct", 12, 0, 100), t("react_mode_%d" % self._int("reactions", 0, 0, 2)))
+        if name == "timing":
+            return " · ".join(x for x in (t("preset_%d" % self._preset_index()), str(g("quiet_hours", "") or "")) if x)
+        if name == "memory":
+            return self._mem_line()
+        if name == "model":
+            return "%s · %s" % (str(g("model", "") or "") or t("model_inherit"),
+                                     self._fmt_num(self._float("temperature", 0.85, 0.0, 2.0)))
+        if name == "cmd":
+            return "%s · %s" % (t("st_on" if g("cmd_enable", True) else "st_off"),
+                                     str(g("cmd_triggers", "") or DEFAULT_TRIGGERS))
+        if name == "service":
+            return t("sum_service")
+        return None
+
+    def _pg_root(self, rows, arg):
+        t, n = self.t, len(self._chats)
+        if not self.get_setting("master", True):
+            out = [note(t("master_off_note"))]
+        elif n:
+            out = [note(t("st_work", sum(1 for c in self._chats.values() if c.get("enabled")), n,
+                          self._stat_row(self._ai_stats(), "reply")[0]))]
+        else:
+            out = [note(t("start_note"))]
+        out.append(rows["master"])
+        if not n and not self.get_setting("setup_done", False):
+            out.append(self._pg("setup1"))
+        if self.get_setting("news_seen", "") != __version__:
+            out.append(self._pg("news"))
+        return out + [self._pg(x) for x in ("chats queue persona style media timing memory model cmd service").split()]
+
+    def _pg_chats(self, rows, arg):
+        t = self.t
+        if not self._chats:
+            return [note(t("no_chats"))]
+        out = [Header(text=t("h_bot_chats_n", sum(1 for c in self._chats.values() if c.get("enabled")),
+                             len(self._chats))),
+               Selector(key="chat_sort", text=t("chat_sort"), items=[t("sort_%d" % i) for i in range(3)], default=0)]
+        how = self._int("chat_sort", 0, 0, 2)
+        sc = self._scores()
+        ordered = sorted(self._chats.items(), key=lambda kv: (
+            int(kv[1].get("account", 0)), -sc.get(kv[0], -1) if how == 0 else
+            (self._fresh_title(kv[0], kv[1]).lower() if how == 1 else not kv[1].get("enabled"))))
+        if len(ordered) > self.CHATS_SHOWN and not getattr(self, "_all_chats", False):
+            ordered = ordered[:self.CHATS_SHOWN]
+        accs = {int(c.get("account", 0)) for c in self._chats.values()}
+        last = None
+        for key, c in ordered:
+            a = int(c.get("account", 0))
+            if len(accs) > 1 and a != last:
+                out.append(Header(text=t("bulk_acc", a + 1)))
+            last = a
+            out.append(Page(key="pg_chat:" + key, text=self._fresh_title(key, c), icon="chats",
+                            subtext=self.chat_row_sub(key, c) + self._chat_extra(key, sc)))
+        if len(self._chats) > self.CHATS_SHOWN:
+            out.append(Text(text=t("chats_less") if getattr(self, "_all_chats", False) else
+                            t("chats_more", len(self._chats)), key="chats_all", on_click=self._toggle_all_chats))
+        if len(self._chats) > 1:
+            out.append(self._pg("bulk"))
+        return out
+
+    def _chat_extra(self, key, sc):
+        out = ""
+        if key in sc:
+            out += " · " + self.t("interest", bar(sc[key] / 100.0, 5), sc[key])
+        if key in self._mem_len:
+            f = self._mem_len[key] / float(MEM_SUMMARY_MAX)
+            out += " · " + self.t("mem_bar", bar(f, 5), f * 100)
+        return out
+
+    def _pg_chat(self, rows, key):
+        c = self._chats[key]
+        sub = self.chat_row_sub(key, c).split(" · ")
+        return [note(" · ".join(sub[:2]) + self._chat_extra(key, self._scores()))]
+
+    def _pg_refresh(self, rows, key):
+        if self._is_group(key) or self._chat_mode(key) != MODE_AUTO:
+            return []
+
+        def cb():
+            st = self._state(key)
+            if st.revive_busy:
+                return
+            st.revive_busy = True
+            client.bulletin(self.t("bl_refresh"))
+            client.run_in_bg(lambda: self._revive_run(key, True))
+        return [self._text_row(self.t("refresh"), "refresh_" + self._sk(key), cb, self.t("refresh_s"))]
+
+    def _pg_gnote(self, rows, key):
+        return [note(self.t("group_memory_safe"))] if self._is_group(key) else []
+
+    def _pg_cloud(self, rows, key):
+        return self._cloud_settings(key)
+
+    def _pg_reset(self, rows, arg):
+        def cb():
+            for k in PACE_KEYS:
+                self.set_setting(k, "")
+            client.bulletin(self.t("bl_reset"))
+        return [Text(text=self.t("reset_pace"), key="reset_pace", on_click=cb)]
+
+    def _mem_line(self):
+        lens = list(self._mem_len.values())
+        f = sum(lens) / float(len(lens) * MEM_SUMMARY_MAX) if lens else 0.0
+        return "%s %d%%" % (bar(f), f * 100)
+
+    def _pg_mem(self, rows, arg):
+        db = 0
+        for store in list(self._memory_stores.values()):
+            try:
+                db += os.path.getsize(store.path)
+            except Exception:
+                pass
+        f = db / float(48 << 20)
+        m = self._ai_stats()["m"]
+        return [note(self.t("mem_note", bar(sum(self._mem_len.values()) / float(max(1, len(self._mem_len)) * MEM_SUMMARY_MAX)),
+                            sum(self._mem_len.values()) * 100 // (max(1, len(self._mem_len)) * MEM_SUMMARY_MAX),
+                            bar(f), f * 100, "%.1f" % (db / 1048576.0),
+                            sum(int(v or 0) for v in m.values()), self._int("memory_daily", MEM_DAILY, 0, 100)))]
+
+    def _pg_usage(self, rows, arg):
+        return [note(self._usage_note())]
+
+    def _pg_log(self, rows, arg):
+        return self._group_log()
+
+    def _pg_test(self, rows, arg):
+        return self._group_test()
+
+    def _pg_again(self, rows, arg):
+        return [self._pg("setup1", text=self.t("setup_again"))]
+
+    def _pg_setup3(self, rows, arg):
+        def done():
+            self.set_setting("setup_done", True)
+            client.bulletin(self.t("bl_setup"))
+        return [Text(text=self.t("setup_quiet"), key="setup_quiet",
+                     on_click=lambda: self.set_setting("quiet_hours", "01:00-08:00")),
+                Text(text=self.t("setup_fin"), key="setup_fin", on_click=done)]
+
+    def _pg_news(self, rows, arg):
+        t, out, ver = self.t, [], None
+        for v, k, link in NEWS:
+            if v != ver:
+                out.append(Header(text=v))
+                ver = v
+            n = link[3:].partition("#")[0]
+            out.append(Page(key=link, text=t(k), icon="general", subtext=t("news_open", t("pg_" + n if "pg_" + n in S
+                       else "sec_" + n))) if link else note(t(k)))
+        if self.get_setting("news_seen", "") != __version__:
+            out.append(Text(text=t("news_ok"), key="news_ok", on_click=lambda: self.set_setting("news_seen", __version__)))
+        return out
+
+    # --- reply queue
+    def _queue(self):
+        return [k for k, st in list(self._states.items()) if k in self._chats and (st.pending or st.inflight)]
+
+    def _q_bump(self):
+        """Redraw an open queue page (it shows the key q_rev) when the..."""
+        if self._now() - getattr(self, "_q_seen", -1e9) < 600:
+            self.set_setting("q_rev", int(self._now() * 1000) % 1000000)
+
+    def _pg_queue(self, rows, arg):
+        t, now, out = self.t, self._now(), []
+        self._q_seen = now
+        for key in self._queue():
+            st, sk = self._states[key], self._sk(key)
+            due = min(st.last_ts + self._debounce(), st.first_ts + MAX_DEBOUNCE_TOTAL, now + 9999)
+            out += [Header(text=self._fresh_title(key, self._chats[key])),
+                    note(t("q_busy") if st.inflight else t("q_wait", len(st.pending), max(0, due - now))),
+                    Text(text=t("q_now"), key="q_now_" + sk, on_click=lambda k=key: self._q_now(k)),
+                    Text(text=t("q_stop"), key="q_stop_" + sk, on_click=lambda k=key: self._q_stop(k))]
+        if out:
+            out.append(Text(text=t("q_stop_all"), key="q_stop_all",
+                            on_click=lambda: [self._q_stop(k) for k in self._queue()]))
+        else:
+            out.append(note(t("q_empty")))
+        return out + [Text(text=t("q_rev"), key="q_rev")]
+
+    def _q_now(self, key):
+        """Send now: the collection pause, cooldown and human delays of..."""
+        st = self._states.get(key)
+        if not st:
+            return
+        self._rush.add(key)
+        with self._lock:
+            st.first_ts = st.cooldown_until = 0.0
+            idle = not st.inflight
+        self._decide(key, "cmd", "queue_now")
+        if idle:
+            client.run_in_bg(lambda: self.tick(key))
+
+    def _q_stop(self, key):
+        """Stop: the same cancellation as the owner's own reply (waits..."""
+        st = self._states.get(key)
+        if not st:
+            return
+        with self._lock:
+            st.owner_seq += 1
+            st.pending, st.defers = [], 0
+        self._rush.discard(key)
+        self._decide(key, "cmd", "queue_stop")
+
+    # --- interest of the other person (0-100, no AI): reply speed, length, questions, who starts, emoji, recency
+    def _scores(self):
+        if self._interest is None:
+            try:
+                raw = json.loads(self.get_setting("interest", "{}") or "{}")
+                self._interest = {k: v for k, v in raw.items() if isinstance(v, list) and len(v) == 2}
+            except (TypeError, ValueError, AttributeError):
+                self._interest = {}
+        return {k: int(v[0]) for k, v in self._interest.items() if k in self._chats}
+
+    def _interest_note(self, key, rows):
+        self._scores()
+        now = self._now()
+        if now - float((self._interest.get(key) or [0, -1e9])[1]) < 600:
+            return
+        rows = [r for r in rows if isinstance(r, dict) and r.get("date")][-30:]
+        inc = [r for r in rows if not r.get("out")]
+        if not inc:
+            return
+        speed, starts, prev = [], [], None
+        for r in rows:
+            gap = r["date"] - prev["date"] if prev else 1e9
+            if gap > 3 * 3600:
+                starts.append(not r.get("out"))
+            elif prev.get("out") and not r.get("out"):
+                speed.append(max(0.0, 1 - gap / 1800.0))
+            prev = r
+        texts = [str(r.get("text") or "") for r in inc]
+        n = float(len(inc))
+        v = (0.2 * min(1.0, 2 * n / len(rows)) + 0.2 * min(1.0, sum(map(len, texts)) / n / 60)
+             + 0.15 * min(1.0, 3 * sum("?" in x for x in texts) / n) + 0.2 * (sum(speed) / len(speed) if speed else 0.5)
+             + 0.15 * (sum(starts) / float(len(starts)) if starts else 0.5) + 0.1 * min(1.0, 2 * sum(bool(EMOJI_RE.search(x)) for x in texts) / n))
+        age = now - inc[-1]["date"]
+        self._interest[key] = [int(round(100 * v * (1.0 if age < 86400 else max(0.2, 1 - age / 604800.0)))), now]
+        self.set_setting("interest", json.dumps(self._interest))
+
+    # --- bulk change
+    def _bulk_opts(self):
+        t = self.t
+        return (("mode", "chat_mode", [t("mode_auto"), t("mode_draft"), t("mode_cmd")]),
+                ("conversation_style", "chat_style", [t("chat_style_default")] + [t("chat_style_%d" % i) for i in range(4)]),
+                ("tone", "tone", [t("rl_chat_0")] + [t("tone_%d" % i) for i in range(3)]),
+                ("react", "chat_react", [t("chat_react_%d" % i) for i in range(3)]),
+                ("rlang", "chat_rlang", [t("rl_chat_0")] + [t("rl_%d" % i) for i in range(4)]),
+                ("memory", "memory", [t("st_on"), t("st_off")]))
+
+    def _bulk_targets(self):
+        accs = sorted({int(c.get("account", 0)) for c in self._chats.values()})
+        f = self._int("bulk_f", 0, 0, len(accs) + 1)
+        return accs, [k for k, c in self._chats.items() if f == 0 or (f == 1 and c.get("enabled"))
+                      or (f > 1 and int(c.get("account", 0)) == accs[f - 2])]
+
+    def _pg_bulk(self, rows, arg):
+        t = self.t
+        accs, keys = self._bulk_targets()
+        out = [Selector(key="bulk_f", text=t("bulk_f"), default=0,
+                        items=[t("bulk_f0"), t("bulk_f1")] + [t("bulk_acc", a + 1) for a in accs])]
+        for k, label, opts in self._bulk_opts():
+            out.append(Selector(key="bulk_" + k, text=t(label), items=[t("bulk_keep")] + opts, default=0))
+        return out + [Text(text=t("bulk_apply", len(keys)), key="bulk_apply", on_click=self._bulk_apply)]
+
+    def _bulk_apply(self):
+        keys = self._bulk_targets()[1]
+        for k, _label, _opts in self._bulk_opts():
+            v = self._int("bulk_" + k, 0, 0, 9)
+            if not v:
+                continue
+            for key in keys:
+                self.set_setting(k + "_" + self._sk(key), v == 1 if k == "memory" else v - 1)
+                if k == "mode":
+                    self._mode_cb(key)(v - 1)
+            self.set_setting("bulk_" + k, 0)
+        self._media_consent_changed(None)
+        client.bulletin(self.t("bl_bulk", len(keys)))
+
+    # --- report to a chat
+    def _report_send(self, dialog_id, title=""):
+        def work():
+            try:
+                parts = chunk_text(self.build_report()[0], 4000)
+                client.bulletin(self.t("bl_report_send", len(parts), title or dialog_id))
+                for part in parts:
+                    client.send_text(int(dialog_id), part)
+            except Exception as e:
+                self.error(e)
+                client.bulletin(self.t("bl_report_failed", e))
+        client.run_in_bg(work)
