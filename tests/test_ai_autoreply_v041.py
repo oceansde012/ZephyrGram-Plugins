@@ -164,14 +164,15 @@ class TestMergedLines(Base):
         self.enable()
 
     def test_merged_lines_keep_their_break(self):
-        self.assertEqual(mod.split_reply("не\nзавтра\nне встиг ще", 2), ["не\nзавтра", "не встиг ще"])
+        # 0.7.7: no line break inside one message between unfinished thoughts; a comma keeps the meaning
+        self.assertEqual(mod.split_reply("не\nзавтра\nне встиг ще", 2), ["не, завтра", "не встиг ще"])
         self.p.settings["max_parts"] = "2"
         CLIENT.ai_result = lambda m, **kw: "не\nзавтра\nне встиг ще"
         self.incoming(text="ти щось робив?")
         self.fire_timers()
         texts = [s[1] for s in CLIENT.sent]
         self.assertEqual(len(texts), 2)
-        self.assertTrue(texts[0].endswith("не\nзавтра"))
+        self.assertTrue(texts[0].endswith("не, завтра"))
         self.assertNotIn("не завтра", " ".join(texts))
 
     def test_merged_short_lines_are_not_a_long_sentence(self):
