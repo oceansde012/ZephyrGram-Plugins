@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.4"
-__version_code__ = 45
+__version__ = "0.9.5"
+__version_code__ = 46
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -510,6 +510,10 @@ MEM_CHECK_SEC = 90           # a reply looks (in the background) whether an upda
 MEM_CHAIN = 3                # calls one update may chain when the new messages do not fit into one call
 MEM_DAILY = 6                # summarizer calls per chat and day; setting 'memory_daily'
 MEM_RAW_KEEP = 16            # with a summary, history it covers is sent raw only for the newest this many rows
+MEM_RESET_MARK = "\u2205"     # a stored revision that starts the chat memory over (0.9.5); read as an empty summary
+MEM_BUDGET = 3000            # chat memory per reply, characters: local summary + server excerpts (0.9.5)
+MEM_SUMMARY_SHARE = 1500     # the summary's share when server excerpts are there too
+MEM_WARN = 0.9               # the memory scale warns from this fill
 MEM_SEEN_KICK = 40           # messages seen in an enabled chat (also without replies) that start an update check
 
 PRESET_NAMES = ["Balanced", "Chatty", "Quiet", "Live (human-like, default)"]
@@ -2559,6 +2563,23 @@ sort_2|Enabled first|Спершу увімкнені|Сначала включё
 interest|interest %s %d|інтерес %s %d|интерес %s %d
 mem_bar|memory %s %d%%|пам’ять %s %d%%|память %s %d%%
 mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Підсумки чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Сводки чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
+h_memory|Memory of this chat|Пам’ять цього чату|Память этого чата
+mem_scale|%s %d%% · %d of %d characters · updated %s · notes %d of 12|%s %d%% · %d з %d знаків · оновлено %s · нотаток %d з 12|%s %d%% · %d из %d знаков · обновлена %s · заметок %d из 12
+mem_never|not yet|ще ні|ещё нет
+mem_ago_m|%d min ago|%d хв тому|%d мин назад
+mem_ago_h|%d h ago|%d год тому|%d ч назад
+mem_ago_d|%d d ago|%d дн. тому|%d дн. назад
+mem_warn|Almost full: older details will be squeezed out at the next update.|Майже заповнено: старіші подробиці буде витіснено при наступному оновленні.|Почти заполнено: старые подробности будут вытеснены при следующем обновлении.
+mem_off|Chat memory is off for this chat (Access page).|Пам’ять чату вимкнена для цього чату (сторінка «Доступ»).|Память чата выключена для этого чата (страница «Доступ»).
+mem_reset|Start the memory over|Почати пам’ять заново|Начать память заново
+mem_reset_s|Empty summary and notes; what was said before is not summarized again. Can be undone below.|Порожній підсумок і нотатки; сказане раніше не підсумовується знову. Можна скасувати нижче.|Пустая сводка и заметки; сказанное раньше не пересказывается заново. Можно отменить ниже.
+mem_restore|Bring back the previous memory|Повернути попередню пам’ять|Вернуть прошлую память
+bl_mem_reset|Memory of this chat starts over|Пам’ять цього чату почато заново|Память этого чата начата заново
+bl_mem_reset_cloud|Memory starts over here. Memory in Neon is kept: delete it with the button below (two taps).|Пам’ять тут почато заново. Пам’ять у Neon збережено: видаліть її кнопкою нижче (два натискання).|Память здесь начата заново. Память в Neon сохранена: удалите её кнопкой ниже (два нажатия).
+bl_mem_restored|Previous memory is back|Попередню пам’ять повернуто|Прошлая память возвращена
+bl_mem_nothing|There is no earlier memory to bring back|Немає попередньої пам’яті|Нет прошлой памяти
+bl_mem_fail|Memory storage is unavailable or full|Сховище пам’яті недоступне або заповнене|Хранилище памяти недоступно или заполнено
+mem_cloud_del|Also delete memory in Neon|Також видалити пам’ять у Neon|Также удалить память в Neon
 pg_talk|Conversation|Спілкування|Общение
 h_vector|Change the direction|Змінити напрямок розмови|Изменить вектор общения
 vector|How to talk from now on|Як спілкуватися далі|Как общаться дальше
@@ -2643,10 +2664,22 @@ R["vector_expired"] = ("The temporary rule “How to talk from now on” ended a
                        "Тимчасове правило «Як спілкуватися далі» закінчилося й зняте",
                        "Временное правило «Как общаться дальше» закончилось и снято")
 R["chat_studied"] = ("Chat studied on your request", "Чат вивчено на ваш запит", "Чат изучен по вашему запросу")
+R["memory_reset"] = ("You started this chat's memory over", "Ви почали пам’ять чату заново", "Вы начали память чата заново")
+R["memory_restored"] = ("You brought back the previous memory", "Ви повернули попередню пам’ять", "Вы вернули прошлую память")
 R["queue_now"] = ("Reply sent now from the queue", "Відповідь надіслано зараз із черги", "Ответ отправлен сейчас из очереди")
 R["queue_stop"] = ("Reply stopped in the queue", "Відповідь зупинено в черзі", "Ответ остановлен в очереди")
 PACE_KEYS = ("debounce cooldown cooldown_jitter owner_defers lat_warm_min lat_warm_max warm_window warm_cap cold_after "
              "lat_cold_min lat_cold_max lat_long_pct lat_long_min lat_long_max").split()
+
+
+def cloud_query(messages):
+    """Search text for the server memory: the newest incoming message, labels removed, up to 200 characters;
+    '' when it has no word of 3+ letters (then the newest excerpts are used)."""
+    for m in reversed(messages or []):
+        if m.get("role") == "user":
+            text = " ".join(LABEL_RE.sub("", str(m.get("content") or "")).split())[:200]
+            return text if re.search(r"[^\W\d_]{3,}", text) else ""
+    return ""
 
 
 def bar(f, n=8):
@@ -2827,7 +2860,7 @@ class ChatMemoryStore:
                     self.last_error = "summary_size_limit"
                     return None
                 return {"account": account, "dialog_id": dialog_id,
-                        "summary": row[0], "through_id": row[1],
+                        "summary": "" if row[0] == MEM_RESET_MARK else row[0], "through_id": row[1],
                         "revision": row[2], "updated_at": row[3]}
             except (OSError, ValueError, _zmem_sqlite3.Error):
                 self.last_error = "storage_unavailable"
@@ -2888,6 +2921,66 @@ class ChatMemoryStore:
             finally:
                 if connection is not None:
                     connection.close()
+
+
+    def _append(self, account, dialog_id, enabled, make):
+        """Append the revision that make(connection, latest_row) returns as (summary, through_id), or None."""
+        with self._lock:
+            if not self._guard(account, dialog_id, enabled):
+                return False
+            connection = None
+            try:
+                connection = self._connect()
+                connection.execute("BEGIN IMMEDIATE")
+                old = self._latest(connection, account, dialog_id)
+                new = make(connection, old)
+                revision = old[2] if old is not None else 0
+                if new is None or revision >= self._max_revisions:
+                    self.last_error = "revision_limit" if new is not None else "nothing_to_restore"
+                    connection.rollback()
+                    return False
+                connection.execute("""INSERT INTO chat_summary_revisions
+                    (account, dialog_id, revision, through_id, summary, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (account, dialog_id, revision + 1, int(new[1]), new[0], int(_zmem_time.time())))
+                connection.commit()
+                self.last_error = None
+                return True
+            except (OSError, ValueError, _zmem_sqlite3.Error):
+                if connection is not None:
+                    try:
+                        connection.rollback()
+                    except _zmem_sqlite3.Error:
+                        pass
+                self.last_error = "storage_unavailable_or_full"
+                return False
+            finally:
+                if connection is not None:
+                    connection.close()
+
+    def reset(self, account, dialog_id, through_id, enabled=False):
+        """#2: start the chat memory over; older revisions stay for restore. Messages up to through_id are not
+        summarized again."""
+        def make(_connection, old):
+            if old is not None and old[0] == MEM_RESET_MARK:
+                return None
+            return MEM_RESET_MARK, max(int(through_id or 0), old[1] if old is not None else 0)
+        return self._append(account, dialog_id, enabled, make)
+
+    def restore(self, account, dialog_id, enabled=False):
+        """#2: copy back the newest older revision that differs from the current one (skipping resets), with its
+        own message boundary, so the messages after it are summarized again."""
+        def make(connection, old):
+            if old is None:
+                return None
+            rows = connection.execute("""SELECT summary, through_id FROM chat_summary_revisions
+                WHERE account=? AND dialog_id=? AND revision<? ORDER BY revision DESC LIMIT 512""",
+                (account, dialog_id, old[2])).fetchall()
+            for summary, through in rows:
+                if summary != MEM_RESET_MARK and summary != old[0]:
+                    return summary, through
+            return None
+        return self._append(account, dialog_id, enabled, make)
 
 
 class ChatState(object):
@@ -3025,6 +3118,7 @@ class Plugin(BasePlugin):
         self._lang_cache = {}              # chat key -> (ts, 'Ukrainian' | 'Russian' | None)
         self._open_key = None              # chat whose options are expanded in the settings screen
         self._rush, self._mem_len, self._interest = set(), {}, None
+        self._mem_meta = {}
         self._cmd_busy = set()
         self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
         self._asks, self._ask_n = {}, 0    # approval number -> chat key
@@ -3752,7 +3846,8 @@ class Plugin(BasePlugin):
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
                           "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan",
-                          "vector", "vector_days", "daily", "style_src"):
+                          "vector", "vector_days", "daily", "style_src",
+                          "learned_prev"):
                 self.set_setting(field + "_" + sk, None)
         return title
 
@@ -5991,14 +6086,17 @@ class Plugin(BasePlugin):
         finally:
             self._cloud_network_lock.release()
 
-    def _cloud_context(self, key, account, did, messages):
+    def _cloud_context(self, key, account, did, messages, budget=5000):
         topic = self._cloud_scope(key)
         record = self._cloud_state(key, topic)
         if not self._cloud_active(key, topic, record) or not self._cloud_network_lock.acquire(blocking=False):
             return ""
         epoch = self._epoch(key)
         try:
-            data = client.ai_memory_context(account, did, topic, query="", timeout=5, expected_binding=record["binding"])
+            query = cloud_query(messages)               # 0.9.5: excerpts that match the incoming message first
+            data = client.ai_memory_context(account, did, topic, query=query, timeout=5, expected_binding=record["binding"])
+            if query and isinstance(data, dict) and not data.get("messages") and self._cloud_active(key, topic, record):
+                data = client.ai_memory_context(account, did, topic, query="", timeout=5, expected_binding=record["binding"])
             if not self._cloud_active(key, topic, record) or epoch != self._epoch(key):
                 return ""
             if (not isinstance(data, dict) or data.get("kind") != "untrusted_chat_history"
@@ -6021,7 +6119,7 @@ class Plugin(BasePlugin):
                         "date": str(row.get("date") or "")[:40],
                         "text": text if speaker == "owner" else contact_text(text)}
                 encoded = json.dumps(item, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
-                if used + len(encoded) > 5000:
+                if used + len(encoded) > min(5000, budget):
                     continue
                 rows.append(item); seen.add(row["messageId"]); used += len(encoded)
             notes, note_keys = [], set()
@@ -6039,7 +6137,7 @@ class Plugin(BasePlugin):
                         "throughId": note_row.get("throughId"), "revision": note_row.get("revision"),
                         "updatedAt": str(note_row.get("updatedAt") or "")[:40]}
                 encoded = json.dumps(item, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e")
-                if used + len(encoded) <= 5000:
+                if used + len(encoded) <= min(5000, budget):
                     notes.append(item); used += len(encoded); note_keys.add(norm_text(text))
             self._work_context.cloud_note_keys = (key, id(messages), note_keys)
             if not rows and not notes:
@@ -6310,6 +6408,7 @@ class Plugin(BasePlugin):
         store, owner_id, token = ctx
         record = store.get_summary(account, did, enabled=True)
         self._mem_len[key] = len(str((record or {}).get("summary") or ""))
+        self._mem_meta[key] = (self._mem_len[key], (record or {}).get("updated_at") or 0)
         if refresh:
             try:
                 self._memory_refresh(key, account, did, messages, store, owner_id, token, record)
@@ -7433,9 +7532,13 @@ class Plugin(BasePlugin):
 
     def generate(self, key, account, did, messages, c, st, split=True, extra_system="", lang_text=None, kind="reply"):
         """Returns (parts, why)."""
-        cloud = self._cloud_context(key, account, did, messages) if kind == "reply" else ""
-        extra_system = "\n\n".join(x for x in (extra_system, cloud) if x)
         record = self._memory_record(key, account, did, messages=messages, refresh=False)
+        summ = str((record or {}).get("summary") or "")
+        room = MEM_BUDGET - min(len(summ), MEM_SUMMARY_SHARE)           # 0.9.5: one memory budget per reply
+        cloud = self._cloud_context(key, account, did, messages, budget=room) if kind == "reply" else ""
+        if cloud and record and len(summ) > MEM_SUMMARY_SHARE:
+            record = dict(record, summary=clip_lines(summ, MEM_SUMMARY_SHARE))
+        extra_system = "\n\n".join(x for x in (extra_system, cloud) if x)
         note_keys = getattr(self._work_context, "cloud_note_keys", None)
         if (cloud and record and note_keys and note_keys[:2] == (key, id(messages))
                 and norm_text(cloud_redact(record.get("summary", ""))) in note_keys[2]):
@@ -9467,7 +9570,8 @@ class Plugin(BasePlugin):
         "setup3": "reply_all add_pick @setup3",
         "chat": "@chat keep_{} mode_{} >talk #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
                 "prompt_{} >lore >access remove_{}",
-        "talk": "@refresh learn_now_{} test_{} react_{} #h_vector vector_{} vector_days_{} daily_{} @style_src",
+        "talk": "@refresh learn_now_{} test_{} react_{} #h_vector vector_{} vector_days_{} daily_{} @style_src @memory",
+        "cmem": "@memory_page",
         "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{} plan_{}",
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
@@ -9671,6 +9775,116 @@ class Plugin(BasePlugin):
             client.bulletin(self.t("bl_refresh"))
             client.run_in_bg(lambda: self._revive_run(key, True))
         return out + [self._text_row(self.t("refresh"), "refresh_" + self._sk(key), cb, self.t("refresh_s"))]
+
+    def _mem_scale(self, key):
+        """#3: '▓▓░ 62% · 4960 of 8000 characters · updated 2 h ago · notes 7 of 12' (+ a warning at 90%).
+        From the cache the replies fill; never opens the database on the UI thread."""
+        t, sk = self.t, self._sk(key)
+        meta = self._mem_meta.get(key)
+        if meta is None:
+            c = self._chats.get(key) or {}
+            try:
+                client.run_in_bg(lambda: self._memory_record(key, int(c.get("account", 0)), int(c["dialog_id"]),
+                                                            refresh=None))
+            except Exception:
+                pass
+        n, updated = meta if meta else (self._mem_len.get(key, 0), 0)
+        f = n / float(MEM_SUMMARY_MAX)
+        notes_n = len([x for x in str(self.get_setting("learned_" + sk, "") or "").splitlines() if x.strip()])
+        when = t("mem_never")
+        if updated:
+            age = max(0, int(self._now() - float(updated)))
+            when = (t("mem_ago_m", age // 60) if age < 3600 else t("mem_ago_h", age // 3600) if age < 86400
+                    else t("mem_ago_d", age // 86400))
+        text = t("mem_scale", bar(f), int(f * 100), n, MEM_SUMMARY_MAX, when, min(notes_n, 12))
+        if f >= MEM_WARN or notes_n >= 12:
+            text += "\n" + t("mem_warn")
+        return text
+
+    def _pg_memory(self, rows, key):
+        """The Conversation page row of this chat's memory, with its scale."""
+        if self._is_group(key):
+            return []
+        sub = self._mem_scale(key) if self._memory_flag(key) else self.t("mem_off")
+        return [Page(key="pg_cmem:" + key, icon=self.ICONS.get("memory"), text=self.t("h_memory"), subtext=sub)]
+
+    def _pg_memory_page(self, rows, key):
+        """#3 scale and #2 start over / bring back (private chats)."""
+        if self._is_group(key):
+            return []
+        t, sk = self.t, self._sk(key)
+        if not self._memory_flag(key):
+            return [note(t("mem_off"))]
+        out = [note(self._mem_scale(key))]
+        out.append(self._text_row(t("mem_reset"), "mem_reset_" + sk, lambda: client.run_in_bg(
+            lambda: self._memory_reset(key)), t("mem_reset_s")))
+        out.append(self._text_row(t("mem_restore"), "mem_restore_" + sk, lambda: client.run_in_bg(
+            lambda: self._memory_restore(key))))
+        topic = self._cloud_scope(key)
+        try:
+            cloud_on = self._cloud_active(key, topic, self._cloud_state(key, topic))
+        except Exception:
+            cloud_on = False
+        if cloud_on:
+            out.append(self._danger("mem_cloud_del_" + sk, "mem_cloud_del",
+                                    lambda: self._cloud_action(key, topic, "delete")))
+        return out
+
+    def _memory_reset(self, key):
+        """#2 A: empty summary revision at the newest message, notes cleared (kept for bring back)."""
+        c = self._chats.get(key)
+        if not c:
+            return False
+        account, did, sk = int(c.get("account", 0)), int(c["dialog_id"]), self._sk(key)
+        ctx = self._memory_ctx(key, account, did)
+        if ctx is None:
+            client.bulletin(self.t("bl_mem_fail"))
+            return False
+        hist = self._load_history(key, account, did, 100)
+        last = max([h["id"] for h in hist if type(h.get("id")) is int] or [0])
+        if not ctx[0].reset(account, did, last, enabled=True) and ctx[0].last_error not in (None, "nothing_to_restore"):
+            client.bulletin(self.t("bl_mem_fail"))
+            return False
+        notes = str(self.get_setting("learned_" + sk, "") or "")
+        if notes.strip():
+            self.set_setting("learned_prev_" + sk, notes)
+        self.set_setting("learned_" + sk, "")
+        self._mem_len[key] = 0
+        self._mem_meta[key] = (0, int(self._now()))
+        st = self._state(key)
+        st.learn_n = 0
+        self._decide(key, "info", "memory_reset")
+        topic = self._cloud_scope(key)
+        try:
+            cloud_on = self._cloud_active(key, topic, self._cloud_state(key, topic))
+        except Exception:
+            cloud_on = False
+        client.bulletin(self.t("bl_mem_reset_cloud" if cloud_on else "bl_mem_reset"))
+        return True
+
+    def _memory_restore(self, key):
+        c = self._chats.get(key)
+        if not c:
+            return False
+        account, did, sk = int(c.get("account", 0)), int(c["dialog_id"]), self._sk(key)
+        ctx = self._memory_ctx(key, account, did)
+        ok = bool(ctx) and ctx[0].restore(account, did, enabled=True)
+        prev = str(self.get_setting("learned_prev_" + sk, "") or "")
+        if not ok and ctx and ctx[0].last_error not in (None, "nothing_to_restore"):
+            client.bulletin(self.t("bl_mem_fail"))          # storage trouble: keep the saved notes untouched
+            return False
+        if prev.strip():
+            self.set_setting("learned_" + sk, prev)
+            self.set_setting("learned_prev_" + sk, "")
+            ok = True
+        if not ok:
+            client.bulletin(self.t("bl_mem_nothing" if ctx and ctx[0].last_error == "nothing_to_restore"
+                                   else "bl_mem_fail"))
+            return False
+        self._mem_meta.pop(key, None)
+        self._decide(key, "info", "memory_restored")
+        client.bulletin(self.t("bl_mem_restored"))
+        return True
 
     def _pg_style_src(self, rows, key):
         """#13: a chosen chat whose messages are the style examples here."""

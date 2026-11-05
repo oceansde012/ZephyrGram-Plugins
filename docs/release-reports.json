@@ -818,6 +818,46 @@
       ]
     },
     {
+      "product": "ai_autoreply",
+      "version": "0.9.5",
+      "sha256": "c202584c054e3b68ba148b11b27e926d7b25592c5bd60973e3c361983a39f608",
+      "checks": "1042 Python tests and plugin validation passed; no live provider calls. Size 582015 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings (1 fix taken, 5 suggestions rejected as changing established UI terms). GLM (glm-proxy, via ai_parallel + ai_task_status) reviewed the diff: 2 findings, 1 taken (a storage error in restore no longer wipes the saved notes), 1 rejected (chat records always have dialog_id).",
+      "items": [
+        {
+          "id": "MEM-RESET",
+          "title": "Начать память заново / Вернуть прошлую",
+          "scope": "complete",
+          "details": "ChatMemoryStore.reset appends an empty-marker revision (MEM_RESET_MARK) at the newest message id; restore copies back the newest older differing revision with its own boundary. Notes are moved to learned_prev_{sk} and brought back. Cloud memory is untouched; the existing two-tap delete is shown on the page when the cloud is active.",
+          "limitations": "Cloud memory is deleted only by the separate button.",
+          "human_text": "Память чата можно очистить и вернуть обратно, сводка и заметки о собеседнике откатываются."
+        },
+        {
+          "id": "MEM-SCALE",
+          "title": "Шкала памяти",
+          "scope": "complete",
+          "details": "Row 'Память этого чата' on the Conversation page with fill bar, percent, characters of 8000, age of the last update, notes of 12 and a warning from 90%. Read from a cache filled by replies and a background read; the UI thread never opens the database.",
+          "limitations": "The cloud counters (messages in Neon, chats of 20) wait for the server status counters.",
+          "human_text": "На странице чата видно, насколько заполнена память и когда обновлялась."
+        },
+        {
+          "id": "MEM-BUDGET",
+          "title": "Бюджет памяти 3000 знаков",
+          "scope": "complete",
+          "details": "Summary and server excerpts share 3000 characters per reply; the summary is clipped to 1500 only when excerpts exist. Chats without Neon memory behave as before.",
+          "limitations": "",
+          "human_text": "Память в одном ответе не больше 3000 знаков, расход токенов не растёт."
+        },
+        {
+          "id": "MEM-QUERY",
+          "title": "Поиск в Neon по входящему",
+          "scope": "complete",
+          "details": "ai_memory_context gets query from the newest incoming message (labels stripped, 200 chars); an empty result falls back to the newest excerpts.",
+          "limitations": "Server MEMORY_ENABLED is false until Vlad switches it.",
+          "human_text": "Когда память в Neon включена, из неё берутся выдержки по теме нового сообщения."
+        }
+      ]
+    },
+    {
       "product": "chat_history_export",
       "version": "1.0.5",
       "sha256": "3a5522804d590b3cea27107920e37c1c6c3f432fca9d07d8e6d7f7ad6b929917",
