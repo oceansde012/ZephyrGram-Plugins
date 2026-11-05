@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.2"
-__version_code__ = 43
+__version__ = "0.9.3"
+__version_code__ = 44
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -1614,7 +1614,7 @@ S = {
     "log_clear": ("Clear log", "Очистити журнал", "Очистить журнал"),
     "pg_err": ("⚠ Last error", "⚠ Остання помилка", "⚠ Последняя ошибка"),
     "err_note": ("%s at %s. Send the log to the developer or copy it: the last hour, without texts and names.",
-                 "%s о %s. Надішліть лог розробнику або скопіюйте: остання година, без текстів та імен.",
+                 "%s о %s. Надішліть лог розробнику або скопіюйте його: остання година, без текстів та імен.",
                  "%s в %s. Отправьте лог разработчику или скопируйте: последний час, без текстов и имён."),
     "err_hide": ("Hide this error", "Сховати цю помилку", "Скрыть эту ошибку"),
     "log_report": ("Copy report (last hour)", "Скопіювати звіт (остання година)", "Скопировать отчёт (последний час)"),
@@ -1796,7 +1796,7 @@ S = {
         "По умолчанию 10. Никогда посреди предложения."),
     "comma_skip": ("Skip commas sometimes", "Іноді пропускати коми", "Иногда пропускать запятые"),
     "comma_skip_s": ("Chance for each comma. Done after the AI, the AI itself writes correctly.",
-                     "Шанс для кожної коми. Робиться після ШІ, сам ШІ пише правильно.",
+                     "Шанс пропустити кожну кому. Робиться після ШІ, сам ШІ пише правильно.",
                      "Шанс для каждой запятой. Делается после ИИ, сам ИИ пишет правильно."),
     "typo_pct": ("Typos", "Описки", "Опечатки"),
     "typo_pct_s": ("Chance of one typo in a message, e.g. “магзин”. Done after the AI. Default 0.",
@@ -1979,9 +1979,9 @@ S = {
     "media_per_chat": ("Seeing photos, voice transcription and chat memory are allowed per chat: tap the chat in the list above.",
         "Бачити фото, розпізнавати голосові й пам’ять чату дозволяються окремо для кожного чату: натисніть на чат у списку вище.",
         "Видеть фото, распознавать голосовые и память чата разрешаются отдельно для каждого чата: нажмите на чат в списке выше."),
-    "sticker_sets": ("Sticker packs", "Стікерпаки", "Стикерпаки"),
+    "sticker_sets": ("Sticker packs", "Набори стікерів", "Стикерпаки"),
     "sticker_sets_s": ("Pack names separated by commas; empty = any. Only stickers from your recent and favorites. Seen: %s",
-                       "Назви паків через кому; порожньо = будь-які. Лише стікери з недавніх і обраних. Видно: %s",
+                       "Назви наборів через кому; порожньо = будь-які. Лише стікери з недавніх і обраних. Видно: %s",
                        "Названия паков через запятую; пусто = любые. Только стикеры из недавних и избранных. Видно: %s"),
     "sticker_recent": ("Only from recent stickers", "Лише з недавніх стікерів", "Только из недавних стикеров"),
     "lat_warm_min": ("Warm talk: reply after, min (s)", "Жвава розмова: відповідь через, мін (с)", "Живая беседа: ответ через, мин (с)"),
@@ -4462,7 +4462,7 @@ class Plugin(BasePlugin):
         st, now = self._state(key), self._now()
         lim = int(self._pnum("loop_burst", 1, 1000))
         with self._lock:
-            recent = sorted(t for t in st.replies if now - t < LOOP_BURST_SEC)
+            recent = sorted(t for t in st.replies if 0 <= now - t < LOOP_BURST_SEC)   # a clock moved back never stalls
         if len(recent) < lim:
             return 0.0
         return max(1.0, recent[len(recent) - lim] + LOOP_BURST_SEC - now + 1.0)
