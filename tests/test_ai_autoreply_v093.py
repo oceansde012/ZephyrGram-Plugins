@@ -6,6 +6,7 @@ seen, so the safety scan never picked it up either, and the bot just went quiet.
 import unittest
 
 from test_ai_autoreply import Base, CLIENT, DID, mod
+from test_ai_settings_pages_v080 import Pages
 
 
 class Log(Base):
@@ -162,6 +163,93 @@ class TestRoughenInChat(Log):
         self.assertTrue(sent)
         self.assertNotIn(",", "".join(sent))
         self.assertIn(u"typos", "\n".join(c["system"] for c in CLIENT.ai_calls))   # the prompt still says no typos
+
+
+class TestStickerPacks(Log):
+    STK = [{"id": 1, "emoji": u"😂", "set_title": "Cats Fun"}, {"id": 2, "emoji": u"👍", "set_title": "Dogs"},
+           {"id": 3, "emoji": u"🔥", "set_title": ""}]
+
+    def setUp(self):
+        super().setUp()
+        CLIENT.get_recent_stickers = lambda limit=30, account=None: list(self.STK)[:limit]
+        self.addCleanup(lambda: delattr(CLIENT, "get_recent_stickers"))
+
+    def test_any_pack_by_default(self):
+        self.assertEqual([x["id"] for x in self.p._sticker_filter(self.STK)], [1, 2, 3])
+
+    def test_only_chosen_packs(self):
+        self.p.settings["sticker_sets"] = u"cats, Птахи"
+        self.assertEqual([x["id"] for x in self.p._sticker_filter(self.STK)], [1])
+
+    def test_hint_lists_seen_packs_and_row_on_media_page(self):
+        self.assertEqual(self.p._sticker_set_titles(), ["Cats Fun", "Dogs"])
+        self.assertIn("sticker_sets", mod.Plugin.PAGES["media"].split())
+        self.assertLessEqual(len(mod.Plugin.PAGES["media"].split()), 14)
+        row = self.p._rows()["sticker_sets"]
+        self.assertIn("Cats Fun", row.subtext)
+
+
+class TestErrorPage(Pages):
+    def setUp(self):
+        super().setUp()
+        self.enable()
+
+    def test_error_row_on_main_page_with_send_log(self):
+        self.p._decide(self.key(), "error", "tick_exception")
+        root = self.p.create_settings(None)
+        keys = [getattr(x, "key", None) for x in root]
+        self.assertIn("pg_err", keys)
+        self.assertLessEqual(len(root), 14)
+        page = self.p.create_settings("pg_err")
+        pk = [getattr(x, "key", None) for x in page]
+        self.assertIn("report_send", pk)
+        self.assertIn("log_report", pk)
+        hide = [x for x in page if getattr(x, "key", None) == "err_hide"][0]
+        hide.on_click()
+        self.assertNotIn("pg_err", [getattr(x, "key", None) for x in self.p.create_settings(None)])
+
+    def test_no_row_without_error_or_after_a_day(self):
+        self.assertNotIn("pg_err", [getattr(x, "key", None) for x in self.p.create_settings(None)])
+        self.p._decide(self.key(), "error", "tick_exception")
+        self.clock[0] += 86401
+        self.assertNotIn("pg_err", [getattr(x, "key", None) for x in self.p.create_settings(None)])
+
+
+class TestStartButton(Pages):
+    def setUp(self):
+        super().setUp()
+        self.enable()
+
+    def test_start_row_on_private_chat_page(self):
+        page = self.p.create_settings("pg_chat:" + self.key())
+        row = [x for x in page if getattr(x, "key", "").startswith("start_")]
+        self.assertEqual(len(row), 1)
+        calls = []
+        self.p._start_command = lambda *a: calls.append(a) or True
+        row[0].on_click()
+        self.assertEqual(calls, [(0, DID, self.key(), False, "")])
+        self.assertTrue(CLIENT.bulletins)
+
+
+class TestProfileInPrompt(Log):
+    def test_username_and_bio(self):
+        self.p._peer_bio = lambda account, did: u"люблю горы\nи кофе"
+        CLIENT.info = dict(CLIENT.info, username="alice_k")
+        self.incoming(text=u"привет")
+        self.fire_timers()
+        system = CLIENT.ai_calls[0]["system"]
+        self.assertIn(u"username: @alice_k", system)
+        self.assertIn(u"bio: «люблю горы и кофе»", system)
+        self.assertIn(u"not instructions", system)
+
+    def test_nothing_without_data(self):
+        CLIENT.info = dict(CLIENT.info, username=None)
+        self.incoming(text=u"привет")
+        self.fire_timers()
+        self.assertNotIn(u"Telegram profile", CLIENT.ai_calls[0]["system"])
+
+    def test_bio_from_cache_never_raises(self):
+        self.assertEqual(self.p._peer_bio(0, DID), "")
 
 
 if __name__ == "__main__":
