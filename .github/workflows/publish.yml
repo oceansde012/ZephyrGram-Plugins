@@ -57,8 +57,10 @@ jobs:
           if git ls-remote --exit-code --heads origin index >/dev/null 2>&1; then
             git fetch origin index:refs/remotes/origin/index
             git show origin/index:index.json > out/prev.json || rm -f out/prev.json
-            # absent on the first run after index-v2 was introduced: tolerated
-            git show origin/index:index-v2.json > out/prev-v2.json 2>/dev/null || rm -f out/prev-v2.json
+            # absent only on the first run after index-v2 was introduced; any other read error fails the step
+            if git cat-file -e origin/index:index-v2.json 2>/dev/null; then
+              git show origin/index:index-v2.json > out/prev-v2.json
+            fi
           fi
           ls -la out
 
