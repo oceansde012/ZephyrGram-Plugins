@@ -2,13 +2,14 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.1"
-__version_code__ = 42
+__version__ = "0.9.2"
+__version_code__ = 43
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
 import difflib
+import hashlib
 import json
 import locale
 import os
@@ -127,6 +128,11 @@ MIRROR_MIN = 60
 PART_CAP = 160
 STICKER_BACK_PCT = 30        # a sticker gets a sticker back this often, otherwise words
 STICKER_TEXT_RULE = "They sent a sticker: react in a few words, as a person would."
+PLAN_RULE = ("Owner's conversation plan for this chat (optional), today stage %d of %d: %s. Steer toward it gently and "
+             "only when it fits; follow the person's lead, never force it; if they already talk about a later topic, "
+             "go with it. Short replies as usual.")
+PLAN_HEAD_RE = re.compile(u"(?i)^\\s*(?:(?:день|day|этап|етап)\\s*\\d+|\\d+)\\s*[:.)\\-–—]?\\s*")
+PLAN_STOP = frozenset(u"обсуж обгов разго розмо общен спілк тема темы теми about talk".split())
 TYPING_SHOWN_MIN = 2.0       # shorter typing is not visible in the other app
 
 CHAT_PROMPT_PRESETS = (
@@ -703,6 +709,25 @@ def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
     t = re.sub(u",? +[—–] +", ", ", re.sub(r"[ \t]+", " ", t))
     t = re.sub(r"\n\s*\n+", "\n", t).strip()
     return cap_text(t, limit) if cap else t
+
+
+def plan_stages(text):
+    """Owner's plan: one stage per non-empty line, 'День 1:' / '1.' prefixes dropped."""
+    return [PLAN_HEAD_RE.sub("", x).strip() for x in str(text or "").splitlines() if PLAN_HEAD_RE.sub("", x).strip()][:30]
+
+
+def plan_stems(text):
+    return {w[:5] for w in re.findall(u"[^\\W\\d_]{4,}", str(text or "").lower())} - PLAN_STOP
+
+
+def plan_jump(stages, i, text):
+    """Latest later stage whose topic the talk already covers (2 topic words, or all of a short one)."""
+    got = plan_stems(text)
+    for j in range(len(stages) - 1, i, -1):
+        kw = plan_stems(stages[j])
+        if kw and len(kw & got) >= min(2, len(kw)):
+            return j
+    return i
 
 
 def mirror_trim(parts, total):
@@ -1639,6 +1664,10 @@ S = {
     "chat_lore_s": ("What you know about this person and how you two talk (facts from you).",
         "Що ви знаєте про цю людину і як ви спілкуєтесь (факти від вас).",
         "Что вы знаете об этом человеке и как вы общаетесь (факты от вас)."),
+    "chat_plan": ("Conversation plan (optional)", "План спілкування (необов’язково)", "План общения (необязательно)"),
+    "chat_plan_s": ("One line per day of talk, e.g. “Day 1: getting to know each other”. The bot steers gently, moves on the next day of talk or earlier if the person gets there. Now: stage %s.",
+                    "Рядок на день спілкування, наприклад «День 1: знайомство». Бот м’яко веде розмову, переходить далі наступного дня або раніше, якщо співрозмовник сам дійшов. Зараз: етап %s.",
+                    "Строка на день общения, например «День 1: знакомство». Бот мягко ведёт разговор, переходит дальше на следующий день или раньше, если собеседник сам дошёл. Сейчас: этап %s."),
     "chat_learned": ("Notes learned from this chat", "Нотатки, вивчені з цього чату",
         "Заметки, выученные из этого чата"),
     "chat_learned_s": ("Filled in automatically when “Remember facts about people” is on. Edit or clear freely.",
@@ -3547,7 +3576,7 @@ class Plugin(BasePlugin):
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
-                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city"):
+                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan"):
                 self.set_setting(field + "_" + sk, None)
         return title
 
@@ -3725,6 +3754,21 @@ class Plugin(BasePlugin):
         return "\n".join(lines)
 
     # --- lore
+    def _plan_rule(self, key, incoming):
+        """Current stage of the chat's plan as a prompt rule ('' without a plan); the stage only moves forward."""
+        stages = plan_stages(self.get_setting("plan_" + self._sk(key), ""))
+        c = self._chats.get(key) or {}
+        if not stages:
+            return ""
+        h, day = hashlib.sha1("\n".join(stages).encode("utf-8")).hexdigest()[:10], self._day()
+        i, last = (int(c.get("plan_i") or 0), c.get("plan_d")) if c.get("plan_h") == h else (0, None)
+        if last and last != day:
+            i += 1                          # a new day of talk: next stage
+        i = plan_jump(stages, min(i, len(stages) - 1), incoming)
+        if (i, last, h) != (c.get("plan_i"), day, c.get("plan_h")):
+            self._commit(key, set={"plan_i": i, "plan_d": day, "plan_h": h})
+        return PLAN_RULE % (i + 1, len(stages), stages[i][:300])
+
     def _lore_block(self, key):
         """Prompt block with the owner's lore (global + this chat) and the..."""
         sk = self._sk(key)
@@ -6922,6 +6966,9 @@ class Plugin(BasePlugin):
             rules.append(IDENTITY_RULE)     # facts about two people are in the prompt: keep them apart
         if is_trivia_question(incoming):
             rules.append(TRIVIA_RULE)       # only when it is needed: the typical request stays as small as before
+        plan = self._plan_rule(key, incoming) if kind == "reply" and not self._is_group(key) else ""
+        if plan:
+            rules.append(plan)
         if ANNOYED_RE.search(last_in):
             rules.append(ANNOYED_RULE)
         if last_in.startswith("[incoming sticker"):
@@ -8592,6 +8639,9 @@ class Plugin(BasePlugin):
         if not self._is_group(key):
             items.append(Input(key="learned_" + sk, text=t("chat_learned"), default="", multiline=True,
                                subtext=t("chat_learned_s")))
+            n = len(plan_stages(self.get_setting("plan_" + sk, "")))
+            items.append(Input(key="plan_" + sk, text=t("chat_plan"), default="", multiline=True, subtext=t(
+                "chat_plan_s", "%d / %d" % (min(n, int(c.get("plan_i") or 0) + 1), n) if n else "—")))
         items.append(Selector(key="conversation_style_" + sk, text=t("chat_style"),
                               items=[t("chat_style_default")] + [t("chat_style_%d" % i) for i in range(4)],
                               default=0, subtext=t("chat_style_s")))
@@ -8871,7 +8921,7 @@ class Plugin(BasePlugin):
         "setup3": "reply_all add_pick @setup3",
         "chat": "@chat keep_{} mode_{} @refresh #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
                 "react_{} prompt_{} >lore >access test_{} remove_{}",
-        "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{}",
+        "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{} plan_{}",
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
     ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
