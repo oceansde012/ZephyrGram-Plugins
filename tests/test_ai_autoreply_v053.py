@@ -494,7 +494,7 @@ class TestVisibility(Fakes):
         self.assertIn("memory_auto", keys("media"))
         self.assertIn("memory_daily", keys("media"))
         notes = [str(getattr(i, "text", "")) for i in screen(self.p, "limits")]
-        self.assertTrue(any(n.startswith("Today: %d reply requests" % len(self.reply_calls())) for n in notes))
+        self.assertTrue(any(n.startswith("Today: %d replies" % len(self.reply_calls())) for n in notes))
 
     def test_three_languages(self):
         for k in ("model_s", "model_cheap", "model_cheap_s", "prompt_max", "prompt_max_s", "helper_daily",

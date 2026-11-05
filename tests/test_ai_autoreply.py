@@ -269,7 +269,7 @@ class TestAddChatSettings(Base):
         self.p._open_key = self.key()                       # modes are explained at the chat's Mode selector
         texts = " ".join(str(getattr(i, "subtext", "") or "") + str(getattr(i, "text", ""))
                          for i in chats_screen(self.p))
-        self.assertIn("the other person asks", texts)
+        self.assertIn("the other person calls", texts)
         self.assertIn(".ai", texts)
 
     def test_picked_chat_enabled_and_listed(self):

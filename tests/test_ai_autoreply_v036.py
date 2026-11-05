@@ -190,7 +190,7 @@ class TestLiveFlow(LiveBase):
             for lang in (1, 2, 3):
                 self.p.settings["ui_lang"] = lang
                 self.assertNotEqual(self.p.rt(code), code.replace("_", " "))
-        for key in ("h_live", "show_typing", "read_msgs", "stickers", "sticker_pct", "sticker_recent", "o_info", "o_defer",
+        for key in ("show_typing", "read_msgs", "stickers", "sticker_pct", "sticker_recent", "o_info", "o_defer",
                     "lat_warm_min", "scan_on", "read_always"):
             row = mod.S[key]
             self.assertEqual(len(row), 3)
