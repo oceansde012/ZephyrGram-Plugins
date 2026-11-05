@@ -221,7 +221,7 @@ class TestStartButton(Pages):
         self.enable()
 
     def test_start_row_on_private_chat_page(self):
-        page = self.p.create_settings("pg_chat:" + self.key())
+        page = self.p.create_settings("pg_talk:" + self.key())   # 0.9.4: on the Conversation subpage
         row = [x for x in page if getattr(x, "key", "").startswith("start_")]
         self.assertEqual(len(row), 1)
         calls = []
