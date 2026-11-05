@@ -696,6 +696,78 @@
           "human_text": "Бот может спрашивать вас в «Избранном» перед важным ответом: встреча, деньги, обещания."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.3",
+      "sha256": "7cc7a0e14fb52f617169dbe9dc33a83a56aaf3fca08cf90e623ba6e433cc1537",
+      "checks": "1006 Python tests and plugin validation passed; no live provider calls. Size 553356 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings, reviewed the core diff (one clock-guard taken, other findings checked and false) and drafted human_text.",
+      "items": [
+        {
+          "id": "LOOP-FIX",
+          "title": "Бот перестаёт отвечать (петля)",
+          "scope": "complete",
+          "details": "accept_message returned 'reply burst (possible loop)' when loop_burst replies were sent in LOOP_BURST_SEC; _handle_dict dropped the message after marking it seen, so the safety scan skipped it too and the person got no answer. Now the message is kept pending and cooldown_until is set to when the window frees (_burst_wait); decision defer/reply_burst_hold. 'repeated identical text' still drops.",
+          "limitations": "The 11-02 case is not reproducible from logs (none were kept); this is the only silent permanent drop found in the code. Phone behaviour unverified.",
+          "human_text": "Сообщения больше не теряются: если бот только что много отвечал, он ответит чуть позже."
+        },
+        {
+          "id": "SILENT-LOG",
+          "title": "Все молчания в логе",
+          "scope": "complete",
+          "details": "Every skip/defer goes through _decide, which writes 'decision <outcome> chat#<sha1[:6]> <reason> [seconds]' to the plugin log; added group_cooldown and waiting_owner_answer. All plugin-log lines that had the chat key (account:dialog_id) now use the tag. No texts.",
+          "limitations": "The decision list inside the settings still shows chats by name (local only).",
+          "human_text": "Все случаи, когда бот не ответил или ждёт, записаны в лог с причиной, без текстов и id."
+        },
+        {
+          "id": "COMMA-SKIP",
+          "title": "Пропуск запятых",
+          "scope": "complete",
+          "details": "Selector comma_skip (0/15/30/50/70 %, default 30) on the style page; drop_commas after all checks, before delivery, auto mode with humanize; not after a word-comma in numbers or with links.",
+          "limitations": "",
+          "human_text": "Бот иногда пропускает запятые, как живой человек (по умолчанию 30%)."
+        },
+        {
+          "id": "TYPOS",
+          "title": "Опечатки",
+          "scope": "complete",
+          "details": "Selector typo_pct (0/3/5/10/20 %, default 0) on the style page; add_typo makes one missing, swapped or doubled letter inside a 5+ letter word, first and last letters kept. The prompt rule against typos stays.",
+          "limitations": "Not applied to replies you approved with '+' or wrote yourself.",
+          "human_text": "Можно включить редкие опечатки в словах, по умолчанию выключено."
+        },
+        {
+          "id": "STICKER-PACKS",
+          "title": "Выбор стикерпаков",
+          "scope": "complete",
+          "details": "Input sticker_sets on the media page: comma-separated pack names, case-insensitive substring of set_title; used for picked stickers and for sticker replies. Hint lists packs seen among recent and favorites.",
+          "limitations": "The app API gives only recent and favorite stickers, not all installed packs; a full pack list needs an app change.",
+          "human_text": "Можно выбрать, из каких стикерпаков бот берёт стикеры."
+        },
+        {
+          "id": "ERROR-ROW",
+          "title": "«Отправить лог» под ошибкой",
+          "scope": "complete",
+          "details": "After an error/disabled decision the main page shows '⚠ Последняя ошибка' for 24 h; its page has the error and time, 'Отправить отчёт в чат…', 'Скопировать отчёт' and 'Скрыть'.",
+          "limitations": "A toast cannot have a button (app API), so the button is in settings. The last error is kept in memory until restart.",
+          "human_text": "После ошибки в настройках сразу видно её и кнопку «Отправить лог»."
+        },
+        {
+          "id": "START-BUTTON",
+          "title": "Кнопка «Начать диалог»",
+          "scope": "complete",
+          "details": "Private chat page: row start_<sk> runs the same _start_command as '.ai start'.",
+          "limitations": "",
+          "human_text": "На странице чата есть кнопка «Начать диалог»: бот сразу здоровается."
+        },
+        {
+          "id": "PROFILE",
+          "title": "Ник и био собеседника",
+          "scope": "complete",
+          "details": "Private chats: _profile_block adds the cached @username (get_dialog_info) and bio (MessagesController.getUserFull(did).about, cache only, never network, 140 chars) as untrusted profile data to the reply prompt.",
+          "limitations": "Bio is there only after the app has loaded the profile (opening the chat or profile). Avatar, audio, stories and gifts from #1 are not done.",
+          "human_text": "Бот видит ник и описание профиля собеседника и учитывает их, когда это к месту."
+        }
+      ]
     }
   ]
 }
