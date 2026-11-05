@@ -2,13 +2,12 @@ __id__ = "chat_history_export"
 __name__ = "Экспорт истории чата"
 __description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
 __author__ = "ZephyrGram"
-__version__ = "1.0.4"
-__version_code__ = 5
+__version__ = "1.0.5"
+__version_code__ = 6
 __api_version__ = 1
 __min_app_version__ = "0.1.4"
 __permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
 
-import contextvars
 import datetime
 import json
 import os
@@ -29,40 +28,46 @@ def jclass(name):
     return get_class(name)
 
 
-def _bound(fn):
-    """fn for a thread the app did not start for this plugin (threading.Timer, an Android dialog button): runs it
-    in a copy of the current plugin context, so client.* calls inside work, and never lets an error escape.
-    Create it inside a plugin callback. An exception escaping a Java callback (dynamic proxy) crashed the app."""
-    context = contextvars.copy_context()
-
-    def run(*args):
-        try:
-            return context.copy().run(fn, *args)
-        except Exception:
-            return None
-    return run
+# Android calls dialog listeners directly, outside any plugin callback. There the app's caller check refuses every
+# client.* call (1.0.4 swallowed that error, so "Export" silently did nothing), so the listeners below only set a
+# plain Python flag; a poll started from inside a plugin callback (client.run_on_ui) acts on it.
+CONFIRM_POLL_MS = 300
+CONFIRM_MAX_SEC = 600
+_PROXY_CLASSES = {}
 
 
-_CLICK_CLASS = []
-
-
-def _click_listener(fn):
-    """DialogInterface.OnClickListener calling fn() (a _bound function). One proxy class per plugin load."""
-    if not _CLICK_CLASS:
+def _flag_listener(kind, state, key):
+    """OnClickListener ("click") or OnDismissListener ("dismiss") that only sets state[key] = True. Never raises."""
+    cls = _PROXY_CLASSES.get(kind)
+    if cls is None:
         from java import dynamic_proxy
 
-        class ClickListener(dynamic_proxy(jclass("android.content.DialogInterface$OnClickListener"))):
-            def __init__(self, action):
-                super().__init__()
-                self.action = action
+        if kind == "click":
+            class FlagClick(dynamic_proxy(jclass("android.content.DialogInterface$OnClickListener"))):
+                def __init__(self, st, k):
+                    super().__init__()
+                    self.st, self.k = st, k
 
-            def onClick(self, dialog, which):
-                try:
-                    self.action()
-                except Exception:
-                    pass
-        _CLICK_CLASS.append(ClickListener)
-    return _CLICK_CLASS[0](fn)
+                def onClick(self, dialog, which):
+                    try:
+                        self.st[self.k] = True
+                    except Exception:
+                        pass
+            cls = FlagClick
+        else:
+            class FlagDismiss(dynamic_proxy(jclass("android.content.DialogInterface$OnDismissListener"))):
+                def __init__(self, st, k):
+                    super().__init__()
+                    self.st, self.k = st, k
+
+                def onDismiss(self, dialog):
+                    try:
+                        self.st[self.k] = True
+                    except Exception:
+                        pass
+            cls = FlagDismiss
+        _PROXY_CLASSES[kind] = cls
+    return cls(state, key)
 
 
 def _new(*names):
@@ -126,6 +131,7 @@ def _remove_plain_archive(directory):
 
 
 SHARE_KEEP_SEC = 10 * 60
+REQUEST_TIMEOUT_MS = 50 * 1000
 
 
 def _cleanup_share_copies(root, max_age=SHARE_KEEP_SEC):
@@ -289,7 +295,6 @@ class Session:
         self.stopped = False
         self.nonce = 0
         self.awaiting = False
-        self.timer = None
         self.offset = 0
         self.snapshot = 0
         self.stage = "history"
@@ -349,11 +354,10 @@ class Session:
             self.nonce += 1
             nonce = self.nonce
             self.awaiting = True
-            # The timer thread has no plugin context: without _bound, deliver's client.run_in_bg raised there and a
-            # lost answer left the export waiting forever.
-            self.timer = threading.Timer(50, _bound(lambda: self.deliver(nonce, None, "REQUEST_TIMEOUT")))
-            self.timer.daemon = True
-            self.timer.start()
+            # Timeout through the app's scheduler (a plugin callback), not threading.Timer: a Timer thread is not a
+            # plugin callback, so its client.run_in_bg was refused and a lost answer left the export waiting
+            # forever. A stale timeout is dropped by the nonce check in _deliver.
+            client.run_on_ui(lambda: self.deliver(nonce, None, "REQUEST_TIMEOUT"), delay_ms=REQUEST_TIMEOUT_MS)
             try:
                 client.send_request(request, lambda response, error: self.deliver(nonce, response, error), account=self.account)
             except Exception:
@@ -369,8 +373,6 @@ class Session:
             if nonce != self.nonce or not self.awaiting or self.stopped:
                 return
             self.awaiting = False
-            if self.timer:
-                self.timer.cancel()
         self.process(response, error)
 
     def process(self, response, error):
@@ -453,8 +455,6 @@ class Session:
             if self.stopped:
                 return
             self.stopped = True
-            if self.timer:
-                self.timer.cancel()
             output = os.path.join(self.directory, "zephyr-history-%s.zip" % datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
             try:
                 try:
@@ -635,17 +635,35 @@ class Plugin(BasePlugin):
             activity = fragment.getParentActivity() if fragment else None
             if activity is None:
                 return self._notice("Откройте чат и повторите экспорт")
-            # The button is pressed later, outside any plugin callback: before 1.0.4 client.run_in_bg raised there
-            # ("must run inside an active plugin callback") and the error escaped into Android: the app crashed.
-            start = _click_listener(_bound(lambda: client.run_in_bg(lambda: self._start(ctx, info))))
+            # The buttons are pressed later, outside any plugin callback, where client.* is refused. They only set
+            # a flag; _watch_confirm (started here, inside a callback) reacts to it.
+            state = {"ok": False, "closed": False}
             builder = jclass("android.app.AlertDialog$Builder")(activity)
             builder.setTitle("Экспорт истории")
             builder.setMessage("Чат: %s\n\nЗагрузить всю доступную историю и все темы в локальный ZIP? Тексты и метаданные вложений будут сохранены на телефоне. Файлы вложений не скачиваются. Архив не отправляется автоматически." % str(info.get("title", "")))
-            builder.setPositiveButton("Экспортировать", start)
-            builder.setNegativeButton("Отмена", None)
+            builder.setPositiveButton("Экспортировать", _flag_listener("click", state, "ok"))
+            builder.setNegativeButton("Отмена", _flag_listener("click", state, "closed"))
+            try:
+                builder.setOnDismissListener(_flag_listener("dismiss", state, "closed"))
+            except Exception:
+                pass  # without it the watch simply ends after CONFIRM_MAX_SEC
             builder.show()
+            deadline = time.time() + CONFIRM_MAX_SEC
+            client.run_on_ui(lambda: self._watch_confirm(state, deadline, ctx, info), delay_ms=CONFIRM_POLL_MS)
         except Exception:
             self._notice("Не удалось открыть подтверждение экспорта")
+
+    def _watch_confirm(self, state, deadline, ctx, info):
+        """Runs as a plugin callback every CONFIRM_POLL_MS while the confirmation is open. "Export" starts the
+        export (a click is seen before the dismiss that follows it); "Cancel", closing or CONFIRM_MAX_SEC end it."""
+        try:
+            if state.get("ok"):
+                return client.run_in_bg(lambda: self._start(ctx, info))
+            if state.get("closed") or not self._active or time.time() > deadline:
+                return None
+            client.run_on_ui(lambda: self._watch_confirm(state, deadline, ctx, info), delay_ms=CONFIRM_POLL_MS)
+        except Exception:
+            self._notice("Не удалось начать экспорт")
 
     def _start(self, ctx, info):
         with self._start_lock:

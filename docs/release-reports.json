@@ -816,6 +816,30 @@
           "human_text": "Можно выбрать чат, по образцу которого бот будет писать в этом чате."
         }
       ]
+    },
+    {
+      "product": "chat_history_export",
+      "version": "1.0.5",
+      "sha256": "3a5522804d590b3cea27107920e37c1c6c3f432fca9d07d8e6d7f7ad6b929917",
+      "checks": "8 new tests (Fixes105) in tests/test_chat_history_export.py on a strict fake runtime that refuses client.* outside plugin callbacks, like PluginHooks.requireCaller; 1.0.4 fails 7 of them. All Python tests and build_index validate passed. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "EXPORT-CONFIRM-NOOP",
+          "title": "«Экспортировать» ничего не запускало",
+          "scope": "complete",
+          "details": "In 1.0.4 the dialog's onClick (an Android thread, outside any plugin callback) called client.run_in_bg; the app's Java caller check refused it with SecurityException and _bound swallowed the error, so the export never started. The dialog listeners now only set a Python flag; a poll started from _confirm with client.run_on_ui (300 ms, a plugin callback) starts the export via run_in_bg. Cancel, dismiss or 10 minutes end the poll.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Кнопка «Экспортировать» в меню чата снова запускает экспорт."
+        },
+        {
+          "id": "EXPORT-TIMEOUT-NOOP",
+          "title": "Таймаут запроса не срабатывал",
+          "scope": "complete",
+          "details": "The 50 s request timeout ran on a threading.Timer thread, where client.run_in_bg was refused the same way, so a lost answer left the export waiting forever. The timeout is now client.run_on_ui(..., delay_ms=50000), a plugin callback; a stale timeout is dropped by the nonce check.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Если Telegram не ответил, экспорт через 50 секунд завершается, а не висит."
+        }
+      ]
     }
   ]
 }
