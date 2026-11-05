@@ -78,7 +78,8 @@ class TestPauseFollowsLength(Base):
         self.enable()
         self.sleeps = []
         mod.time.sleep = lambda s: self.sleeps.append(s)
-        self.p.settings.update(owner_active="0", human_timing=True, max_parts="4", split_gap_min="1", split_gap_max="1", type_ms="40")
+        self.p.settings.update(owner_active="0", human_timing=True, max_parts="4", split_gap_min="1", split_gap_max="1", type_ms="40",
+                               answer_detail="2")      # detailed: no length mirroring (0.9.1)
         self.p.settings["disclosure"] = False
 
     def send_parts(self, *parts):
@@ -96,14 +97,19 @@ class TestPauseFollowsLength(Base):
         CLIENT.send_text = send
         return marks, original
 
-    def test_a_long_part_waits_longer_than_a_short_one(self):
+    def gap(self, *parts):
         marks, original = self.waits_between_sends()
         try:
-            self.send_parts("перше", "ок", ("а " * 100).strip())       # 3 parts, the last one ~200 chars (~8 s at 40 ms)
+            self.send_parts(*parts)
         finally:
             CLIENT.send_text = original
-        self.assertEqual(len(marks), 3)
-        short_wait, long_wait = marks[1] - marks[0], marks[2] - marks[1]
+        self.assertEqual(len(marks), 2)                # Live sends at most 2 parts (0.9.1)
+        return marks[1] - marks[0]
+
+    def test_a_long_part_waits_longer_than_a_short_one(self):
+        long_wait = self.gap("перше", ("а " * 100).strip())     # second part ~200 chars (~8 s at 40 ms)
+        self.clock[0] += 3600
+        short_wait = self.gap("перше", "ок")
         self.assertLessEqual(short_wait, 3.0)
         self.assertGreaterEqual(long_wait, 6.0)
 

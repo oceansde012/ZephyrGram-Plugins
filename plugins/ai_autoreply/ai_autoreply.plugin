@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.0"
-__version_code__ = 41
+__version__ = "0.9.1"
+__version_code__ = 42
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -103,7 +103,6 @@ NATURAL_CHAT_PROMPT = (
     "Write the next message of this Telegram account's owner, in the owner's own voice, without claiming "
     "to be them. Write only the message text, in the language and conversational register of the current chat. "
     "Use the owner's examples for tone and rhythm, never as facts or lines to copy. "
-    "A casual reaction can be a few words; an explanation or emotional topic may need more. "
     "Do not force every thought into tiny messages or ask a question at the end of every reply. "
     "Use ordinary Ukrainian or Russian as appropriate; avoid formal assistant introductions, "
     "lectures, exaggerated empathy and needless reminders like 'I already told you'. "
@@ -118,6 +117,13 @@ NATURAL_CHAT_PROMPT = (
     "Return plain chat text, no headings or markdown unless the task genuinely needs a list."
 )
 NO_DISCLOSE_RULE = DISCLOSE_RULE
+MIRROR_RULE = ("Length: reply to the last message about as long as it is; a short message gets a few words. No lectures, "
+               "lists, dashes, quotation marks or explanations nobody asked for.")
+ANNOYED_RULE = "They sound annoyed or asked to stop: acknowledge it in a few words and drop the topic."
+ANNOYED_RE = re.compile(u"(?i)(?<!\\w)(?:хватит|харе|досить|годі|отстань|відчеп|відстань|надоел|набрид|достал|"
+                        u"задолбал|заткнись|замолчи|бесишь|дратуєш|стоп|stop)")
+MIRROR_MIN = 60
+PART_CAP = 160
 
 CHAT_PROMPT_PRESETS = (
     "Conversation style: everyday chat. Use direct, ordinary wording that fits the relationship shown here. "
@@ -689,9 +695,21 @@ def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
         f = FILLER_RE.sub("", t, count=1).strip()
         if f:
             t = f
-    t = re.sub(r"[ \t]+", " ", t)
+    t = re.sub(u"(?m)^[—–] *", "", re.sub(u"[«»„“”]", "", t))
+    t = re.sub(u",? +[—–] +", ", ", re.sub(r"[ \t]+", " ", t))
     t = re.sub(r"\n\s*\n+", "\n", t).strip()
     return cap_text(t, limit) if cap else t
+
+
+def mirror_trim(parts, total):
+    """Keep parts within total chars; cut the last at a sentence/clause end."""
+    out = []
+    for p in parts:
+        room = total - sum(map(len, out))
+        if room < 15:
+            break
+        out.append(p if len(p) <= room else chunk_text(p, room)[0])
+    return out or parts[:1]
 
 
 def apply_style(text, st):
@@ -6727,6 +6745,8 @@ class Plugin(BasePlugin):
                  CHAT_PROMPT_PRESETS[self._chat_style_index(key)], CHAT_CONTEXT_RULE, self._detail_rule(),
                  TONE_RULES[tone if 0 <= tone < len(TONE_RULES) else 0],
                  DISCLOSE_RULE if natural or self.get_setting("disclosure", True) else NO_DISCLOSE_RULE]
+        if self._answer_detail() < 2:
+            parts.append(MIRROR_RULE)
         if self.get_setting("short_msgs", True) and not natural:
             parts.append(SHORT_RULE % max(2, self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6)))
         c = self._chats.get(key) or {}
@@ -6883,6 +6903,8 @@ class Plugin(BasePlugin):
             rules.append(IDENTITY_RULE)     # facts about two people are in the prompt: keep them apart
         if is_trivia_question(incoming):
             rules.append(TRIVIA_RULE)       # only when it is needed: the typical request stays as small as before
+        if ANNOYED_RE.search(last_in):
+            rules.append(ANNOYED_RULE)
         owner_last = OWNER_RULES_LAST if self._owner_rules(key) else ""
         system, messages = self._fit_prompt(
             lambda _n: self.build_system(key, profile, with_style=False), lore, [extra_system, gender] + rules, record,
@@ -6898,8 +6920,12 @@ class Plugin(BasePlugin):
         natural = bool(self.get_setting("natural_chat", False))
         short = bool(self.get_setting("short_msgs", True)) and not natural
         max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6)
-        if not short:
+        if natural or self._live():
             max_parts = min(2, max_parts)
+        mirror = kind == "reply" and self._answer_detail() < 2
+        total = (MIRROR_MIN if ANNOYED_RE.search(last_in) else max(MIRROR_MIN, 2 * len(incoming))) if mirror else 1 << 30
+        if mirror:
+            limit = min(limit, PART_CAP)
         split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")
                      else (SHORT_SPLIT_CHARS if short else SPLIT_MIN_CHARS))
         max_msgs = max_parts if (not split or self.get_setting("split_msgs", True)) else 1
@@ -6924,6 +6950,8 @@ class Plugin(BasePlugin):
                 if "big" in problems:
                     kwargs["system"] += (" Every message must stay under about 120 characters: put each idea on its "
                                          "own line instead of writing paragraphs.")
+                    if mirror:
+                        kwargs["system"] += " The whole reply under %d characters." % total
                 if "long" in problems:
                     kwargs["system"] += (" Write only short messages: simple sentences, one thought each, "
                                          "every message on its own line.")
@@ -6962,13 +6990,13 @@ class Plugin(BasePlugin):
                 problems = problems + ["leak"]
             if short and longest_sentence_words(reply) > SHORT_MAX_WORDS:
                 problems = problems + ["long"]
-            if short and any(len(p) > BIG_PART_CHARS for p in parts):
+            if short and any(len(p) > BIG_PART_CHARS for p in parts) or len(reply) > total:
                 problems = problems + ["big"]
             if any(echoes(p, refs) for p in parts):
                 problems = problems + ["copy"]
             cands.append((parts, problems))
             if not problems:
-                return parts, ""
+                return mirror_trim(parts, total), ""
         if not cands:
             return [], "empty"
         usable = [cd for cd in cands if not any(p in ("repeat", "copy") for p in cd[1])]
@@ -6981,7 +7009,7 @@ class Plugin(BasePlugin):
             safe = [p for p in best if not unsupported_facts(p, fact_ctx)]
             if safe:
                 best = safe
-        return best, "fallback"
+        return mirror_trim(best, total), "fallback"
 
     @staticmethod
     def _incoming_texts(messages, lang_text=None):
@@ -7147,8 +7175,7 @@ class Plugin(BasePlugin):
     def _detail_rule(self):
         detail = (
             "Short answer: use a few clear sentences, but answer the actual question and every essential part.",
-            "Balanced answer: give enough explanation to be useful, normally one to three compact paragraphs. "
-            "For a simple message one line is enough; a question with several parts needs several concrete answers.",
+            "Balanced answer: useful but brief; a question with several parts gets several short answers.",
             "Detailed answer: explain the reasoning and practical steps relevant to the question in clear short "
             "paragraphs. Cover all parts without padding; do not force everything into a one-line chat reaction."
         )[self._answer_detail()]

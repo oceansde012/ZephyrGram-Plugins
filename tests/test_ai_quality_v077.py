@@ -86,7 +86,7 @@ class TestChunking(unittest.TestCase):
 
 class TestLimitInDelivery(Chat):
     def test_rest_goes_as_next_message_without_dots(self):
-        self.p.settings.update(max_reply="80", max_parts="3", short_msgs=False)
+        self.p.settings.update(max_reply="80", max_parts="3", short_msgs=False, answer_detail="2")
         sent = self.answer(TEXT)
         self.assertGreaterEqual(len(sent), 2)
         for s in sent:
@@ -315,11 +315,11 @@ class TestTrivia(Chat):
         sent = self.answer(LECTURE, text=u"а какая столица Австралии?")
         self.assertEqual(len(sent), 1)
         self.assertLessEqual(len(sent[0]), mod.TRIVIA_SHORT_CHARS)
-        self.assertEqual(sent[0], u"Столица Австралии — Канберра.")
+        self.assertEqual(sent[0], u"Столица Австралии, Канберра.")   # 0.9.1: no dashes in human replies
         self.assertIn("Quiz-like questions", CLIENT.ai_calls[-1]["system"])
 
     def test_ordinary_long_answer_is_untouched(self):
-        self.p.settings.update(short_msgs=False, max_parts="2")
+        self.p.settings.update(short_msgs=False, max_parts="2", answer_detail="2")
         sent = self.answer(LECTURE, text=u"расскажи как съездил")
         self.assertGreater(len(" ".join(sent)), 200)
         self.assertNotIn("Quiz-like questions", CLIENT.ai_calls[-1]["system"])

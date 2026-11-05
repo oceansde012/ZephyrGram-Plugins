@@ -552,6 +552,46 @@
           "human_text": "Пункт меню называется «Экспорт истории чата» и не виден в секретных чатах."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.1",
+      "sha256": "d49cbc935ab72c2b55a2800371436a152e7a69e3529027349f706bf0b0e6770d",
+      "checks": "923 Python tests (904 before) and plugin validation passed; no live provider calls. Size 524833 B is over 524288 B: listed only in index-v2.json, needs app >= 0.2.5.",
+      "items": [
+        {
+          "id": "MIRROR-LENGTH",
+          "title": "Длина ответа как у входящего",
+          "scope": "complete",
+          "details": "Reply kind with answer_detail < 2: MIRROR_RULE in the system prompt; total = max(60, 2 x incoming chars), 60 when annoyed; per-part cap 160; over total -> 'big' rewrite with the total, then mirror_trim cuts at a sentence/clause end. Balanced detail rule no longer says 'one to three paragraphs'.",
+          "limitations": "Phone behaviour unverified; no live provider calls.",
+          "human_text": "На короткое сообщение бот отвечает коротко, без лекций."
+        },
+        {
+          "id": "TWO-PARTS",
+          "title": "Не больше 2 сообщений в «Живом» темпе",
+          "scope": "complete",
+          "details": "max_parts capped at 2 when natural_chat or human timing (was: when short_msgs off).",
+          "limitations": "Phone behaviour unverified; no live provider calls.",
+          "human_text": "В «Живом человеке» и «Естественном общении» не больше двух сообщений подряд."
+        },
+        {
+          "id": "NO-DASH-QUOTES",
+          "title": "Без тире и кавычек",
+          "scope": "complete",
+          "details": "clean_humanized: removes «»„“”, leading dialogue dashes, ' — ' / ' – ' -> ', '.",
+          "limitations": "Applies to humanized replies only; hyphens inside words kept.",
+          "human_text": "В ответах нет длинных тире и кавычек-ёлочек."
+        },
+        {
+          "id": "ANNOYED",
+          "title": "Раздражение собеседника",
+          "scope": "complete",
+          "details": "ANNOYED_RE on the last incoming message (хватит, отстань, досить, набрид, стоп, stop...) adds ANNOYED_RULE and a 60-char total.",
+          "limitations": "Keyword list only, no sentiment model. Phone behaviour unverified; no live provider calls.",
+          "human_text": "Если просят прекратить, бот коротко соглашается и бросает тему."
+        }
+      ]
     }
   ]
 }

@@ -176,7 +176,7 @@ class TestMergedLines(Base):
         self.assertNotIn("не завтра", " ".join(texts))
 
     def test_merged_short_lines_are_not_a_long_sentence(self):
-        self.p.settings["max_parts"] = "2"
+        self.p.settings.update(max_parts="2", answer_detail="2")   # detailed: no length mirroring (0.9.1)
         line = " ".join(["слово"] * 11)
         CLIENT.ai_result = lambda m, **kw: "\n".join([line] * 4)
         self.incoming(text="розкажи")
