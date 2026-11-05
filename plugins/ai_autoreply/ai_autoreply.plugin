@@ -189,7 +189,7 @@ GENDER_MASC_ADDR_RE = re.compile(
 
 
 def gender_scores(other_texts, owner_texts=()):
-    """(feminine, masculine) hit counts: how the OTHER person talks about themselves, and how the OWNER..."""
+    """(feminine, masculine) hit counts."""
     fem = masc = 0
     for t in other_texts:
         t = str(t or "")
@@ -217,7 +217,7 @@ def gender_level(other_texts, owner_texts=()):
 
 
 def detect_gender(texts):
-    """'f' / 'm' / None from how the OTHER person talks about themselves (я зробила / я зробив ...)."""
+    """'f' / 'm' / None from how the OTHER person talks about..."""
     fem = masc = 0
     for t in texts:
         t = str(t or "")
@@ -231,7 +231,7 @@ def detect_gender(texts):
 
 
 def name_gender_hint(title):
-    """Weak hint from a first name written in Cyrillic: ends in а/я and is not a known male name -> 'f'."""
+    """Weak hint from a first name written in Cyrillic."""
     m = re.match(u"^\\W*([А-Яа-яІіЇїЄєҐґЁё]{3,})", str(title or ""))
     if not m:
         return None
@@ -333,7 +333,7 @@ def _luhn_ok(digits):
 
 
 def _iban_end(match):
-    """End offset of the longest valid IBAN (ISO 13616 mod 97) at the start of match, or None."""
+    """End offset of the longest valid IBAN (ISO 13616 mod 97) at the..."""
     chars = [(i, ch) for i, ch in enumerate(match.group(0)) if ch != " "]
     for n in range(min(len(chars), 34), 14, -1):
         value = "".join(ch for _i, ch in chars[:n]).upper()
@@ -346,7 +346,7 @@ def _iban_end(match):
 
 
 def cloud_redact(text):
-    """Text for the cloud memory with passwords, codes, card numbers, IBANs and keys replaced by CLOUD_HIDDEN."""
+    """Text for the cloud memory with passwords, codes, card numbers..."""
     text = str(text or "")
     if _CLOUD_WHOLE_RE.fullmatch(text):
         return CLOUD_HIDDEN
@@ -377,7 +377,7 @@ _BRACKETS = {ord(u"["): u"(", ord(u"]"): u")", ord(u"［"): u"(", ord(u"］"): u
 
 
 def contact_text(text):
-    """Contact-written text for a prompt: square brackets become parentheses, so nothing reads as the owner's."""
+    """Contact-written text for a prompt."""
     text = str(text or "")
     if _PLUGIN_MARKER_RE.fullmatch(text.strip()):
         return text                      # the plugin's own placeholder of a media-only message
@@ -507,7 +507,7 @@ SWEAR = frozenset(u"""бля блять блядь сука суки пізде�
 
 
 def _jclass(name):
-    """Java class by name (chaquopy). Raises when it is not available (tests replace this function)."""
+    """Java class by name (chaquopy)."""
     from java import jclass
     return jclass(name)
 
@@ -517,13 +517,13 @@ def norm_text(text):
 
 
 def is_emoji_only(text):
-    """True for messages with no letters/digits at all (emoji, stickers' alt text, '...')."""
+    """True for messages with no letters/digits at all (emoji..."""
     t = str(text or "").strip()
     return bool(t) and not any(ch.isalnum() for ch in t)
 
 
 def eligible_example(text):
-    """Own message usable as a style example (no commands, links, long or multi-line texts)."""
+    """Own message usable as a style example (no commands, links, long..."""
     t = str(text or "").strip()
     if not t or len(t) > MAX_EXAMPLE_CHARS or t.count("\n") > 2:
         return False
@@ -571,7 +571,7 @@ def compute_style(texts):
 
 
 def style_rules(st):
-    """Explicit rules for the system prompt from compute_style() stats ([] if too few samples)."""
+    """Explicit rules for the system prompt from compute_style() stats..."""
     if not st or st.get("n", 0) < MIN_STATS:
         return []
     med = st["median_len"]
@@ -635,7 +635,7 @@ def unwrap_quotes(t):
 
 
 def cap_text(t, limit):
-    """A length preference must not silently turn a complete sentence into a fragment."""
+    """A length preference must not silently turn a complete sentence..."""
     if len(t) <= limit:
         return t
     cut = t[:limit]
@@ -661,7 +661,7 @@ def has_leak(text):
 
 
 def strip_leak(text):
-    """Cut the reply at the first service-text marker and fall back to the last finished sentence."""
+    """Cut the reply at the first service-text marker and fall back to..."""
     t = str(text or "")
     m = LEAK_RE.search(t)
     if not m:
@@ -675,7 +675,7 @@ def strip_leak(text):
 
 
 def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
-    """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler; cap the length (if cap)."""
+    """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler."""
     if not isinstance(reply, str):
         return ""
     t = strip_leak(strip_markdown(reply).strip())
@@ -691,7 +691,7 @@ def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
 
 
 def apply_style(text, st):
-    """Match the owner's capitalisation / final period / emoji habits (only with enough samples)."""
+    """Match the owner's capitalisation / final period / emoji habits..."""
     t = str(text or "").strip()
     if not t or not st or st.get("n", 0) < MIN_STATS:
         return t
@@ -706,7 +706,7 @@ def apply_style(text, st):
 
 
 def parse_notes(raw, limit=LEARN_MAX_NOTES):
-    """Lines '- fact' from the AI answer. None = nothing usable (keep what we have), [] = 'NONE'."""
+    """Lines '- fact' from the AI answer."""
     text = str(raw or "").strip()
     if not text:
         return None
@@ -729,7 +729,7 @@ def parse_notes(raw, limit=LEARN_MAX_NOTES):
 
 
 def echoes(text, refs):
-    """True when text repeats (or nearly repeats) one of the earlier messages of the conversation."""
+    """True when text repeats (or nearly repeats) one of the earlier..."""
     n = norm_text(text)
     if len(n) < 10:
         return False
@@ -743,7 +743,7 @@ def echoes(text, refs):
 
 
 def vary_parts(parts, rng):
-    """A real person does not always send the same number of lines: merge neighbours until a random target..."""
+    """A real person does not always send the same number of lines."""
     parts = [p for p in parts if p]
     n = len(parts)
     if n < 2:
@@ -764,12 +764,12 @@ SENT_SPLIT_RE = re.compile(u"(?<=[.!?…])\\s+")
 
 
 def has_link(text):
-    """True when the message contains a link (scheme, www, t.me or a bare domain)."""
+    """True when the message contains a link (scheme, www, t.me or a..."""
     return bool(URL_RE.search(str(text or "")))
 
 
 def longest_sentence_words(text):
-    """Word count of the longest sentence (a line break also ends a sentence)."""
+    """Word count of the longest sentence (a line break also ends a..."""
     best = 0
     for line in re.split(r"\n+", str(text or "")):
         for sent in SENT_SPLIT_RE.split(line):
@@ -778,7 +778,7 @@ def longest_sentence_words(text):
 
 
 def split_reply(text, max_parts=3):
-    """Split into 1..max_parts short messages at natural breaks (lines, then sentences)."""
+    """Split into 1..max_parts short messages at natural breaks..."""
     text = str(text or "").strip()
     pieces = [p.strip() for p in re.split(r"\n+", text) if p.strip()]
     by_line = len(pieces) > 1
@@ -823,7 +823,7 @@ def ends_thought(text):
 
 
 def break_glue(left, right):
-    """(finished thought: a line break may stay, glue to use instead of the line break)."""
+    """(finished thought: a line break may stay, glue to use instead..."""
     l, r = str(left or "").rstrip(), str(right or "").lstrip()
     if not l or not r:
         return True, ""
@@ -869,7 +869,7 @@ _TRIM_EDGE = u" \t\n,;:-\u2013\u2014"
 
 
 def _cut_index(text, limit):
-    """End of the first piece: sentence, else clause, else word; never inside a word."""
+    """End of the first piece."""
     if len(text) <= limit:
         return len(text)
     floor = max(1, int(limit * 0.3))
@@ -903,7 +903,7 @@ def chunk_text(text, limit):
 
 
 def fit_parts(parts, limit, max_parts):
-    """Too long parts continue in the next one; extra parts are merged if they fit, else dropped whole."""
+    """Too long parts continue in the next one."""
     out = []
     for p in parts:
         out.extend(chunk_text(p, limit))
@@ -1009,7 +1009,7 @@ def looks_reference(text):
 
 
 def conv_kind(gap_in, gap_act, gap_reply, p):
-    """'warm' / 'medium' / 'cold' from the gaps (seconds, None = unknown) before the batch: warm = the..."""
+    """'warm' / 'medium' / 'cold' from the gaps (seconds, None =..."""
     if gap_act is None or gap_act >= p["cold_after"]:
         return "cold"
     if (gap_in is not None and gap_in < p["warm_window"]
@@ -1019,7 +1019,7 @@ def conv_kind(gap_in, gap_act, gap_reply, p):
 
 
 def latency_seconds(rng, kind, in_len, reply_len, p):
-    """Human reply latency counted from the arrival of the first message: (total seconds, typing seconds)."""
+    """Human reply latency counted from the arrival of the first..."""
     read_s = min(3.0, 0.02 * max(0, int(in_len))) * rng.uniform(0.8, 1.2)
     type_s = max(0, int(reply_len)) * (float(p["type_ms"]) / 1000.0) * rng.uniform(0.85, 1.2)
     if kind == "warm":
@@ -1039,7 +1039,7 @@ def latency_seconds(rng, kind, in_len, reply_len, p):
 
 
 def typing_delay_s(text, jitter=1.0, cap=MAX_TYPING_TOTAL):
-    """Seconds to 'type' one message: 0.3 s + 25 ms per character, with jitter, capped."""
+    """Seconds to 'type' one message."""
     cap = max(0.0, float(cap))
     return max(0.0, min(cap, (0.3 + 0.025 * len(str(text or ""))) * jitter))
 
@@ -1063,7 +1063,7 @@ def _words(text):
 
 
 def is_ack(text):
-    """Pure acknowledgement ('ок', 'дякую', 'ага', 'лол', '👍 ок'): nothing to answer."""
+    """Pure acknowledgement ('ок', 'дякую', 'ага', 'лол', '👍 ок')."""
     t = str(text or "")
     if "?" in t:
         return False
@@ -1105,7 +1105,7 @@ REACT_SADS_W = frozenset(u"сум сумно сумна сумний сумую 
 
 
 def pick_reaction(text, sticker=False):
-    """Emoji for a reaction by simple rules (no AI call): an emoji message is mirrored when the set has it..."""
+    """Emoji for a reaction by simple rules (no AI call)."""
     t = str(text or "")
     if not sticker and is_emoji_only(t):
         for ch in t.replace(u"\ufe0f", ""):
@@ -1132,7 +1132,7 @@ def pick_reaction(text, sticker=False):
 
 
 def reactable(text):
-    """A message a reaction can answer instead of a text: plain acknowledgement, thanks, laughter, emoji only."""
+    """A message a reaction can answer instead of a text."""
     return is_ack(text) or (is_emoji_only(text) and bool(EMOJI_RE.search(str(text or ""))))
 
 
@@ -1156,7 +1156,7 @@ EN_WORDS = frozenset(("i", "you", "he", "she", "we", "they", "it", "this", "that
 
 
 def english_signal(text):
-    """Conservative evidence of English, rather than simply a Latin-script identifier."""
+    """Conservative evidence of English, rather than simply a..."""
     value = str(text or "")
     value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s<>]+", " ", value, flags=re.I)
     value = re.sub(r"(?<!\w)[@#][A-Za-z0-9_]+", " ", value)
@@ -1173,7 +1173,7 @@ def english_signal(text):
 
 
 def detect_lang(text):
-    """'Ukrainian' / 'Russian' / 'English' of the incoming text; Ukrainian when unsure."""
+    """'Ukrainian' / 'Russian' / 'English' of the incoming text."""
     t = str(text or "")
     if UK_RE.search(t):
         return "Ukrainian"
@@ -1191,7 +1191,7 @@ RU_WORDS_RE = re.compile(u"(?<!\\w)(?:что|это|как|привет|нет|�
 
 
 def lang_signal(text):
-    """(ukrainian score, russian score) of one message: distinctive letters and everyday words."""
+    """(ukrainian score, russian score) of one message."""
     t = str(text or "")
     return (2 * len(UK_RE.findall(t)) + 3 * len(UK_WORDS_RE.findall(t)),
             2 * len(RU_RE.findall(t)) + 3 * len(RU_WORDS_RE.findall(t)))
@@ -1214,7 +1214,7 @@ def _side_language(texts):
 
 
 def context_language(own_texts, incoming_texts):
-    """'Ukrainian' / 'Russian' / None from the chat history (oldest first)."""
+    """'Ukrainian' / 'Russian' / None from the chat history (oldest..."""
     ou, orr, olast = _side_language(own_texts)
     if ou or orr:
         if ou > 1.5 * orr:
@@ -1229,7 +1229,7 @@ def context_language(own_texts, incoming_texts):
 
 
 def incoming_language(batch, recent):
-    """Language of the interlocutor: 'Ukrainian' / 'Russian' / 'English' / None (no signal)."""
+    """Language of the interlocutor."""
     for texts in (batch, recent):
         texts = [t for t in (texts or []) if str(t or "").strip()]
         if not texts:
@@ -1264,7 +1264,7 @@ def lang_rule(lang, follow_other=False):
 
 
 def sticker_emojis(text):
-    """Set of emoji characters (without variation selectors) found in a text."""
+    """Set of emoji characters (without variation selectors) found in..."""
     return set(ch for ch in EMOJI_RE.findall(str(text or "")) if ch not in u"\ufe0f\u200d")
 
 
@@ -1299,7 +1299,7 @@ class HelperSkipped(Exception):
 
 
 def clip_lines(text, limit):
-    """text cut to at most limit characters at a line end when possible (the first lines are the important ones)."""
+    """text cut to at most limit characters at a line end when..."""
     text = str(text or "")
     if len(text) <= limit:
         return text
@@ -1311,7 +1311,7 @@ def clip_lines(text, limit):
 
 
 def parse_summary(raw):
-    """The 'summary' string from a summarizer answer (strict JSON, also inside a code fence or with text around)."""
+    """The 'summary' string from a summarizer answer (strict JSON..."""
     text = str(raw or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text).strip()
@@ -1335,7 +1335,7 @@ def approx_tokens(chars):
 
 
 def parse_sticker_decision(raw):
-    """Dict {'use': bool, 'index': int|None, 'emoji': str, 'mode': str} from model output that may contain..."""
+    """Dict {'use': bool, 'index'."""
     text = str(raw or "")
     data = None
     m = re.search(r"\{.*\}", text, re.S)
@@ -1382,7 +1382,7 @@ def emoji_match_sticker(stickers, want_emoji):
 
 
 def banned_hits(text, extra=()):
-    """Banned assistant words/phrases found in the reply (lowercase, unique, in order)."""
+    """Banned assistant words/phrases found in the reply (lowercase..."""
     t = str(text or "")
     hits = []
     for m in BANNED_RE.finditer(t):
@@ -1414,7 +1414,7 @@ LANG_NAMES = ["Auto / Авто", "Українська", "Русский", "Engl
 
 
 def detect_ui_lang():
-    """Language of the phone as seen from Python (zephyr.client has no app-locale API and java.raw is not..."""
+    """Language of the phone as seen from Python (zephyr.client has no..."""
     cand = [os.environ.get(k) for k in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG")]
     try:
         cand.append(locale.getlocale()[0])
@@ -2246,7 +2246,7 @@ TRANSIENT_AI_CODES = (3, 4, 5, 6)   # passing reasons: they never switch a chat 
 
 
 def reason_text(lang, code):
-    """Plain-language explanation of a stored reason code (unknown codes are shown as they are)."""
+    """Plain-language explanation of a stored reason code (unknown..."""
     code = str(code or "")
     row = R.get(code)
     ms = re.match(r"^sticker_skipped_(\w+)$", code)
@@ -2283,7 +2283,7 @@ FOLD_MAP = {ord(a): b for a, b in zip(u"аіїоеср", u"aiioecp")}
 
 
 def fold_cmd(text):
-    """Lower case + Cyrillic look-alikes folded to Latin, so '.аі' == '.ai'."""
+    """Lower case + Cyrillic look-alikes folded to Latin, so '.аі' ==..."""
     return str(text or "").lower().translate(FOLD_MAP)
 
 
@@ -2385,7 +2385,7 @@ except ImportError:
 
 
 class ChatMemoryStore:
-    """Worker-thread-only SQLite summary store; no cross-chat/account fallback."""
+    """Worker-thread-only SQLite summary store."""
     FILE_NAME = "ai_chat_memory_v1.sqlite3"
 
     def __init__(self, data_dir, enabled=False, max_summary_chars=12000,
@@ -2491,7 +2491,7 @@ class ChatMemoryStore:
             ORDER BY revision DESC LIMIT 1""", (account, dialog_id)).fetchone()
 
     def get_summary(self, account, dialog_id, enabled=False):
-        """Latest exact-chat summary dict, or None; never falls back to a peer."""
+        """Latest exact-chat summary dict, or None."""
         with self._lock:
             if not self._guard(account, dialog_id, enabled):
                 return None
@@ -2620,7 +2620,7 @@ class ChatState(object):
 
 class Plugin(BasePlugin):
     def _natural_profile_changed(self, value):
-        """An explicit, local profile action; never enable chats or media/memory consent."""
+        """An explicit, local profile action."""
         enabled = value is True or str(value).strip().lower() == "true"
         self.set_setting("natural_chat", enabled)
         if enabled:
@@ -2745,7 +2745,7 @@ class Plugin(BasePlugin):
         return bool(self.get_setting("humanize", True))
 
     def _first_reply_disclosure(self):
-        """A prefix is an explicit presentation choice, independent of honest direct answers."""
+        """A prefix is an explicit presentation choice, independent of..."""
         natural = bool(self.get_setting("natural_chat", False))
         value = self.get_setting("natural_disclosure" if natural else "disclosure", not natural)
         return value is True or str(value).strip().lower() == "true"
@@ -2780,7 +2780,7 @@ class Plugin(BasePlugin):
         return base
 
     def _max_age(self):
-        """How old an incoming message may be and still be answered (seconds)."""
+        """How old an incoming message may be and still be answered..."""
         if self._pbool("scan"):
             return self._pnum("catchup_min", 1, 1440) * 60.0
         return float(MAX_AGE_SEC)
@@ -2790,7 +2790,7 @@ class Plugin(BasePlugin):
         return None if raw is None or str(raw).strip() == "" else raw
 
     def _pnum(self, key, lo, hi):
-        """Number from the setting, or from the preset when the setting is empty/invalid."""
+        """Number from the setting, or from the preset when the setting is..."""
         raw = self._explicit(key)
         if raw is not None:
             try:
@@ -2820,7 +2820,7 @@ class Plugin(BasePlugin):
         self._dec_flush_ts = 0.0
 
     def _flush_decisions(self, force=False):
-        """Writes the log to the settings store when it changed: at most every DECISIONS_FLUSH_SEC seconds, or..."""
+        """Writes the log to the settings store when it changed."""
         try:
             with self._lock:
                 if not getattr(self, "_dec_dirty", False):
@@ -2896,7 +2896,7 @@ class Plugin(BasePlugin):
         self._bot_texts = deque((str(x) for x in data if x), maxlen=200)
 
     def _remember_bot_text(self, text):
-        """Remember what the plugin itself sent, so it is never learned as the owner's style."""
+        """Remember what the plugin itself sent, so it is never learned as..."""
         with self._lock:
             self._bot_texts.append(norm_text(text)[:160])
             self.set_setting("bot_texts", json.dumps(list(self._bot_texts), ensure_ascii=False))
@@ -2910,7 +2910,7 @@ class Plugin(BasePlugin):
                        if isinstance(v, int)}
 
     def _bump_mark(self, key, mid):
-        """Remember the highest message id of a chat that went through the pipeline (survives restarts)."""
+        """Remember the highest message id of a chat that went through the..."""
         if not isinstance(mid, int) or mid <= self._marks.get(key, 0):
             return
         with self._lock:
@@ -2946,7 +2946,7 @@ class Plugin(BasePlugin):
             return {}
 
     def _read_chats(self):
-        """The chats dict as currently stored (the core app screen may have edited it)."""
+        """The chats dict as currently stored (the core app screen may..."""
         return self._parse_chats(self.get_setting("chats", "{}"))
 
     def _load_chats(self):
@@ -2957,7 +2957,7 @@ class Plugin(BasePlugin):
     CAS_TRIES = 8
 
     def _store_bridge(self):
-        """PluginSettingsModel with getRaw + putRawIf, or None (older app, tests): then plain get/set."""
+        """PluginSettingsModel with getRaw + putRawIf, or None (older app..."""
         bridge = getattr(self, "_bridge", 0)
         if bridge == 0:
             try:
@@ -2970,7 +2970,7 @@ class Plugin(BasePlugin):
         return bridge
 
     def _cas_update(self, key, fn, default=None):
-        """Read-modify-write of one stored value shared with the core screen."""
+        """Read-modify-write of one stored value shared with the core..."""
         with self._lock:
             bridge = self._store_bridge()
             for _ in range(self.CAS_TRIES if bridge is not None else 0):
@@ -2998,7 +2998,7 @@ class Plugin(BasePlugin):
             return new
 
     def _commit(self, key, set=None, drop=(), remove=False, create=False):
-        """Reload-merge-save: re-read the stored chats, apply ONLY this mutation to one chat, write back."""
+        """Reload-merge-save: re-read the stored chats, apply ONLY this..."""
         out = {}
 
         def mutate(value):
@@ -3034,7 +3034,7 @@ class Plugin(BasePlugin):
             return cur
 
     def _repair_store(self):
-        """Older versions changed 'enabled' (errors, auto-resume) without keep_<sk> and filled missing titles..."""
+        """Older versions changed 'enabled' (errors, auto-resume) without..."""
         try:
             for key, c in list(self._read_chats().items()):
                 if not isinstance(c, dict):
@@ -3068,7 +3068,7 @@ class Plugin(BasePlugin):
                 "chats": {k: self._chat_fp(k, c) for k, c in self._chats.items()}}
 
     def _fp_note(self, key):
-        """The plugin's own change of a chat is not a core edit: remember its new fingerprint."""
+        """The plugin's own change of a chat is not a core edit."""
         fps = getattr(self, "_fps", None)
         if fps is not None:
             fp = self._chat_fp(key, self._chats.get(key))
@@ -3078,7 +3078,7 @@ class Plugin(BasePlugin):
                 fps["chats"][key] = fp
 
     def on_app_event(self, event):
-        """The core app screen edited our prefs (chats, mode_/keep_/rlang_<sk>, master): reload what we cache."""
+        """The core app screen edited our prefs (chats..."""
         name = getattr(event, "name", None) or getattr(event, "value", None) or event
         name = str(name).strip().lower()
         if name in ("start", "resume"):
@@ -3175,7 +3175,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _with_group_metadata(message, mo):
-        """Optional native fields fill APIv1 gaps; never infer a topic from ordinary reply_to alone."""
+        """Optional native fields fill APIv1 gaps."""
         if isinstance(mo, dict):
             return message
         try:
@@ -3241,7 +3241,7 @@ class Plugin(BasePlugin):
             self._group_meta.pop(next(iter(self._group_meta)))
 
     def _group_batches(self, key, batch):
-        """Known topics remain independent; without topic support use one current message, no history."""
+        """Known topics remain independent."""
         grouped, order = {}, []
         for position, entry in enumerate(batch):
             mid = entry[0]
@@ -3349,7 +3349,7 @@ class Plugin(BasePlugin):
 
     # ---- shared add / remove (menu, command, pickers)
     def chat_on(self, account, did, title, kind):
-        """Add or re-enable a chat. A new chat starts in mode Auto. Stored format: see docs/API.md."""
+        """Add or re-enable a chat."""
         key = self.chat_key(account, did)
         sk = self._sk(key)
         self._skip_drop(key)
@@ -3368,7 +3368,7 @@ class Plugin(BasePlugin):
         return c
 
     def chat_off(self, key, remove):
-        """Turn a chat off (remove=False: stays in the list as paused) or drop it."""
+        """Turn a chat off (remove=False."""
         sk = self._sk(key)
         self._cloud_cancel()
         if remove:
@@ -3399,7 +3399,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def check_info(info):
-        """Returns a reason string if the chat must never be auto-replied, else None."""
+        """Returns a reason string if the chat must never be auto-replied..."""
         if not isinstance(info, dict):
             return "unknown chat"
         t = info.get("type")
@@ -3415,7 +3415,7 @@ class Plugin(BasePlugin):
 
     # --- reply to everyone
     def _all_accounts(self):
-        """Account indexes where reply-all works (the setting holds 1-based numbers; empty = every account)."""
+        """Account indexes where reply-all works (the setting holds..."""
         out = set()
         for x in re.split(r"[,\s;]+", str(self.get_setting("all_accounts", "") or "")):
             if x.isdigit() and int(x) >= 1:
@@ -3436,11 +3436,11 @@ class Plugin(BasePlugin):
         return out
 
     def _skip_list(self):
-        """all_skip in stored order (oldest removal first, as the core screen appends too)."""
+        """all_skip in stored order (oldest removal first, as the core..."""
         return self._parse_skip(self.get_setting("all_skip", "[]"))
 
     def _all_skip(self):
-        """Chat keys the owner removed from the list: reply-all never brings them back."""
+        """Chat keys the owner removed from the list."""
         return set(self._skip_list())
 
     def _skip_add(self, key):
@@ -3459,7 +3459,7 @@ class Plugin(BasePlugin):
         self._cas_update("all_skip", mutate, "[]")
 
     def _auto_add(self, account, did, key, m):
-        """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto)."""
+        """Reply-all: a person writes in a private chat that is not in the..."""
         if not self.get_setting("reply_all", False) or not self.get_setting("master", True):
             return False
         try:
@@ -3512,7 +3512,7 @@ class Plugin(BasePlugin):
         return v if v in (0, 1, 2) else 0
 
     def _gender_block(self, key, messages):
-        """Prompt lines about how to address the other person (and how the owner speaks about themselves)."""
+        """Prompt lines about how to address the other person (and how the..."""
         lines = []
         if self._is_group(key):
             lines.append("This is a multi-person group, not one interlocutor. Do not infer one gender for the group "
@@ -3572,7 +3572,7 @@ class Plugin(BasePlugin):
 
     # --- lore
     def _lore_block(self, key):
-        """Prompt block with the owner's lore (global + this chat) and the notes learned from this chat."""
+        """Prompt block with the owner's lore (global + this chat) and the..."""
         sk = self._sk(key)
         mine = str(self.get_setting("lore", "") or "").strip()[:LORE_MAX_CHARS]
         fields = [("Name", "lore_name"), ("Age", "lore_age"), ("Location", "lore_city")]
@@ -3600,7 +3600,7 @@ class Plugin(BasePlugin):
         return "\n\n".join(out)
 
     def _learn_tick(self, key, st, n):
-        """After an answer: every LEARN_EVERY incoming messages (and at most every LEARN_GAP_SEC) update the..."""
+        """After an answer: every LEARN_EVERY incoming messages (and at..."""
         try:
             if self._is_group(key) or not self.get_setting("lore_learn", False) or st.learn_busy:
                 return
@@ -3684,7 +3684,7 @@ class Plugin(BasePlugin):
             self.set_setting("revive_marks", json.dumps(self._revive_marks))
 
     def _revive_check(self, key, hist):
-        """None = the conversation went quiet and may be restarted now, otherwise the reason it must not be."""
+        """None = the conversation went quiet and may be restarted now..."""
         if not hist:
             return "no_history"
         now = self._now()
@@ -3715,7 +3715,7 @@ class Plugin(BasePlugin):
         return None
 
     def _revive_pass(self):
-        """Called by the periodic scan: examine a few chats per pass and schedule a revival where it is due."""
+        """Called by the periodic scan."""
         if (not self._revive_on() or not self.get_setting("master", True) or self._in_quiet_hours()
                 or self._scan_stop):
             return 0
@@ -3830,7 +3830,7 @@ class Plugin(BasePlugin):
             self._decide("?", "error", "handle_incoming_exception")
 
     def _maybe_resume(self, key):
-        """A chat disabled by repeated errors comes back after AUTH_RESUME_SEC (never stay silent forever)."""
+        """A chat disabled by repeated errors comes back after..."""
         def due(c):
             return bool(isinstance(c, dict) and not c.get("enabled") and c.get("auto_off_ts")
                         and self._now() - float(c.get("auto_off_ts") or 0) >= AUTH_RESUME_SEC)
@@ -3844,7 +3844,7 @@ class Plugin(BasePlugin):
         self._decide(key, "resume", "auto_resumed_after_errors")
 
     def _note_owner(self, key, m):
-        """Our own outgoing message: remember that the owner is active (plugin's own texts excluded)."""
+        """Our own outgoing message."""
         st = self._state(key)
         text = str(m.get("text") or "")
         if text.strip() and self._is_bot_text(text):
@@ -3860,7 +3860,7 @@ class Plugin(BasePlugin):
             st.owner_mid = mid
 
     def _after_owner(self, st, batch):
-        """The owner answered in the middle of a batch: messages up to his reply count as answered by him, the..."""
+        """The owner answered in the middle of a batch."""
         mark = st.owner_mid
         if not mark:
             return []
@@ -3878,7 +3878,7 @@ class Plugin(BasePlugin):
         return self._handle_dict(account, did, m)
 
     def _dup_event(self, key, mid):
-        """True when this (chat, message id) already came through the other incoming path."""
+        """True when this (chat, message id) already came through the..."""
         if mid is None:
             return False
         with self._lock:
@@ -3973,7 +3973,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _short_update_dict(name, u):
-        """TL_updateShortMessage / TL_updateShortChatMessage -> the dict shape of message_to_dict (+ dialog_id)."""
+        """TL_updateShortMessage / TL_updateShortChatMessage -> the dict..."""
         def g(*names):
             for n in names:
                 try:
@@ -4014,7 +4014,7 @@ class Plugin(BasePlugin):
         return text
 
     def accept_message(self, key, m, max_age=None):
-        """Safety filters for one incoming message. Returns skip reason or None (accept)."""
+        """Safety filters for one incoming message."""
         if max_age is None:
             max_age = MAX_AGE_SEC
         st = self._state(key)
@@ -4063,7 +4063,7 @@ class Plugin(BasePlugin):
 
     # --- scheduling
     def _awake(self, seconds):
-        """Ask the app (newer builds) to keep the CPU awake for up to `seconds`: while the phone sleeps the..."""
+        """Ask the app (newer builds) to keep the CPU awake for up to..."""
         try:
             fn = getattr(client, "keep_awake", None)
             if fn is not None:
@@ -4130,7 +4130,7 @@ class Plugin(BasePlugin):
 
     # --- safety-net scan
     def _run_later(self, delay_s, fn):
-        """fn in a background worker after delay_s seconds; never blocks the caller."""
+        """fn in a background worker after delay_s seconds."""
         try:
             client.run_on_ui(lambda: client.run_in_bg(fn), delay_ms=int(max(0.0, delay_s) * 1000))
         except Exception as e:
@@ -4153,7 +4153,7 @@ class Plugin(BasePlugin):
             c.get("enabled") for c in self._chats.values())
 
     def _ensure_scan(self):
-        """Start the periodic chain once (only while the scan is on in the current preset/settings)."""
+        """Start the periodic chain once (only while the scan is on in the..."""
         try:
             if self._scan_stop or not self._scan_enabled():
                 return
@@ -4183,7 +4183,7 @@ class Plugin(BasePlugin):
                 self._run_later(delay, self._scan_tick)
 
     def _catch_up_async(self, why):
-        """App start/resume: look for missed messages soon (and make sure the periodic scan runs)."""
+        """App start/resume: look for missed messages soon (and make sure..."""
         try:
             if not self._scan_enabled():
                 return
@@ -4193,7 +4193,7 @@ class Plugin(BasePlugin):
             self.log("catch-up not started: %s" % e)
 
     def _scan_all(self, why="periodic"):
-        """One pass over the enabled chats; returns the number of messages fed into the pipeline."""
+        """One pass over the enabled chats."""
         if not self._scan_lock.acquire(False):
             return 0
         found = 0
@@ -4215,7 +4215,7 @@ class Plugin(BasePlugin):
         return found
 
     def _scan_chat(self, key, c):
-        """Incoming messages after the last outgoing one that no event delivered yet."""
+        """Incoming messages after the last outgoing one that no event..."""
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
         window = self._max_age()
         hist = client.get_recent_messages(did, limit=self._int("scan_limit", 8, 3, 30), account=account) or []
@@ -4302,7 +4302,7 @@ class Plugin(BasePlugin):
 
     # ---- AI request sizes, models and background helpers (0.5.2)
     def _prompt_budget(self):
-        """Characters one reply request (system prompt + messages) may have: 'prompt_max', never above the hard cap."""
+        """Characters one reply request (system prompt + messages) may have."""
         return self._int("prompt_max", PROMPT_MAX_DEFAULT, PROMPT_MAX_MIN, PROMPT_MAX_HARD)
 
     def _model_for(self, kind):
@@ -4353,7 +4353,7 @@ class Plugin(BasePlugin):
                         default=selected, on_change=changed)
 
     def _helper_models(self, kind):
-        """Models to try in order: the cheap one, then the main one when they differ (not after a recent failure)."""
+        """Models to try in order."""
         main = self._model_for("reply")
         cheap = self._model_for(kind)
         if cheap == main or self._now() - self._cheap_fail_ts < CHEAP_FAIL_PAUSE:
@@ -4361,7 +4361,7 @@ class Plugin(BasePlugin):
         return [cheap, main]
 
     def _ai_stats(self):
-        """Today's AI request counters {'day', 'k': {kind: [calls, chars, largest]}, 'm': {chat: memory calls}..."""
+        """Today's AI request counters {'day', 'k'."""
         try:
             s = json.loads(self.get_setting("ai_stats", "{}") or "{}")
         except (ValueError, TypeError):
@@ -4389,7 +4389,7 @@ class Plugin(BasePlugin):
         return sum(self._stat_row(s, k)[0] for k in HELPER_KINDS)
 
     def _track(self, kind, key, chars, images=0, stats=None):
-        """Count one AI request: in-memory ring for the report + today's counters. Never raises."""
+        """Count one AI request."""
         try:
             chars = int(chars)
             with self._lock:
@@ -4405,7 +4405,7 @@ class Plugin(BasePlugin):
             self.log("ai stats: %s" % e)
 
     def _helper_reserve(self, kind, key, chars):
-        """None and the request counted when one more helper call may run now, else the reason code."""
+        """None and the request counted when one more helper call may run..."""
         with self._lock:
             s = self._ai_stats()
             if self._helper_calls(s) >= self._int("helper_daily", HELPER_DAILY, 0, 5000):
@@ -4423,7 +4423,7 @@ class Plugin(BasePlugin):
             self._decide(key, "info", reason)
 
     def _helper_complete(self, kind, key, messages, system, temperature=0.2, timeout=45):
-        """One background helper request: cheap model, bounded input, daily limits, the main model as fallback..."""
+        """One background helper request."""
         chars = len(system or "") + sum(len(str(m.get("content") or "")) for m in messages)
         if chars > HELPER_MAX_CHARS:
             raise ValueError("helper request too large")
@@ -4540,7 +4540,7 @@ class Plugin(BasePlugin):
         return reason
 
     def _owner_active_in(self, hist, window):
-        """Newest owner (non-plugin) message in the history younger than window seconds?"""
+        """Newest owner (non-plugin) message in the history younger than..."""
         now = self._now()
         for h in hist:
             if not h.get("out") or h.get("is_service"):
@@ -4556,7 +4556,7 @@ class Plugin(BasePlugin):
         return False
 
     def _defer_owner(self, key, st, batch, remaining):
-        """The owner wrote here recently: log why, and (a limited number of times) answer after the silence..."""
+        """The owner wrote here recently."""
         live = self._live()
         limit = int(self._pnum("owner_defers", 0, 100)) if live else MAX_OWNER_DEFERS
         deferred = False
@@ -4578,7 +4578,7 @@ class Plugin(BasePlugin):
         return "owner active"
 
     def _requeue(self, key, st, batch, why):
-        """A passing failure (AI error, empty or repeated answer, no history): keep the messages and try again..."""
+        """A passing failure (AI error, empty or repeated answer, no..."""
         with self._lock:
             if st.retries >= MAX_RETRIES:
                 st.retries = 0
@@ -4777,7 +4777,7 @@ class Plugin(BasePlugin):
 
     # ---- human timing
     def _conv_kind(self, st, hist, batch):
-        """('warm' | 'medium' | 'cold', arrival time of the batch) from our own memory and the history."""
+        """('warm' | 'medium' | 'cold', arrival time of the batch) from..."""
         p = self._timing_params()
         cur = st.cur or (self._now(), 0.0, 0.0, 0.0)
         arr, p_in, p_act, p_rep = cur
@@ -4800,7 +4800,7 @@ class Plugin(BasePlugin):
         return conv_kind(gap(p_in), gap(p_act), gap(p_rep), p), arr
 
     def _make_timing(self, key, st, kind, arrival, batch, parts, read_id):
-        """How long to wait (from now) before the first part, and how much of it to show 'typing'."""
+        """How long to wait (from now) before the first part, and how much..."""
         p = self._timing_params()
         in_len = sum(len(b[2] or "") for b in batch)
         reply_len = len(parts[0]) if parts else 0            # only the first part is typed before it is sent
@@ -4831,7 +4831,7 @@ class Plugin(BasePlugin):
         return True
 
     def _live_wait(self, key, c, st, did, account, timing):
-        """Sleep the human latency in short chunks; typing indicator during the last part. False = stop."""
+        """Sleep the human latency in short chunks."""
         total = max(0.0, float(timing["wait"]))
         tsecs = max(0.0, min(total, float(timing["type"])))
         base_guard = timing.get("_wait_guard")
@@ -4862,7 +4862,7 @@ class Plugin(BasePlugin):
         return bool(self.get_setting("read_msgs", True))
 
     def _ghost_flags(self):
-        """(no_read, no_typing) of the app's ghost mode, or (False, False) when it cannot be seen."""
+        """(no_read, no_typing) of the app's ghost mode, or (False, False)..."""
         try:
             zc = _jclass("org.telegram.messenger.zephyr.ZephyrConfig")
             try:
@@ -4879,7 +4879,7 @@ class Plugin(BasePlugin):
             self.log("%s unavailable: %s" % (what, e))
 
     def _mark_read(self, key, max_id):
-        """messages.readHistory for a private chat (once per message id). Returns True if requested."""
+        """messages.readHistory for a private chat (once per message id)."""
         try:
             st = self._state(key)
             c = self._chats.get(key)
@@ -4937,7 +4937,7 @@ class Plugin(BasePlugin):
 
     # ---- reactions (0.4.9): emoji reactions instead of a reply to 'ok / thanks / lol', and now and then extra
     def _react_mode(self, key, c, did):
-        """0 off, 1 instead of replying to reaction-like messages, 2 that and sometimes on regular messages."""
+        """0 off, 1 instead of replying to reaction-like messages, 2 that..."""
         try:
             if int(did) <= 0 or (c or {}).get("type") not in (None, "", "user"):
                 return 0
@@ -4966,7 +4966,7 @@ class Plugin(BasePlugin):
         return None
 
     def _reaction_limit(self, st):
-        """None when one more reaction is allowed, else the reason ('hour_cap' / 'day_cap'). Does not count."""
+        """None when one more reaction is allowed, else the reason..."""
         now = self._now()
         with self._lock:
             while st.react_h and now - st.react_h[0] > 3600:
@@ -4984,7 +4984,7 @@ class Plugin(BasePlugin):
         return None
 
     def _send_reaction(self, did, account, msg_id, emoji):
-        """messages.sendReaction with one standard emoji (the request the app builds in..."""
+        """messages.sendReaction with one standard emoji (the request the..."""
         try:
             fn = getattr(client, "send_reaction", None)
             if fn is not None:
@@ -5014,7 +5014,7 @@ class Plugin(BasePlugin):
             return False
 
     def _put_reaction(self, key, st, did, account, msg_id, emoji):
-        """Checks the caps and ghost mode, sends, counts. True when the reaction was requested."""
+        """Checks the caps and ghost mode, sends, counts."""
         why = self._reaction_limit(st)
         if why:
             return self._no_reaction(key, why)
@@ -5031,7 +5031,7 @@ class Plugin(BasePlugin):
         return True
 
     def _react_instead(self, key, c, st, did, account, batch):
-        """A reaction instead of a text reply. None = no reaction, go on as without reactions."""
+        """A reaction instead of a text reply."""
         target = self._reaction_target(key, batch)
         if target is None:
             return None
@@ -5067,7 +5067,7 @@ class Plugin(BasePlugin):
         return "reaction"
 
     def _maybe_extra_reaction(self, key, c, st, did, account, batch):
-        """Now and then a reaction on a regular message the bot has just answered. Never raises."""
+        """Now and then a reaction on a regular message the bot has just..."""
         try:
             if self._react_mode(key, c, did) != 2 or not self._task_alive(key, account, did):
                 return False
@@ -5086,7 +5086,7 @@ class Plugin(BasePlugin):
 
     # ---- compact, per-chat opt-in factual memory (not owner style examples)
     def _memory_flag(self, key):
-        """Chat memory allowed here: the chat's own switch (memory_<sk>) when it was ever set, otherwise the..."""
+        """Chat memory allowed here."""
         c = self._chats.get(key)
         if self._is_group(key) or not (c and c.get("enabled")):
             return False
@@ -5100,7 +5100,7 @@ class Plugin(BasePlugin):
         return bool(self.get_setting("memory_auto", True)) and c.get("type", "user") == "user"
 
     def _memory_explicit(self, key):
-        """The owner switched memory on for this chat himself (older history may be read for the first summary)."""
+        """The owner switched memory on for this chat himself (older..."""
         value = self.get_setting("memory_" + self._sk(key), None)
         return value is True or str(value).lower() == "true"
 
@@ -5170,7 +5170,7 @@ class Plugin(BasePlugin):
             return []
 
     def _cloud_disable_chat(self, key):
-        """Removing a local chat cannot silently resume cloud collection when it is added again."""
+        """Removing a local chat cannot silently resume cloud collection..."""
         with self._lock:
             try:
                 data = json.loads(str(self.get_setting("cloud_state_" + self._sk(key), "{}") or "{}"))
@@ -5489,7 +5489,7 @@ class Plugin(BasePlugin):
         self._run_later(0.1, work)
 
     def _cloud_import_local(self, key, topic, record):
-        """Transfer the latest exact private-chat summary; never invent per-person group provenance."""
+        """Transfer the latest exact private-chat summary."""
         c = self._chats.get(key) or {}
         account, did = int(c.get("account", 0)), int(c.get("dialog_id", 0))
         if did <= 0 or topic != 0 or not self._cloud_active(key, topic, record):
@@ -5580,7 +5580,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _memory_block(record, max_chars=None):
-        """Prompt block with the first (most important) MEM_INJECT_MAX characters of the summary; with..."""
+        """Prompt block with the first (most important) MEM_INJECT_MAX..."""
         if not record or not str(record.get("summary") or "").strip():
             return ""
 
@@ -5604,7 +5604,7 @@ class Plugin(BasePlugin):
         return ""
 
     def _memory_ctx(self, key, account, did):
-        """(store, owner_id, token) when this chat's memory may be used right now, else None. No AI call."""
+        """(store, owner_id, token) when this chat's memory may be used..."""
         if not self._memory_flag(key) or not self._task_alive(key, account, did):
             return None
         owner_id = self._memory_owner_id(account)
@@ -5638,11 +5638,11 @@ class Plugin(BasePlugin):
         return record if self._memory_active(key, account, did, owner_id) else None
 
     def _memory_context(self, key, account, did, messages=None, blocking=True):
-        """Prompt block of the chat memory ('' when off or empty); blocking=False never waits for an update."""
+        """Prompt block of the chat memory ('' when off or empty)."""
         return self._memory_block(self._memory_record(key, account, did, messages=messages, refresh=bool(blocking)))
 
     def _memory_kick(self, key, account, did, messages, token):
-        """Start a background update check at most every MEM_CHECK_SEC per chat, one at a time."""
+        """Start a background update check at most every MEM_CHECK_SEC per..."""
         now = self._now()
         with self._lock:
             if token in self._memory_busy or now - self._memory_checked.get(token, -1e9) < MEM_CHECK_SEC:
@@ -5658,7 +5658,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _memory_rows(rows, through_id, questions):
-        """Older text rows newer than the summary, without forwarded/base64 rows or the current questions."""
+        """Older text rows newer than the summary, without..."""
         unique = {}
         for row in rows:
             mid = row.get("id")
@@ -5844,7 +5844,7 @@ class Plugin(BasePlugin):
         return m
 
     def _attach_current_media(self, key, account, did, messages, batch):
-        """Only this batch's incoming IDs are eligible, never another chat or historical media."""
+        """Only this batch's incoming IDs are eligible, never another chat..."""
         notes, images = [], []
         readable = any(str(text).strip() and text != "[incoming attachment]" for _mid, _fid, text in batch)
         for mid, _fid, _text in batch[-4:]:
@@ -5903,7 +5903,7 @@ class Plugin(BasePlugin):
         return result, images
 
     def _complete_for_chat(self, key, account, did, messages, _kind="reply", **kwargs):
-        """The only way a reply-like request reaches the AI: system prompt + messages are cut to prompt_max..."""
+        """The only way a reply-like request reaches the AI."""
         task = getattr(self._work_context, "task", None)
         if task is not None and not self._task_alive(key, account, did):
             return ""
@@ -5922,7 +5922,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _trailing_user(messages):
-        """Indexes of the messages being answered: the user messages at the end of the context."""
+        """Indexes of the messages being answered."""
         out = []
         for i in range(len(messages or []) - 1, -1, -1):
             if messages[i].get("role") != "user":
@@ -5931,7 +5931,7 @@ class Plugin(BasePlugin):
         return out or ([len(messages) - 1] if messages else [])
 
     def _fit_prompt(self, head, lore, extras, record, messages, tail="", style=None):
-        """(system, messages) of one reply request: together at most prompt_max characters minus RETRY_RESERVE..."""
+        """(system, messages) of one reply request."""
         budget = self._prompt_budget() - RETRY_RESERVE
         cap = int(budget * SYSTEM_SHARE)
         extras = [x for x in extras if x]
@@ -6006,7 +6006,7 @@ class Plugin(BasePlugin):
 
     # ---- stickers
     def _media_notes(self, did, account, hist):
-        """Descriptions of the newest incoming media (stickers/photos/GIFs) via client.get_message_media, when..."""
+        """Descriptions of the newest incoming media..."""
         out = []
         try:
             fn = getattr(client, "get_message_media", None)
@@ -6060,7 +6060,7 @@ class Plugin(BasePlugin):
             return False
 
     def _sticker_event(self, account, did, mo, message):
-        """Keep the actual Telegram document in RAM, never infer stickers from empty text/MIME alone."""
+        """Keep the actual Telegram document in RAM, never infer stickers..."""
         m = dict(message)
         if (m.get("out") or m.get("is_secret") or m.get("is_service")
                 or int(m.get("account", account)) != int(account)
@@ -6085,7 +6085,7 @@ class Plugin(BasePlugin):
         return m
 
     def _cached_sticker_document(self, account, did, mid):
-        """Exact account/dialog/message lookup, RAM first then read-only Telegram storage queue."""
+        """Exact account/dialog/message lookup, RAM first then read-only..."""
         if not isinstance(mid, int) or mid <= 0:
             return None
         try:
@@ -6188,7 +6188,7 @@ class Plugin(BasePlugin):
             for mid, _fid, _text in batch)
 
     def _queue_sticker_document(self, key, st, did, account, document, parent=None):
-        """Use the same native outbox path as app0.1.5 send_sticker, with the incoming document."""
+        """Use the same native outbox path as app0.1.5 send_sticker, with..."""
         if not self._task_alive(key, account, did) or not self._is_sticker_document(document):
             return False
         owner_id = self._memory_owner_id(account)
@@ -6221,7 +6221,7 @@ class Plugin(BasePlugin):
         return True
 
     def _reply_sticker_only(self, key, c, st, did, account, batch, hist):
-        """Mandatory selection: no sticker_pct/AI-decline gate and never a text fallback."""
+        """Mandatory selection: no sticker_pct/AI-decline gate and never a..."""
         if not self._task_alive(key, account, did) or not self._sticker_only_batch(key, batch):
             return self._skip(key, "disabled meanwhile")
         if any(self._sticker_pending[(key, mid)].get("epoch") != self._epoch(key) for mid, _fid, _text in batch):
@@ -6378,7 +6378,7 @@ class Plugin(BasePlugin):
         return bool(ok)
 
     def deliver(self, key, c, st, did, parts, batch, humanize, timing=None, sticker=None):
-        """Send the parts one by one with a short typing delay (or the human timing); raises on send failure."""
+        """Send the parts one by one with a short typing delay (or the..."""
         parts = list(parts)
         if self._is_group(key) and len(parts) > 1:
             parts = [join_parts(parts, self._newline_pct(), self._rng)]
@@ -6472,7 +6472,7 @@ class Plugin(BasePlugin):
         return True
 
     def _typing_guard(self, key, account, did, st=None, owner_seq=None, epoch=None):
-        """Capture one wait's cancellation tokens, including direct delivery without a work context."""
+        """Capture one wait's cancellation tokens, including direct..."""
         tracked = key in self._chats
         st = st or self._states.get(key)
         if st is None and tracked:
@@ -6501,7 +6501,7 @@ class Plugin(BasePlugin):
         return alive
 
     def _wait_phase(self, did, account, seconds, alive, show=False):
-        """One cancellable phase: no read/typing refresh after its token has expired."""
+        """One cancellable phase."""
         left, shown = max(0.0, float(seconds)), False
         while True:
             if not alive():
@@ -6519,7 +6519,7 @@ class Plugin(BasePlugin):
             left -= chunk
 
     def _wait_typing(self, did, account, seconds, guard=None, show=None):
-        """Wait with periodic cancellation checks; return False immediately when the reply becomes obsolete."""
+        """Wait with periodic cancellation checks."""
         if guard is None:
             guard = self._typing_guard(self.chat_key(account, did), account, did)
         if not guard():
@@ -6560,12 +6560,12 @@ class Plugin(BasePlugin):
         return p or str(self.get_setting("default_prompt", "") or "").strip()
 
     def _owner_rules(self, key):
-        """The owner's own prompt for this chat ('' = none or the stock default)."""
+        """The owner's own prompt for this chat ('' = none or the stock..."""
         custom = self._custom_prompt(key)
         return custom if custom and custom != DEFAULT_PROMPT else ""
 
     def _chat_style_index(self, key):
-        """Per-chat 0 inherits; 1..4 selects a style. Global 0..3 never changes delivery."""
+        """Per-chat 0 inherits; 1..4 selects a style."""
         try:
             local = int(self.get_setting("conversation_style_" + self._sk(key), 0))
         except (TypeError, ValueError):
@@ -6575,7 +6575,7 @@ class Plugin(BasePlugin):
         return self._int("conversation_style", 0, 0, len(CHAT_PROMPT_PRESETS) - 1)
 
     def build_system(self, key, profile, max_examples=24, with_style=True):
-        """System prompt: anti-AI rules + tone + owner's own prompt (CUSTOM_PROMPT_MAX) + the style section..."""
+        """System prompt: anti-AI rules + tone + owner's own prompt..."""
         if not self._humanize():
             return self._chat_prompt(key)
         try:
@@ -6617,7 +6617,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _style_block(profile, max_examples=24):
-        """The owner's voice: measured style and up to max_examples of their real messages, closed by one..."""
+        """The owner's voice: measured style and up to max_examples of..."""
         style = (profile or {}).get("style") or {}
         rules = style_rules(style)
         parts = []
@@ -6659,7 +6659,7 @@ class Plugin(BasePlugin):
         return out
 
     def get_profile(self, key, account, did):
-        """Style profile of the owner (cached per chat). Empty profile if learning is off."""
+        """Style profile of the owner (cached per chat)."""
         if not self.get_setting("learn_style", True):
             return {}
         n = self._int("learn_n", 40, 5, 100)
@@ -6845,7 +6845,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _incoming_texts(messages, lang_text=None):
-        """(texts being answered = the trailing user messages, last 3 user texts), oldest first."""
+        """(texts being answered = the trailing user messages, last 3 user..."""
         users = [LABEL_RE.sub("", str(m.get("content") or "")) for m in (messages or []) if m.get("role") == "user"]
         tail = []
         for m in reversed(messages or []):
@@ -6857,7 +6857,7 @@ class Plugin(BasePlugin):
         return tail, users[-3:]
 
     def reply_problems(self, text, st, last_in="", extra=(), context=None):
-        """'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat', 'typo', 'unsupported_fact' (with context)."""
+        """'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat', 'typo'..."""
         out = []
         natural = bool(self.get_setting("natural_chat", False))
         tell = STRONG_TELL_RE if natural or self.get_setting("disclosure", True) else AI_TELL_RE
@@ -6888,7 +6888,7 @@ class Plugin(BasePlugin):
         return self._float("newline_pct", NEWLINE_PCT, 0.0, 100.0)
 
     def _tune_laughs(self, parts, st, incoming):
-        """0.7.7: extra laughter is cut out (no regeneration); caps only for a really funny message."""
+        """0.7.7: extra laughter is cut out (no regeneration)."""
         if not parts or not self.get_setting("laugh_control", True) or not has_laugh(" ".join(parts)):
             return parts
         hist = list(st.laughs)[-LAUGH_WINDOW:] if st is not None and hasattr(st, "laughs") else []
@@ -6937,7 +6937,7 @@ class Plugin(BasePlugin):
         return out
 
     def _load_history(self, key, account, did, n, media=False):
-        """Text rows of the chat, oldest first. media=True also keeps rows without text that carry media."""
+        """Text rows of the chat, oldest first."""
         if self.chat_key(account, did) != key:
             return []
         n = max(1, min(100, int(n)))
@@ -7024,7 +7024,7 @@ class Plugin(BasePlugin):
         return text[:head] + marker + text[-(limit - len(marker) - head):]
 
     def _bound_context(self, messages, required_indexes=None, budget=None):
-        """Newest context wins; current questions get space before older history."""
+        """Newest context wins; current questions get space before older..."""
         items = [dict(role=m.get("role", "user"), content=str(m.get("content") or "")) for m in messages]
         if not items:
             return []
@@ -7144,7 +7144,7 @@ class Plugin(BasePlugin):
 
     # --- style test
     def on_test_style(self, dialog_id, title=""):
-        """DialogPicker callback (UI thread): the test itself runs in a worker."""
+        """DialogPicker callback (UI thread)."""
         try:
             try:
                 account = int(client.current_account())
@@ -7173,7 +7173,7 @@ class Plugin(BasePlugin):
         return True
 
     def run_style_test(self, account, did, title=""):
-        """Generates a sample reply to each of the last 5 incoming messages. Nothing is sent."""
+        """Generates a sample reply to each of the last 5 incoming messages."""
         info = self._dialog_info(account, did)
         reason = self.check_info(info)
         if reason:
@@ -7226,13 +7226,13 @@ class Plugin(BasePlugin):
         return text
 
     def rt(self, reason):
-        """Localized plain-language text of a reason (raw reason string or stored code)."""
+        """Localized plain-language text of a reason (raw reason string or..."""
         code = re.sub(r"\W+", "_", str(reason).lower()).strip("_")
         return reason_text(self.lang(), code)
 
     # --- decision log view
     def _chat_title(self, key):
-        """Chat title for the log: plugin list, cache, get_dialog_info; the id when nothing is known."""
+        """Chat title for the log."""
         key = str(key)
         c = self._chats.get(key)
         if c and c.get("title"):
@@ -7268,7 +7268,7 @@ class Plugin(BasePlugin):
             return "?"
 
     def decision_rows(self):
-        """[(title, sentence, record)] newest first, at most 40. Title like '21:45:30 · Cherish'."""
+        """[(title, sentence, record)] newest first, at most 40."""
         rows = list(getattr(self, "_decisions", []))[-40:][::-1]
         return [("%s · %s" % (self._stamp(r.get("t", 0)), self._chat_title(r.get("chat"))),
                  self.decision_sentence(r), r) for r in rows]
@@ -7301,7 +7301,7 @@ class Plugin(BasePlugin):
 
     # --- diagnostic report (0.4.4)
     def copy_report(self):
-        """'Copy report (last hour)' button (UI thread): the report is collected in a worker."""
+        """'Copy report (last hour)' button (UI thread)."""
         try:
             client.run_in_bg(self.report_to_clipboard)
         except Exception as e:
@@ -7309,7 +7309,7 @@ class Plugin(BasePlugin):
             client.bulletin(self.t("bl_report_failed", e))
 
     def report_to_clipboard(self):
-        """Worker thread: builds the report, copies it, shows a bulletin. Never raises."""
+        """Worker thread: builds the report, copies it, shows a bulletin."""
         with self._lock:
             busy = getattr(self, "_report_busy", False)
             self._report_busy = True
@@ -7351,7 +7351,7 @@ class Plugin(BasePlugin):
             return "?"
 
     def _usage_note(self):
-        """One line for the Limits section: today's reply requests and background calls with token estimates."""
+        """One line for the Limits section."""
         try:
             s = self._ai_stats()
             main = [self._stat_row(s, k) for k in AI_KINDS if k not in HELPER_KINDS]
@@ -7363,7 +7363,7 @@ class Plugin(BasePlugin):
             return ""
 
     def _usage_text(self, rows):
-        """'reply 12 ~30.1k tok (max ~3.2k), memory 2 ...' from {kind: [calls, chars, largest]}."""
+        """'reply 12 ~30.1k tok (max ~3.2k), memory 2 ...' from {kind."""
         out = []
         for kind in AI_KINDS:
             row = rows.get(kind) if isinstance(rows, dict) else None
@@ -7372,7 +7372,7 @@ class Plugin(BasePlugin):
         return ", ".join(out) or "none"
 
     def _report_cost(self, now):
-        """Header lines: models, size limits, today's and yesterday's AI requests (count, ~tokens, largest)."""
+        """Header lines: models, size limits, today's and yesterday's AI..."""
         s = self._ai_stats()
         prev = s.get("prev") if isinstance(s.get("prev"), dict) else {}
         on = lambda v: "on" if v else "off"
@@ -7419,7 +7419,7 @@ class Plugin(BasePlugin):
                 "retries": g("retries", 0), "defers": g("defers", 0), "abort": str(g("abort", "") or "")}
 
     def _report_history(self, key, since, snap):
-        """[(t, kind, line)] of the chat's history rows inside the window, at most REPORT_HIST_MSGS, never the..."""
+        """[(t, kind, line)] of the chat's history rows inside the window..."""
         acc, did = (int(x) for x in str(key).split(":", 1))
         rows = client.get_recent_messages(did, limit=max(30, REPORT_HIST_MSGS * 2), account=acc) or []
         keep = []
@@ -7458,7 +7458,7 @@ class Plugin(BasePlugin):
         return out
 
     def build_report(self, now=None):
-        """-> (text, decisions in the window). Blocking (history reads): call it from a worker."""
+        """-> (text, decisions in the window)."""
         now = float(self._now() if now is None else now)
         since = now - REPORT_WINDOW_SEC
         self._flush_decisions(force=True)
@@ -7700,7 +7700,7 @@ class Plugin(BasePlugin):
         return sorted(found, key=len, reverse=True) or [".ai"]
 
     def parse_command(self, text):
-        """-> (to_draft, topic) when the text is exactly the owner's command, else None."""
+        """-> (to_draft, topic) when the text is exactly the owner's..."""
         t = str(text or "").strip()
         low = fold_cmd(t)
         for trig in self._cmd_triggers():
@@ -7731,7 +7731,7 @@ class Plugin(BasePlugin):
         return isinstance(info, dict) and info.get("type") == "user" and self.check_info(info) is None
 
     def _command_gate(self, account, did, key, cmd, via):
-        """Shared checks for every command attempt. Returns a reason code when it must not run (logged)."""
+        """Shared checks for every command attempt."""
         if not self.get_setting("cmd_enable", True):
             self._decide(key, "skip", "command_disabled")
             return "command_disabled"
@@ -7746,7 +7746,7 @@ class Plugin(BasePlugin):
         return None
 
     def _start_command(self, account, did, key, draft, topic):
-        """Runs the command in a worker. Returns False when the previous one is still running."""
+        """Runs the command in a worker."""
         with self._lock:
             busy = key in self._cmd_busy
             self._cmd_busy.add(key)
@@ -7764,7 +7764,7 @@ class Plugin(BasePlugin):
         return True
 
     def on_send_message_hook(self, account, params):
-        """Intercepts the owner's own '.ai' command: cancelled (never sent), the work runs in a worker."""
+        """Intercepts the owner's own '.ai' command."""
         try:
             text = getattr(params, "message", None)
             if text is None:
@@ -7805,7 +7805,7 @@ class Plugin(BasePlugin):
             return None
 
     def _outgoing_command_fallback(self, account, did, key, m, admin_only=False):
-        """The send hook did not see this '.ai' (old app / other send path): the message is already in the..."""
+        """The send hook did not see this '.ai' (old app / other send path)."""
         text = str(m.get("text") or "")
         if not text or self._is_bot_text(text):
             return
@@ -7834,7 +7834,7 @@ class Plugin(BasePlugin):
 
     # ---- in-chat admin commands: .ai on | off | status | list | mode auto|draft|friend
     def parse_admin(self, text):
-        """-> (verb, arg) when the text is exactly one of the admin commands, else None."""
+        """-> (verb, arg) when the text is exactly one of the admin..."""
         t = str(text or "").strip()
         low = fold_cmd(t)
         for trig in self._cmd_triggers():
@@ -7869,7 +7869,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def private_reason(info):
-        """Reason why a chat is not a private chat with a person (None = ok): secret/channel/bot/group/..."""
+        """Reason why a chat is not a private chat with a person (None =..."""
         reason = Plugin.check_info(info)
         if reason:
             return reason
@@ -7879,7 +7879,7 @@ class Plugin(BasePlugin):
         return self.t("ms_%d" % mode) if mode in (0, 1, 2) else str(mode)
 
     def _last_for(self, key):
-        """Newest real decision of a chat as 'HH:MM:SS sentence' (incoming_seen entries do not count)."""
+        """Newest real decision of a chat as 'HH:MM:SS sentence'..."""
         for r in reversed(list(self._decisions)):
             if r.get("chat") == key and r.get("o") not in ("seen", "cmd"):
                 return "%s %s" % (self._stamp(r.get("t", 0)), self.decision_sentence(r))
@@ -8013,7 +8013,7 @@ class Plugin(BasePlugin):
             self._cmd_busy.discard(key)
 
     def _openers(self, code="uk"):
-        """Your own list (any language) or the built-in one in the chat's language (uk / ru)."""
+        """Your own list (any language) or the built-in one in the chat's..."""
         raw = str(self.get_setting("cmd_openers", "") or "")
         items = [x.strip() for x in re.split(r"[\n;]", raw) if x.strip()]
         return items or list(DEFAULT_OPENERS_RU if code == "ru" else DEFAULT_OPENERS)
@@ -8071,7 +8071,7 @@ class Plugin(BasePlugin):
         return found or detect_lang(last_in)
 
     def _command_still_valid(self, key, account, did, epoch, owner):
-        """Re-check a `.ai` command after slow generation: same epoch, chat enabled, master on, same owner."""
+        """Re-check a `.ai` command after slow generation."""
         try:
             if self.is_enabled(key):
                 alive = self._task_alive(key, account, did)
@@ -8191,7 +8191,7 @@ class Plugin(BasePlugin):
             return ""
 
     def _fresh_title(self, key, c):
-        """Chat title: stored one, else from the app's dialog info (cache only)."""
+        """Chat title: stored one, else from the app's dialog info (cache..."""
         title = str(c.get("title") or "")
         if title and title != str(c.get("dialog_id")):
             return title
@@ -8246,7 +8246,7 @@ class Plugin(BasePlugin):
         return str(int(f)) if f == int(f) else "%g" % f
 
     def _preset_hint(self, key, extra=None):
-        """'Empty = 15': the value the current preset uses for an empty field."""
+        """'Empty = 15': the value the current preset uses for an empty..."""
         p = self._preset()
         v = self._fmt_num(p.get(key, ""))
         if key == "debounce" and p.get("debounce_jitter"):
@@ -8259,7 +8259,7 @@ class Plugin(BasePlugin):
         return Input(key=key, text=self.t(key), default="", subtext=self._preset_hint(key, extra))
 
     def _pswitch(self, key, label, subtext=None):
-        """Switch whose unset value means 'use the preset' (all of them default to on in the screen)."""
+        """Switch whose unset value means 'use the preset' (all of them..."""
         hint = self.t("preset_sw", self.t("st_on" if self._preset().get(key) else "st_off"))
         return Switch(key=key, text=self.t(label), default=True,
                       subtext=("%s %s" % (self.t(subtext), hint)) if subtext else hint)
@@ -8277,7 +8277,7 @@ class Plugin(BasePlugin):
         return items
 
     def _section_main(self):
-        """What most people change. Kept short (0.4.9: the tone moved to the Style section)."""
+        """What most people change."""
         t = self.t
         items = []
         if not self.get_setting("master", True):
@@ -8305,7 +8305,7 @@ class Plugin(BasePlugin):
         return items
 
     def _section_chats(self):
-        """Chats where the bot is active, then adding a chat right below the list."""
+        """Chats where the bot is active, then adding a chat right below..."""
         t = self.t
         items = []
         self._settings_chats(items)
@@ -8540,7 +8540,7 @@ class Plugin(BasePlugin):
         return out
 
     def on_chat_added(self, dialog_id, title):
-        """DialogPicker / UsernameInput callback (UI thread, no blocking calls)."""
+        """DialogPicker / UsernameInput callback (UI thread, no blocking..."""
         try:
             did = int(dialog_id)
             if not did:
@@ -8572,7 +8572,7 @@ class Plugin(BasePlugin):
             self.error(e)
 
     def _danger(self, key, label, fn):
-        """Destructive button: the first tap arms it for 5 s, the second one runs it."""
+        """Destructive button: the first tap arms it for 5 s, the second..."""
         a = getattr(self, "_armed", None)
         armed = bool(a) and a[0] == key and self._now() - a[1] < 5
 
