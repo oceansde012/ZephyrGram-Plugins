@@ -425,6 +425,7 @@ class TestReactionSettings(ReactBase):
         self.assertEqual(sum(1 for i in all_settings(self.p) if getattr(i, "key", None) == "reactions"), 1)
         self.p.settings["react_" + self.sk()] = 2
         rows["remove_" + self.sk()].on_click()
+        rows["remove_" + self.sk()].on_click()
         self.assertIsNone(self.p.settings.get("react_" + self.sk()))
 
     def test_reasons_have_texts_in_three_languages(self):

@@ -307,6 +307,9 @@ class TestAddChatSettings(Base):
         self.p.settings["mode_" + sk] = mod.MODE_DRAFT
         self.items()["chat_" + sk].on_click()
         self.items()["remove_" + sk].on_click()
+        self.assertIn(self.key(), self.p._chats)                 # 0.8.0: the first tap only arms the button
+        self.assertEqual(self.items()["remove_" + sk].text, self.p.t("tap_again"))
+        self.items()["remove_" + sk].on_click()
         self.assertNotIn(self.key(), self.p._chats)
         self.assertNotIn("remove_" + sk, self.items())
         self.incoming()

@@ -19,7 +19,7 @@ GLOBAL = {
     "short_msgs": ("Switch", True), "max_parts": ("Input", "2"), "split_msgs": ("Switch", True),
     "typing_delay": ("Switch", True), "typing_cap": ("Input", ""), "banned_words": ("Input", ""),
     "skip_emoji": ("Switch", True), "answer_detail": ("Selector", 1), "max_reply": ("Input", ""),
-    "temperature": ("Input", "0.95"), "default_prompt": ("Input", ""), "context_n": ("Input", "40"),
+    "temperature": ("Input", "0.85"), "default_prompt": ("Input", ""), "context_n": ("Input", "40"),
     "context_chars": ("Input", "16000"), "model": ("Input", ""), "disclosure": ("Switch", True),
     "disclosure_text": ("Input", mod.ROBOT + " "), "trigger": ("Input", ".ai "),
     "debounce": ("Input", ""), "cooldown": ("Input", ""), "chat_hourly": ("Input", ""),

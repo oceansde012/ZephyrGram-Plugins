@@ -2225,7 +2225,7 @@ def note(text):
 
 
 def tr(lang, key):
-    row = S.get(key)
+    row = S.get(key) or R.get(key)
     if row is None:
         return key
     i = LANGS.index(lang) if lang in LANGS else 0
@@ -2317,6 +2317,7 @@ R["group_topic_unavailable"] = ("Topic metadata is unavailable; keeping only the
                                 "Тема недоступна; враховано лише поточне повідомлення",
                                 "Тема недоступна; учтено только текущее сообщение")
 S.update({
+    "tap_again": ("Tap again to delete", "Натисніть ще раз, щоб видалити", "Нажмите ещё раз, чтобы удалить"),
     "group_memory_safe": ("Group context tells speakers apart. Shared memory and auto notes are paused in groups.", "Контекст групи розрізняє учасників. Спільна пам’ять і автонотатки в групах призупинені.", "Контекст группы различает участников. Общая память и автозаметки в группах приостановлены."),
     "model_pick": ("Reply model", "Модель відповідей", "Модель ответов"),
     "voice_realtime": ("Wait for voice-message duration", "Чекати тривалість голосового", "Ждать длительность голосового"),
@@ -8388,7 +8389,7 @@ class Plugin(BasePlugin):
                 items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
                                    subtext=t("chat_prompt_s")))
                 items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
-                items.append(Text(text=t("chat_remove"), key="remove_" + sk, on_click=self._remove_cb(key)))
+                items.append(self._danger("remove_" + sk, "chat_remove", self._remove_cb(key)))
         if long_list:
             items.append(Text(text=t("chats_less") if show_all else t("chats_more", len(self._chats)),
                               key="chats_all", on_click=self._toggle_all_chats))
@@ -8504,7 +8505,7 @@ class Plugin(BasePlugin):
             self._model_picker(),
             Input(key="model", text=t("model"), default="", subtext=t("model_s"), on_change=self._model_text_changed),
             Input(key="model_cheap", text=t("model_cheap"), default="", subtext=t("model_cheap_s")),
-            Input(key="temperature", text=t("temperature"), default="0.95"),
+            Input(key="temperature", text=t("temperature"), default="0.85"),
             Switch(key="natural_disclosure" if self.get_setting("natural_chat", False) else "disclosure",
                    text=t("disclosure"), default=not bool(self.get_setting("natural_chat", False))),
             Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
@@ -8534,7 +8535,7 @@ class Plugin(BasePlugin):
             out.append(note(sentence))
         out.append(Text(text=t("log_copy"), key="log_copy", on_click=self.copy_log))
         out.append(report)
-        out.append(Text(text=t("log_clear"), key="log_clear", on_click=self.clear_log))
+        out.append(self._danger("log_clear", "log_clear", self.clear_log))
         out.append(note(t("decisions_note")))
         return out
 
@@ -8569,6 +8570,20 @@ class Plugin(BasePlugin):
             client.bulletin(self.t("bl_on", name))
         except Exception as e:
             self.error(e)
+
+    def _danger(self, key, label, fn):
+        """Destructive button: the first tap arms it for 5 s, the second one runs it."""
+        a = getattr(self, "_armed", None)
+        armed = bool(a) and a[0] == key and self._now() - a[1] < 5
+
+        def cb():
+            b = getattr(self, "_armed", None)
+            if b and b[0] == key and self._now() - b[1] < 5:
+                self._armed = None
+                return fn()
+            self._armed = (key, self._now())
+            client.bulletin(self.t("tap_again"))
+        return Text(text=self.t("tap_again" if armed else label), key=key, on_click=cb)
 
     def _remove_cb(self, key):
         def cb():

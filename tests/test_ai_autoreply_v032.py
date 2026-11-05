@@ -78,6 +78,8 @@ class TestDecisionLog(Base):
         self.assertEqual(len(CLIENT.clipboard[0].splitlines()), 26)
         self.assertIn("Alice", CLIENT.clipboard[0])
         by_key["log_clear"].on_click()
+        self.assertNotEqual(len(self.p._decisions), 0)          # 0.8.0: armed by the first tap
+        by_key["log_clear"].on_click()
         self.assertEqual(len(self.p._decisions), 0)
         self.assertEqual(self.p.settings["decisions"], "[]")
         _i, rest = self.rows()
