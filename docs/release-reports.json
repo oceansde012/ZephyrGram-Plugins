@@ -672,6 +672,30 @@
           "human_text": "Если Telegram не ответил, экспорт завершается, а не ждёт вечно."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.2",
+      "sha256": "1a2b75460086590e710a4e46d43d42631dc87d8696c5f134e5b51dea95aac13e",
+      "checks": "983 Python tests (after merging main) and plugin validation passed; no live provider calls. Size 541582 B: minAppVersion 0.2.5, index-v2.json only (D-020).",
+      "items": [
+        {
+          "id": "CONVERSATION-PLAN",
+          "title": "План общения по дням",
+          "scope": "complete",
+          "details": "Per private chat setting plan_{sk} (lore page): one stage per line. _plan_rule adds PLAN_RULE with the current stage to the reply prompt (no extra AI call). The stage (plan_i/plan_d/plan_h in the chat record) moves +1 on a new day of talk, jumps forward when the incoming text has 2 topic stems of a later stage (plan_jump), never moves back, restarts when the plan text changes. Groups ignored.",
+          "limitations": "Topic jump is a keyword heuristic (word stems), no AI judgement. A pause of several days counts as one day of talk. Phone behaviour unverified.",
+          "human_text": "Можно задать план общения по дням: бот мягко ведёт разговор по нему и подстраивается, если собеседник забежал вперёд."
+        },
+        {
+          "id": "ASK-OWNER",
+          "title": "Спрашивать меня о важном",
+          "scope": "complete",
+          "details": "Opt-in ask_owner (default off), ask_timeout (default 30 min), persona page. ASK_RULE asks the model to start an important reply with [ASK] in the same request; ASK_NET_RE (money, meeting, promise; 'agree' words left to the model) is a safety net; hits the owner marked 'неважно' are remembered per chat (ask_ok, amounts normalized as '# грн') and not asked again. The reply goes to Saved Messages (own user id) with the last incoming lines; client.notify when client.NOTIFY (app 0.2.6), else bulletin. While waiting: no read receipt, no typing, newer messages stay pending. An answer in Saved Messages is caught by the send hook and cancelled only when it is a reply to the request (#N from replyToMsg text), starts with '#N' of an open request, or is a bare verb ('+', 'ок', '-', 'неважно') for the newest one; any other note ('- купить молоко') is left alone; '+' sends, '- text' sends the text ('-' alone sends nothing), 'неважно' sends and appends a note to the chat lore. Timeout: nothing sent, short note to Saved Messages. [ASK] is stripped from everything sent.",
+          "limitations": "Importance is the model's mark plus a keyword net, no separate check. Answers are typed in Saved Messages (no buttons). Open requests are lost when the app restarts (said in the hint). Phone behaviour unverified.",
+          "human_text": "Бот может спрашивать вас в «Избранном» перед важным ответом: встреча, деньги, обещания."
+        }
+      ]
     }
   ]
 }

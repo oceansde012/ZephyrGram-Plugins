@@ -2,13 +2,14 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.1"
-__version_code__ = 42
+__version__ = "0.9.2"
+__version_code__ = 43
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
 import difflib
+import hashlib
 import json
 import locale
 import os
@@ -127,6 +128,42 @@ MIRROR_MIN = 60
 PART_CAP = 160
 STICKER_BACK_PCT = 30        # a sticker gets a sticker back this often, otherwise words
 STICKER_TEXT_RULE = "They sent a sticker: react in a few words, as a person would."
+PLAN_RULE = ("Owner's conversation plan for this chat (optional), today stage %d of %d: %s. Steer toward it gently and "
+             "only when it fits; follow the person's lead, never force it; if they already talk about a later topic, "
+             "go with it. Short replies as usual.")
+PLAN_HEAD_RE = re.compile(u"(?i)^\\s*(?:(?:день|day|этап|етап)\\s*\\d+|\\d+)\\s*[:.)\\-–—]?\\s*")
+PLAN_STOP = frozenset(u"обсуж обгов разго розмо общен спілк тема темы теми about talk".split())
+ASK_RULE = ("If this reply commits the owner to something important (a meeting or time, money, a promise, agreeing "
+            "to or refusing a plan, personal data), begin it with [ASK]; otherwise never write [ASK].")
+ASK_MARK_RE = re.compile(r"\[\s*ASK\s*\]\s*", re.I)
+ASK_NET_RE = re.compile(u"(?i)\\d+\\s*(?:грн|гривен|руб|₴|\\$|usd|долл|евро|€)|(?<!\\w)(?:переведу|перекину|скину денег|"
+                        u"займу|одолжу|позичу|договорились|домовились|встретимся|зустрінемось|приеду|приїду|"
+                        u"обещаю|обіцяю)(?!\\w)")
+ASK_REF_RE = re.compile(r"^\s*#(\d+)\s*·")   # the quoted approval request
+ASK_REPLY_RE = re.compile(u"(?is)^\\s*(?:#(\\d+)\\s*)?(\\+|✓|✅|ок|ok|да|так|-|−|✗|❌|не\\s*важно|неважно|неважливо)(?:\\s+|$)(.*)$")
+
+
+def ask_net_words(text):
+    """Safety-net hits of a reply, normalized (amounts as '# грн') so 'not important' covers the same kind."""
+    return sorted(set(re.sub(r"\s+", " ", re.sub(r"\d+", "#", x.group(0).lower())).strip()
+                      for x in ASK_NET_RE.finditer(text or "")))
+
+
+def quoted_text(params):
+    """Text of the message the owner replies to (SendMessageParams.replyToMsg), '' when none."""
+    try:
+        r = getattr(params, "replyToMsg", None)
+        if r is None:
+            return ""
+        own = getattr(r, "messageOwner", None)
+        t = getattr(own, "message", None) if own is not None else None
+        if not t:
+            t = getattr(r, "messageText", None)
+        return str(t or "")
+    except Exception:
+        return ""
+
+
 TYPING_SHOWN_MIN = 2.0       # shorter typing is not visible in the other app
 
 CHAT_PROMPT_PRESETS = (
@@ -703,6 +740,25 @@ def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
     t = re.sub(u",? +[—–] +", ", ", re.sub(r"[ \t]+", " ", t))
     t = re.sub(r"\n\s*\n+", "\n", t).strip()
     return cap_text(t, limit) if cap else t
+
+
+def plan_stages(text):
+    """Owner's plan: one stage per non-empty line, 'День 1:' / '1.' prefixes dropped."""
+    return [PLAN_HEAD_RE.sub("", x).strip() for x in str(text or "").splitlines() if PLAN_HEAD_RE.sub("", x).strip()][:30]
+
+
+def plan_stems(text):
+    return {w[:5] for w in re.findall(u"[^\\W\\d_]{4,}", str(text or "").lower())} - PLAN_STOP
+
+
+def plan_jump(stages, i, text):
+    """Latest later stage whose topic the talk already covers (2 topic words, or all of a short one)."""
+    got = plan_stems(text)
+    for j in range(len(stages) - 1, i, -1):
+        kw = plan_stems(stages[j])
+        if kw and len(kw & got) >= min(2, len(kw)):
+            return j
+    return i
 
 
 def mirror_trim(parts, total):
@@ -1639,6 +1695,22 @@ S = {
     "chat_lore_s": ("What you know about this person and how you two talk (facts from you).",
         "Що ви знаєте про цю людину і як ви спілкуєтесь (факти від вас).",
         "Что вы знаете об этом человеке и как вы общаетесь (факты от вас)."),
+    "ask_owner": ("Ask me about important things", "Питати мене про важливе", "Спрашивать меня о важном"),
+    "ask_owner_s": ("Meetings, money, promises: the reply goes to Saved Messages first. Reply to that message: + (send), - text (send yours) or not important. A question still open is lost when the app restarts.",
+                    "Зустрічі, гроші, обіцянки: відповідь спершу йде в Обране. Відповідайте на те повідомлення: + (надіслати), - текст (свій) або неважливо. Питання без відповіді губиться при перезапуску застосунку.",
+                    "Встречи, деньги, обещания: ответ сначала идёт в Избранное. Ответьте на то сообщение: + (отправить), - текст (свой) или неважно. Вопрос без ответа теряется при перезапуске приложения."),
+    "ask_timeout": ("Wait for my answer (min)", "Чекати моєї відповіді (хв)", "Ждать моего ответа (мин)"),
+    "ask_req": ("#%d · %s\n%s\n→ %s\n\nReply to this message: + / - your text / not important",
+                "#%d · %s\n%s\n→ %s\n\nВідповідайте на це повідомлення: + / - свій текст / неважливо",
+                "#%d · %s\n%s\n→ %s\n\nОтветьте на это сообщение: + / - свой текст / неважно"),
+    "ask_title": ("Reply needs your OK", "Відповідь чекає на вас", "Ответ ждёт вас"),
+    "ask_expired": ("#%d · %s: no answer, nothing sent", "#%d · %s: відповіді немає, нічого не надіслано",
+                    "#%d · %s: ответа нет, ничего не отправлено"),
+    "ask_note": ("No need to ask me about: %s", "Не треба питати мене про: %s", "Не нужно спрашивать меня о: %s"),
+    "chat_plan": ("Conversation plan (optional)", "План спілкування (необов’язково)", "План общения (необязательно)"),
+    "chat_plan_s": ("One line per day of talk, e.g. “Day 1: getting to know each other”. The bot steers gently, moves on the next day of talk or earlier if the person gets there. Now: stage %s.",
+                    "Рядок на день спілкування, наприклад «День 1: знайомство». Бот м’яко веде розмову, переходить далі наступного дня або раніше, якщо співрозмовник сам дійшов. Зараз: етап %s.",
+                    "Строка на день общения, например «День 1: знакомство». Бот мягко ведёт разговор, переходит дальше на следующий день или раньше, если собеседник сам дошёл. Сейчас: этап %s."),
     "chat_learned": ("Notes learned from this chat", "Нотатки, вивчені з цього чату",
         "Заметки, выученные из этого чата"),
     "chat_learned_s": ("Filled in automatically when “Remember facts about people” is on. Edit or clear freely.",
@@ -2460,6 +2532,15 @@ NEWS = (("0.8.0", "n80a", "pg_chats"), ("0.8.0", "n80b", "pg_queue"), ("0.8.0", 
         ("0.7.7", "n77a", "pg_style_adv#max_reply_min"), ("0.7.7", "n77b", "pg_style_adv#newline_pct"),
         ("0.7.7", "n77c", "pg_style#laugh_control"), ("0.7.6", "n76a", ""))
 TEMPS = ("0.6", "0.85", "1.0")
+R["ask_owner"] = ("Important reply: asked you in Saved Messages", "Важлива відповідь: спитав вас в Обраному",
+                  "Важный ответ: спросил вас в Избранном")
+R["ask_owner_unknown"] = ("Important reply not sent: your account id is unknown", "Важливу відповідь не надіслано: id акаунта невідомий",
+                          "Важный ответ не отправлен: id аккаунта неизвестен")
+R["ask_ok"] = ("Sent after your +", "Надіслано після вашого +", "Отправлено после вашего +")
+R["ask_own"] = ("Your answer sent instead", "Надіслано вашу відповідь", "Отправлен ваш ответ")
+R["ask_skip"] = ("Sent; noted it was not important", "Надіслано; записано, що це неважливо", "Отправлено; записано, что это неважно")
+R["ask_timeout"] = ("No answer from you in time: nothing sent", "Ви не відповіли вчасно: нічого не надіслано",
+                    "Вы не ответили вовремя: ничего не отправлено")
 R["queue_now"] = ("Reply sent now from the queue", "Відповідь надіслано зараз із черги", "Ответ отправлен сейчас из очереди")
 R["queue_stop"] = ("Reply stopped in the queue", "Відповідь зупинено в черзі", "Ответ остановлен в очереди")
 PACE_KEYS = ("debounce cooldown cooldown_jitter owner_defers lat_warm_min lat_warm_max warm_window warm_cap cold_after "
@@ -2732,6 +2813,8 @@ class ChatState(object):
         self.sent_h = deque(maxlen=200)    # timestamps of our sent replies (per-chat hourly cap)
         self.sending = False
         self.polite_ts = 0.0
+        self.ask = None                    # reply waiting for the owner's approval in Saved Messages
+        self.ask_flag = False              # the model marked the last reply with [ASK]
         self.defers = 0                    # times the pending batch was held back by the owner-active rule
         self.last_in_ts = 0.0              # arrival of the latest incoming message
         self.last_act_ts = 0.0             # latest message of anybody (incoming, our reply, owner)
@@ -2842,6 +2925,7 @@ class Plugin(BasePlugin):
         self._rush, self._mem_len, self._interest = set(), {}, None
         self._cmd_busy = set()
         self._cmd_seen = {}                # chat key -> ts of the last command attempt seen by the send hook
+        self._asks, self._ask_n = {}, 0    # approval number -> chat key
         self._cmd_fallback = {}
         self._titles = {}
         self._repair_store()
@@ -3547,7 +3631,7 @@ class Plugin(BasePlugin):
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
-                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city"):
+                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan"):
                 self.set_setting(field + "_" + sk, None)
         return title
 
@@ -3725,6 +3809,118 @@ class Plugin(BasePlugin):
         return "\n".join(lines)
 
     # --- lore
+    # ---- owner approval in Saved Messages
+    def _ask_owner(self, key, c, st, did, account, parts, batch):
+        owner = self._memory_owner_id(account)
+        if not owner:
+            return self._skip(key, "ask owner unknown")
+        with self._lock:
+            self._ask_n += 1
+            n = self._ask_n
+            self._asks[n] = key
+            st.ask = {"n": n, "parts": list(parts), "batch": list(batch), "owner": owner}
+        title = str(c.get("title") or did)
+        said = "\n".join("« " + str(b[2] or "")[:200] for b in batch[-3:] if str(b[2] or "").strip())
+        try:
+            self.send(owner, self.t("ask_req", n, title, said, " / ".join(parts)), None, account=account)
+        except Exception as e:
+            self.error(e)
+        try:
+            if getattr(client, "NOTIFY", False):
+                client.notify(self.t("ask_title"), title, account=account)
+            elif callable(getattr(client, "bulletin", None)):
+                client.bulletin(self.t("ask_title") + ": " + title)
+        except Exception as e:
+            self.error(e)
+        self._run_later(60.0 * self._int("ask_timeout", 30, 1, 1440), lambda: self._ask_done(n, None, ""))
+        self._decide(key, "defer", "ask_owner")
+        return "ask"
+
+    def _ask_done(self, n, verb, text):
+        """Owner's answer to approval n: '+' send, '-' send text (or nothing), 'skip' send and note; None = timeout."""
+        with self._lock:
+            key = self._asks.pop(n, None)
+            st = self._states.get(key) if key else None
+            ask = st.ask if st is not None and st.ask and st.ask.get("n") == n else None
+            if ask is None:
+                return False
+            st.ask = None
+        c = self._chats.get(key) or {}
+        did, account = int(c.get("dialog_id", 0) or 0), int(c.get("account", 0))
+        parts = ask["parts"] if verb in ("+", "skip") else ([text.strip()] if verb == "-" and text.strip() else [])
+        if verb is None:
+            try:
+                self.send(ask["owner"], self.t("ask_expired", n, str(c.get("title") or did)), None, account=account)
+            except Exception as e:
+                self.error(e)
+        if verb == "skip":
+            words = sorted(set(ask_net_words(" ".join(parts))) | set(c.get("ask_ok") or []))[-40:]
+            if words and c:
+                c = self._commit(key, set={"ask_ok": words}) or c
+            sk = self._sk(key)
+            note = self.t("ask_note", " / ".join(parts)[:120])
+            self.set_setting("lore_" + sk, (str(self.get_setting("lore_" + sk, "") or "").strip() + "\n" + note).strip())
+        if parts and c.get("enabled") and did:
+            mid = max([b[0] for b in ask["batch"] if isinstance(b[0], int)] or [0])
+            if mid and self._read_enabled():
+                self._mark_read(key, mid)
+            self.deliver(key, c, st, did, parts, ask["batch"], self._humanize())
+        with self._lock:
+            st.answered.extend(b[0] for b in ask["batch"] if b[0] is not None)
+            again = bool(st.pending) and not st.timer and not st.inflight
+            if again:
+                st.timer, st.first_ts = True, self._now()
+        self._decide(key, "sent" if parts else "skip", "ask_" + (verb or "timeout").replace("+", "ok").replace("-", "own"))
+        if again:
+            self._schedule(key, self._debounce())
+        return True
+
+    def _ask_net(self, key, parts):
+        """Safety-net words in the reply that the owner has not marked 'not important' in this chat."""
+        ok = set((self._chats.get(key) or {}).get("ask_ok") or [])
+        return [w for w in ask_net_words(" ".join(parts)) if w not in ok]
+
+    def _ask_reply(self, account, did, text, quoted=""):
+        """The owner's answer in Saved Messages; True when it was one.
+
+        An answer is (a) a reply to the request message (its '#N ·'), (b) a message that starts with '#N' for an open
+        request, or (c) a bare '+', 'ок', '-', 'неважно'... for the newest request. Anything else in Saved Messages is the
+        owner's own note and stays untouched ('- купить молоко' is never sent to anybody)."""
+        m = ASK_REPLY_RE.match(text or "")
+        if not m or not self._asks or did != self._memory_owner_id(account):
+            return False
+        ref = ASK_REF_RE.match(quoted or "")
+        rest = (m.group(3) or "").strip()
+        if ref:
+            n = int(ref.group(1))
+        elif m.group(1):
+            n = int(m.group(1))
+        elif not rest:
+            n = max(self._asks)
+        else:
+            return False
+        if n not in self._asks:
+            return False
+        w = m.group(2).lower()
+        verb = "-" if w in ("-", u"−", u"✗", u"❌") else ("+" if not w.startswith(u"не") else "skip")
+        client.run_in_bg(lambda: self._ask_done(n, verb, rest))
+        return True
+
+    def _plan_rule(self, key, incoming):
+        """Current stage of the chat's plan as a prompt rule ('' without a plan); the stage only moves forward."""
+        stages = plan_stages(self.get_setting("plan_" + self._sk(key), ""))
+        c = self._chats.get(key) or {}
+        if not stages:
+            return ""
+        h, day = hashlib.sha1("\n".join(stages).encode("utf-8")).hexdigest()[:10], self._day()
+        i, last = (int(c.get("plan_i") or 0), c.get("plan_d")) if c.get("plan_h") == h else (0, None)
+        if last and last != day:
+            i += 1                          # a new day of talk: next stage
+        i = plan_jump(stages, min(i, len(stages) - 1), incoming)
+        if (i, last, h) != (c.get("plan_i"), day, c.get("plan_h")):
+            self._commit(key, set={"plan_i": i, "plan_d": day, "plan_h": h})
+        return PLAN_RULE % (i + 1, len(stages), stages[i][:300])
+
     def _lore_block(self, key):
         """Prompt block with the owner's lore (global + this chat) and the..."""
         sk = self._sk(key)
@@ -4253,8 +4449,8 @@ class Plugin(BasePlugin):
                 deb = max(6.0, deb)
             batch = None
             with self._lock:
-                if not st.pending:
-                    st.timer = False
+                if not st.pending or st.ask:
+                    st.timer = False        # waiting for the owner: newer messages stay pending
                     return
                 due = min(st.last_ts + deb, st.first_ts + MAX_DEBOUNCE_TOTAL)
                 wait = max(due - now, st.cooldown_until - now)
@@ -4902,6 +5098,9 @@ class Plugin(BasePlugin):
                 self._set_draft(did, join_parts(parts, self._newline_pct(), self._rng), account)
                 st.recent.append(norm_text(" ".join(parts)))
             else:
+                if (auto and self.get_setting("ask_owner", False)
+                        and (st.ask_flag or self._ask_net(key, parts))):
+                    return self._ask_owner(key, c, st, did, account, parts, batch)
                 if live:
                     parts = self._maybe_split2(parts)
                 if self._is_group(key) and len(parts) > 1:
@@ -6555,7 +6754,7 @@ class Plugin(BasePlugin):
 
     def deliver(self, key, c, st, did, parts, batch, humanize, timing=None, sticker=None):
         """Send the parts one by one with a short typing delay (or the..."""
-        parts = list(parts)
+        parts = [y for y in (ASK_MARK_RE.sub("", str(p)).strip() for p in parts) if y]
         if self._is_group(key) and len(parts) > 1:
             parts = [join_parts(parts, self._newline_pct(), self._rng)]
         if self._is_group(key) and parts:
@@ -6922,6 +7121,13 @@ class Plugin(BasePlugin):
             rules.append(IDENTITY_RULE)     # facts about two people are in the prompt: keep them apart
         if is_trivia_question(incoming):
             rules.append(TRIVIA_RULE)       # only when it is needed: the typical request stays as small as before
+        if st is not None:
+            st.ask_flag = False
+        if kind == "reply" and self.get_setting("ask_owner", False):
+            rules.append(ASK_RULE)
+        plan = self._plan_rule(key, incoming) if kind == "reply" and not self._is_group(key) else ""
+        if plan:
+            rules.append(plan)
         if ANNOYED_RE.search(last_in):
             rules.append(ANNOYED_RULE)
         if last_in.startswith("[incoming sticker"):
@@ -6985,6 +7191,10 @@ class Plugin(BasePlugin):
                 if attempt and cands:        # the second try timed out: keep the first reply instead of losing it
                     break
                 raise
+            if ASK_MARK_RE.search(raw_reply or ""):
+                raw_reply = ASK_MARK_RE.sub("", raw_reply)
+                if st is not None:
+                    st.ask_flag = True
             leaked = has_leak(raw_reply)
             reply = clean_humanized(raw_reply, limit, preserve_filler=True, cap=False)
             if not reply:
@@ -7961,6 +8171,8 @@ class Plugin(BasePlugin):
             if text is None:
                 return None
             text = str(text)
+            if self._ask_reply(account, int(getattr(params, "peer", 0) or 0), text, quoted_text(params)):
+                return HookResult(strategy=HookStrategy.CANCEL)
             adm = self.parse_admin(text)
             cmd = None if adm else self.parse_command(text)
             if cmd is None and adm is None:
@@ -8592,6 +8804,9 @@ class Plugin(BasePlugin):
         if not self._is_group(key):
             items.append(Input(key="learned_" + sk, text=t("chat_learned"), default="", multiline=True,
                                subtext=t("chat_learned_s")))
+            n = len(plan_stages(self.get_setting("plan_" + sk, "")))
+            items.append(Input(key="plan_" + sk, text=t("chat_plan"), default="", multiline=True, subtext=t(
+                "chat_plan_s", "%d / %d" % (min(n, int(c.get("plan_i") or 0) + 1), n) if n else "—")))
         items.append(Selector(key="conversation_style_" + sk, text=t("chat_style"),
                               items=[t("chat_style_default")] + [t("chat_style_%d" % i) for i in range(4)],
                               default=0, subtext=t("chat_style_s")))
@@ -8630,6 +8845,8 @@ class Plugin(BasePlugin):
             Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
             self._pinput("typing_cap"),
             Input(key="banned_words", text=t("banned"), default="", multiline=True, subtext=t("banned_s")),
+            Switch(key="ask_owner", text=t("ask_owner"), default=False, subtext=t("ask_owner_s")),
+            Input(key="ask_timeout", text=t("ask_timeout"), default="30"),
             Switch(key="skip_emoji", text=t("skip_emoji"), default=True),
         ]
 
@@ -8841,7 +9058,7 @@ class Plugin(BasePlugin):
         "": "@root",
         "chats": "#h_whom reply_all all_accounts @chats >add",
         "add": "#h_add add_pick add_username !add_cmds",
-        "persona": "lore_name lore_age lore_city lore owner_gender lore_learn !persona_note",
+        "persona": "lore_name lore_age lore_city lore owner_gender lore_learn ask_owner ask_timeout !persona_note",
         "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
                  "laugh_control banned_words >style_adv",
         "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs quote_pct #h_learn learn_style "
@@ -8871,7 +9088,7 @@ class Plugin(BasePlugin):
         "setup3": "reply_all add_pick @setup3",
         "chat": "@chat keep_{} mode_{} @refresh #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
                 "react_{} prompt_{} >lore >access test_{} remove_{}",
-        "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{}",
+        "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{} plan_{}",
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
     ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
