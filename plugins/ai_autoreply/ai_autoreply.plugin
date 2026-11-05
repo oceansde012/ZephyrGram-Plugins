@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.3"
-__version_code__ = 44
+__version__ = "0.9.4"
+__version_code__ = 45
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -2560,13 +2560,13 @@ interest|interest %s %d|інтерес %s %d|интерес %s %d
 mem_bar|memory %s %d%%|пам’ять %s %d%%|память %s %d%%
 mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Підсумки чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Сводки чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
 pg_talk|Conversation|Спілкування|Общение
-h_vector|Change the course|Змінити курс розмови|Изменить вектор общения
+h_vector|Change the direction|Змінити напрямок розмови|Изменить вектор общения
 vector|How to talk from now on|Як спілкуватися далі|Как общаться дальше
 vector_s|A temporary rule for this chat, e.g. "more flirting", "less questions". Removed by itself after the days below. %s|Тимчасове правило для цього чату, наприклад «більше фліртувати», «менше питань». Знімається саме через дні нижче. %s|Временное правило для этого чата, например «больше флирта», «меньше вопросов». Снимается само через дни ниже. %s
 vector_left|Left: %d d.|Залишилось: %d дн.|Осталось: %d дн.
 vector_days|Rule lasts (days)|Правило діє (днів)|Правило действует (дней)
 daily|Write every day|Писати щодня|Писать ежедневно
-daily_s|Once a day, at a random time from 9 to 21 (not in quiet hours), the bot writes first if you have not talked yet that day. Same limits as reviving.|Раз на день, у випадковий час з 9 до 21 (не в тихі години), бот пише першим, якщо ви ще не спілкувалися того дня. Ті самі ліміти, що й в оживлення.|Раз в день, в случайное время с 9 до 21 (не в тихие часы), бот пишет первым, если вы ещё не общались в этот день. Те же лимиты, что у оживления.
+daily_s|Once a day, at a random time between 9 and 21 (not in quiet hours), the bot writes first if you have not talked yet that day. Same limits as reviving.|Раз на день, у випадковий час з 9 до 21 (не в тихі години), бот пише першим, якщо ви ще не спілкувалися того дня. Ті самі ліміти, що й для оживлення.|Раз в день, в случайное время с 9 до 21 (не в тихие часы), бот пишет первым, если вы ещё не общались в этот день. Те же лимиты, что у оживления.
 learn_now|Study this chat|Вивчити чат|Изучить чат
 learn_now_s|Now: your style and facts from this chat's history.|Зараз: ваш стиль і факти з історії цього чату.|Сейчас: ваш стиль и факты из истории этого чата.
 bl_learn_1|Studying the chat: style…|Вивчаю чат: стиль…|Изучаю чат: стиль…
