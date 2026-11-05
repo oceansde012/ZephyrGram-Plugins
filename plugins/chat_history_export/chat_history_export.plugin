@@ -2,12 +2,13 @@ __id__ = "chat_history_export"
 __name__ = "Экспорт истории чата"
 __description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
 __author__ = "ZephyrGram"
-__version__ = "1.0.3"
-__version_code__ = 4
+__version__ = "1.0.4"
+__version_code__ = 5
 __api_version__ = 1
 __min_app_version__ = "0.1.4"
 __permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
 
+import contextvars
 import datetime
 import json
 import os
@@ -26,6 +27,42 @@ from zephyr.ui import Header, Text, Divider, DialogPicker
 def jclass(name):
     from java import jclass as get_class
     return get_class(name)
+
+
+def _bound(fn):
+    """fn for a thread the app did not start for this plugin (threading.Timer, an Android dialog button): runs it
+    in a copy of the current plugin context, so client.* calls inside work, and never lets an error escape.
+    Create it inside a plugin callback. An exception escaping a Java callback (dynamic proxy) crashed the app."""
+    context = contextvars.copy_context()
+
+    def run(*args):
+        try:
+            return context.copy().run(fn, *args)
+        except Exception:
+            return None
+    return run
+
+
+_CLICK_CLASS = []
+
+
+def _click_listener(fn):
+    """DialogInterface.OnClickListener calling fn() (a _bound function). One proxy class per plugin load."""
+    if not _CLICK_CLASS:
+        from java import dynamic_proxy
+
+        class ClickListener(dynamic_proxy(jclass("android.content.DialogInterface$OnClickListener"))):
+            def __init__(self, action):
+                super().__init__()
+                self.action = action
+
+            def onClick(self, dialog, which):
+                try:
+                    self.action()
+                except Exception:
+                    pass
+        _CLICK_CLASS.append(ClickListener)
+    return _CLICK_CLASS[0](fn)
 
 
 def _new(*names):
@@ -312,7 +349,9 @@ class Session:
             self.nonce += 1
             nonce = self.nonce
             self.awaiting = True
-            self.timer = threading.Timer(50, lambda: self.deliver(nonce, None, "REQUEST_TIMEOUT"))
+            # The timer thread has no plugin context: without _bound, deliver's client.run_in_bg raised there and a
+            # lost answer left the export waiting forever.
+            self.timer = threading.Timer(50, _bound(lambda: self.deliver(nonce, None, "REQUEST_TIMEOUT")))
             self.timer.daemon = True
             self.timer.start()
             try:
@@ -321,13 +360,18 @@ class Session:
                 self.deliver(nonce, None, "REQUEST_UNAVAILABLE")
 
     def deliver(self, nonce, response, error):
+        # Called on the app's network callback thread: never wait there for self.lock, which process() holds while
+        # it writes a whole page (that stalled every Telegram callback of the app). Hand over at once.
+        client.run_in_bg(lambda: self._deliver(nonce, response, error))
+
+    def _deliver(self, nonce, response, error):
         with self.lock:
             if nonce != self.nonce or not self.awaiting or self.stopped:
                 return
             self.awaiting = False
             if self.timer:
                 self.timer.cancel()
-        client.run_in_bg(lambda: self.process(response, error))
+        self.process(response, error)
 
     def process(self, response, error):
         with self.lock:
@@ -591,16 +635,13 @@ class Plugin(BasePlugin):
             activity = fragment.getParentActivity() if fragment else None
             if activity is None:
                 return self._notice("Откройте чат и повторите экспорт")
-            from java import dynamic_proxy
-            click_interface = jclass("android.content.DialogInterface$OnClickListener")
-            plugin = self
-            class Start(dynamic_proxy(click_interface)):
-                def onClick(self, dialog, which):
-                    client.run_in_bg(lambda: plugin._start(ctx, info))
+            # The button is pressed later, outside any plugin callback: before 1.0.4 client.run_in_bg raised there
+            # ("must run inside an active plugin callback") and the error escaped into Android: the app crashed.
+            start = _click_listener(_bound(lambda: client.run_in_bg(lambda: self._start(ctx, info))))
             builder = jclass("android.app.AlertDialog$Builder")(activity)
             builder.setTitle("Экспорт истории")
             builder.setMessage("Чат: %s\n\nЗагрузить всю доступную историю и все темы в локальный ZIP? Тексты и метаданные вложений будут сохранены на телефоне. Файлы вложений не скачиваются. Архив не отправляется автоматически." % str(info.get("title", "")))
-            builder.setPositiveButton("Экспортировать", Start())
+            builder.setPositiveButton("Экспортировать", start)
             builder.setNegativeButton("Отмена", None)
             builder.show()
         except Exception:

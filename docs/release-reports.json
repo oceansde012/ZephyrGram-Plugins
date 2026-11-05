@@ -626,10 +626,58 @@
       ]
     },
     {
+      "product": "inline_as_own",
+      "version": "1.0.0",
+      "sha256": "8abd7d2a48f89edbc3c599afb037c57950fa9f9701a867529b7caad67a474f64",
+      "checks": "7 new tests (tests/test_inline_as_own.py), all 946 Python tests and build_index validate passed. Needs app >= 0.2.5 (inline.hook). Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "INLINE-AS-OWN",
+          "title": "Инлайн как своё",
+          "scope": "complete",
+          "details": "add_inline_result_hook + InlineAction.send_as_own(); switch 'strip_caption' sends media with caption '' (text results always unchanged); results the app cannot re-send (can_send_as_own false) go out unchanged and the reason is logged without text, caption or chat id.",
+          "limitations": "Games, secret chats, external photos, external files not cached yet, geo/venue/contact/invoice/web page results are sent as usual. Messages already sent by others keep 'via @bot' (no render hook). Phone behaviour unverified.",
+          "human_text": "Гифки, стикеры, видео и тексты из инлайн-ботов уходят как ваше сообщение, без «via @bot» и кнопок бота. Подпись бота можно убирать."
+        }
+      ]
+    },
+    {
+      "product": "chat_history_export",
+      "version": "1.0.4",
+      "sha256": "cc64a574f104c66c504fe23031e891de456e8961df262d1c23d24337f50a6902",
+      "checks": "4 new tests in tests/test_chat_history_export.py; all 950 Python tests and build_index validate passed. Crash reproduced by code reading only (no device log); phone behaviour unverified.",
+      "items": [
+        {
+          "id": "EXPORT-CONFIRM-CRASH",
+          "title": "Падение после «Экспортировать»",
+          "scope": "complete",
+          "details": "The confirm dialog's dynamic_proxy onClick ran outside any plugin callback, so client.run_in_bg raised 'This API must run inside an active plugin callback' and the PyException escaped into Android's dialog click handler on the UI thread. Now the listener is one module-level proxy class, the action runs in a copy of the plugin context (contextvars) and errors never leave onClick.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Приложение больше не падает после нажатия «Экспортировать»."
+        },
+        {
+          "id": "EXPORT-NETWORK-STALL",
+          "title": "Подвисание ответов Telegram во время экспорта",
+          "scope": "complete",
+          "details": "deliver() ran on the app's network callback thread and waited for the session lock held by process() for a whole page; it now hands off to run_in_bg at once.",
+          "limitations": "",
+          "human_text": "Во время экспорта приложение не подвисает."
+        },
+        {
+          "id": "EXPORT-TIMEOUT",
+          "title": "Таймаут запроса",
+          "scope": "complete",
+          "details": "threading.Timer callback had no plugin context, so the 50 s timeout raised and was lost; it is now bound to the plugin context.",
+          "limitations": "",
+          "human_text": "Если Telegram не ответил, экспорт завершается, а не ждёт вечно."
+        }
+      ]
+    },
+    {
       "product": "ai_autoreply",
       "version": "0.9.2",
-      "sha256": "d0e7f49e3a4fa4c7671dd24ad1714fb41b5db3ba1e1e24c6a064d4effb1aed7f",
-      "checks": "966 Python tests (939 before) and plugin validation passed; no live provider calls. Size 539484 B: minAppVersion 0.2.5, index-v2.json only (D-020).",
+      "sha256": "1a2b75460086590e710a4e46d43d42631dc87d8696c5f134e5b51dea95aac13e",
+      "checks": "983 Python tests (after merging main) and plugin validation passed; no live provider calls. Size 541582 B: minAppVersion 0.2.5, index-v2.json only (D-020).",
       "items": [
         {
           "id": "CONVERSATION-PLAN",
@@ -643,8 +691,8 @@
           "id": "ASK-OWNER",
           "title": "Спрашивать меня о важном",
           "scope": "complete",
-          "details": "Opt-in ask_owner (default off), ask_timeout (default 30 min), persona page. ASK_RULE asks the model to start an important reply with [ASK] in the same request; ASK_NET_RE (money, meeting, promise, agree) is a safety net. The reply goes to Saved Messages (own user id) with the last incoming lines; client.notify when client.NOTIFY (app 0.2.6), else bulletin. While waiting: no read receipt, no typing, newer messages stay pending. The owner's '+', '- text', 'неважно' (optionally '#N') in Saved Messages is caught by the send hook and cancelled; '+' sends, '- text' sends the text ('-' alone sends nothing), 'неважно' sends and appends a note to the chat lore. Timeout: nothing sent, short note to Saved Messages. [ASK] is stripped from everything sent.",
-          "limitations": "Importance is the model's mark plus a keyword net, no separate check. Answers must be typed as a new message in Saved Messages (no buttons). Phone behaviour unverified.",
+          "details": "Opt-in ask_owner (default off), ask_timeout (default 30 min), persona page. ASK_RULE asks the model to start an important reply with [ASK] in the same request; ASK_NET_RE (money, meeting, promise; 'agree' words left to the model) is a safety net; hits the owner marked 'неважно' are remembered per chat (ask_ok, amounts normalized as '# грн') and not asked again. The reply goes to Saved Messages (own user id) with the last incoming lines; client.notify when client.NOTIFY (app 0.2.6), else bulletin. While waiting: no read receipt, no typing, newer messages stay pending. An answer in Saved Messages is caught by the send hook and cancelled only when it is a reply to the request (#N from replyToMsg text), starts with '#N' of an open request, or is a bare verb ('+', 'ок', '-', 'неважно') for the newest one; any other note ('- купить молоко') is left alone; '+' sends, '- text' sends the text ('-' alone sends nothing), 'неважно' sends and appends a note to the chat lore. Timeout: nothing sent, short note to Saved Messages. [ASK] is stripped from everything sent.",
+          "limitations": "Importance is the model's mark plus a keyword net, no separate check. Answers are typed in Saved Messages (no buttons). Open requests are lost when the app restarts (said in the hint). Phone behaviour unverified.",
           "human_text": "Бот может спрашивать вас в «Избранном» перед важным ответом: встреча, деньги, обещания."
         }
       ]

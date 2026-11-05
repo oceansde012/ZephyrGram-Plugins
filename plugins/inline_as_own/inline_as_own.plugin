@@ -1,0 +1,100 @@
+__id__ = "inline_as_own"
+__name__ = "Инлайн как своё"
+__description__ = "Отправляет выбранный результат инлайн-бота как ваше обычное сообщение: без «via @bot» и без кнопок бота."
+__author__ = "ZephyrGram"
+__version__ = "1.0.0"
+__version_code__ = 1
+__api_version__ = 1
+__min_app_version__ = "0.2.5"
+__permissions__ = ["inline.hook"]
+
+from zephyr import BasePlugin, InlineAction, client
+from zephyr.ui import Header, Switch, Text
+
+TEXTS = {
+    "ru": {
+        "header": "Инлайн как своё",
+        "enabled": "Отправлять как своё сообщение",
+        "enabled_s": "Медиа и текст из инлайн-ботов уходят без «via @bot» и без кнопок бота.",
+        "strip": "Убирать подпись бота",
+        "strip_s": "Только у медиа. Текстовые результаты отправляются как есть.",
+        "note": "Не работает для игр, секретных чатов, внешних фото, ещё не загруженных внешних файлов, геоточек, "
+                "мест, контактов и счетов: такие результаты уходят как обычно, причина пишется в лог плагина.",
+    },
+    "uk": {
+        "header": "Інлайн як своє",
+        "enabled": "Надсилати як своє повідомлення",
+        "enabled_s": "Медіа й текст з інлайн-ботів ідуть без «via @bot» і без кнопок бота.",
+        "strip": "Прибирати підпис бота",
+        "strip_s": "Лише в медіа. Текстові результати надсилаються як є.",
+        "note": "Не працює для ігор, секретних чатів, зовнішніх фото, ще не завантажених зовнішніх файлів, геоточок, "
+                "місць, контактів і рахунків: такі результати йдуть як звичайно, причина пишеться в лог плагіна.",
+    },
+    "en": {
+        "header": "Inline as own",
+        "enabled": "Send as my own message",
+        "enabled_s": "Media and text from inline bots are sent without \"via @bot\" and without the bot's buttons.",
+        "strip": "Remove the bot's caption",
+        "strip_s": "Media only. Text results are sent as they are.",
+        "note": "Does not work for games, secret chats, external photos, external files not downloaded yet, locations, "
+                "venues, contacts and invoices: those are sent as usual and the reason goes to the plugin log.",
+    },
+}
+
+UNSUPPORTED_KINDS = {"geo": "location", "venue": "venue", "contact": "contact", "invoice": "invoice",
+                     "webpage": "web page preview", "rich": "rich message", "other": "unknown message type"}
+
+
+def fallback_reason(info):
+    """Why a result cannot be sent as an own message (mirrors the app's check), or None if it can."""
+    if info.get("can_send_as_own"):
+        return None
+    if info.get("secret"):
+        return "secret chat"
+    if info.get("type") == "game":
+        return "game"
+    kind = info.get("message_kind") or "other"
+    if kind in UNSUPPORTED_KINDS:
+        return UNSUPPORTED_KINDS[kind]
+    if kind == "text":
+        return "empty text"
+    if info.get("kind") == "external":
+        if info.get("type") == "photo":
+            return "external photo (would be fetched from the bot's server)"
+        if not info.get("file_path"):
+            return "external file not downloaded yet"
+        return "external %s" % (info.get("type") or "content")
+    return "not supported by the app"
+
+
+class Plugin(BasePlugin):
+    def on_plugin_load(self):
+        self.add_inline_result_hook(priority=0)
+
+    def t(self, key):
+        try:
+            lang = str(client.app_locale() or "en")[:2]
+        except Exception:
+            lang = "en"
+        return TEXTS.get(lang, TEXTS["en"])[key]
+
+    def on_inline_result_send(self, account, info):
+        if not self.get_setting("enabled", True):
+            return None
+        reason = fallback_reason(info)
+        if reason is not None:
+            # No message text, caption or chat id in the log.
+            self.log("Sent as usual (%s): %s result" % (reason, info.get("type") or "?"))
+            return None
+        if info.get("message_kind") != "text" and self.get_setting("strip_caption", False):
+            return InlineAction.send_as_own(caption="")
+        return InlineAction.send_as_own()
+
+    def create_settings(self, page=None):
+        t = self.t
+        return [
+            Header(text=t("header")),
+            Switch(key="enabled", text=t("enabled"), default=True, subtext=t("enabled_s")),
+            Switch(key="strip_caption", text=t("strip"), default=False, subtext=t("strip_s")),
+            Text(text=t("note")),
+        ]
