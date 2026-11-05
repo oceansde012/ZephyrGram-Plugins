@@ -3165,7 +3165,7 @@ class Plugin(BasePlugin):
         self._repair_store()
         with self._lock:
             self._fps = self._fingerprints()
-        self._menus()
+        self._register_menus()
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
                                                           PRESET_NAMES[self._preset_index()]))
         self._ensure_scan()
@@ -3779,7 +3779,7 @@ class Plugin(BasePlugin):
             return 0
 
     # --- menu
-    def _menus(self, lang=None):
+    def _register_menus(self, lang=None):
         """Chat header items; a new interface language re-adds them (the app keeps the text it got)."""
         if lang is not None:
             self.set_setting("ui_lang", int(lang))
@@ -9695,7 +9695,7 @@ class Plugin(BasePlugin):
             Selector(key="reactions", text=t("reactions"), items=[t("react_mode_%d" % i) for i in range(3)],
                      default=0, subtext=t("reactions_s")),
             Selector(key="ui_lang", text=t("lang"), items=[t("ms_0")] + LANG_NAMES[1:], default=0, subtext=t("lang_s"),
-                     on_change=self._menus),
+                     on_change=self._register_menus),
         ]
         return items
 
