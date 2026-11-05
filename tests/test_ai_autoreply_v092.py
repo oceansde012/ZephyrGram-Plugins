@@ -123,9 +123,15 @@ class TestPlanSettings(Chat):
 OWNER = 555
 
 
+class Msg(object):
+    def __init__(self, text):
+        self.messageOwner = type("Owner", (), {"message": text})()
+
+
 class Params(object):
-    def __init__(self, message, peer=OWNER):
+    def __init__(self, message, peer=OWNER, reply_to=None):
         self.message, self.peer = message, peer
+        self.replyToMsg = Msg(reply_to) if reply_to is not None else None
 
 
 class TestAskOwner(Base):
@@ -163,8 +169,9 @@ class TestAskOwner(Base):
     def to_owner(self):
         return [s[1] for s in CLIENT.sent if s[0] == OWNER]
 
-    def answer(self, text):
-        return self.p.on_send_message_hook(0, Params(text))
+    def answer(self, text, reply=False):
+        quoted = self.to_owner()[-1] if reply else None
+        return self.p.on_send_message_hook(0, Params(text, reply_to=quoted))
 
     def test_marker_detected_stripped_and_asked(self):
         self.ask()
@@ -193,7 +200,7 @@ class TestAskOwner(Base):
 
     def test_minus_sends_the_owner_text(self):
         self.ask()
-        self.answer(u"- не, завтра не могу, давай в пятницу")
+        self.answer(u"- не, завтра не могу, давай в пятницу", reply=True)
         self.assertEqual(self.to_chat(), [u"не, завтра не могу, давай в пятницу"])
 
     def test_minus_alone_sends_nothing(self):
@@ -262,11 +269,49 @@ class TestAskOwner(Base):
         self.assertEqual(mod.ASK_MARK_RE.sub("", u"[ ask ]ок"), u"ок")
         for t in (u"скину 300 грн", u"договорились", u"приїду о сьомій", u"обещаю"):
             self.assertTrue(mod.ASK_NET_RE.search(t), t)
-        for t in (u"как дела", u"приехал домой вчера", u"договор аренды"):
+        for t in (u"как дела", u"приехал домой вчера", u"договор аренды", u"согласен", u"згодна", u"согласна"):
             self.assertFalse(mod.ASK_NET_RE.search(t), t)
         for t, verb in (("+", "+"), (u"ок", u"ок"), (u"- сам скажу", "-"), (u"неважно", u"неважно"), ("#3 +", "+")):
             self.assertEqual(mod.ASK_REPLY_RE.match(t).group(2).lower(), verb, t)
         self.assertIsNone(mod.ASK_REPLY_RE.match(u"привет"))
+
+    def test_owner_note_in_saved_messages_is_left_alone(self):
+        self.ask()
+        for note in (u"- купить молоко", u"да купить хлеб", u"+ позвонить маме"):
+            self.assertIsNone(self.answer(note), note)
+        self.assertTrue(self.st().ask)
+        self.assertEqual(self.to_chat(), [])
+
+    def test_hash_number_with_text(self):
+        self.ask()
+        n = self.st().ask["n"]
+        r = self.answer(u"#%d - давай лучше в восемь" % n)
+        self.assertEqual(r.strategy, mod.HookStrategy.CANCEL)
+        self.assertEqual(self.to_chat(), [u"давай лучше в восемь"])
+
+    def test_wrong_number_is_a_note(self):
+        self.ask()
+        self.assertIsNone(self.answer(u"#99 +"))
+        self.assertTrue(self.st().ask)
+
+    def test_reply_to_the_request(self):
+        self.ask()
+        self.answer(u"ок", reply=True)
+        self.assertEqual(self.to_chat(), [u"давай завтра в семь встретимся"])
+
+    def test_not_important_is_not_asked_again_for_the_same_word(self):
+        self.ask(reply=u"окей, скину 500 грн вечером")
+        self.answer(u"неважно")
+        self.assertEqual(self.to_chat(), [u"окей, скину 500 грн вечером"])
+        self.clock[0] += 120
+        self.ask(reply=u"ну скину 300 грн тогда", text=u"а может 300?")
+        self.assertIsNone(self.st().ask)
+        self.assertIn(u"ну скину 300 грн тогда", self.to_chat())
+        self.assertEqual(mod.ask_net_words(u"скину 500 грн, договорились"), [u"# грн", u"договорились"])
+
+    def test_restart_note_in_hint(self):
+        self.assertIn(u"перезапуск", mod.tr("ru", "ask_owner_s"))
+        self.assertIn(u"Ответьте на это сообщение", mod.tr("ru", "ask_req"))
 
     def test_settings_rows(self):
         toks = mod.Plugin.PAGES["persona"].split()
