@@ -57,23 +57,30 @@ jobs:
           if git ls-remote --exit-code --heads origin index >/dev/null 2>&1; then
             git fetch origin index:refs/remotes/origin/index
             git show origin/index:index.json > out/prev.json || rm -f out/prev.json
+            # absent on the first run after index-v2 was introduced: tolerated
+            git show origin/index:index-v2.json > out/prev-v2.json 2>/dev/null || rm -f out/prev-v2.json
           fi
           ls -la out
 
       - name: Build index
         run: |
           # GITHUB_SHA on schedule/dispatch is the tip of main; URLs are pinned to it.
+          # Writes out/index.json (<= 512 KiB versions) and out/index-v2.json (all versions).
           PREV=""; [ -f out/prev.json ] && PREV="--prev out/prev.json"
+          [ -f out/prev-v2.json ] && PREV="$PREV --prev-v2 out/prev-v2.json"
           python tools/build_index.py build $PREV --repo "$GITHUB_REPOSITORY" \
             --sha "$(git rev-parse HEAD)" --out out/index.json
 
       - name: Sign index
-        run: python tools/build_index.py sign --index out/index.json --key-env INDEX_SIGNING_KEY
+        run: |
+          python tools/build_index.py sign --index out/index.json --key-env INDEX_SIGNING_KEY
+          python tools/build_index.py sign --index out/index-v2.json --key-env INDEX_SIGNING_KEY
 
       - name: Verify signature with the key's own public half
         run: |
           printf '%s' "$INDEX_SIGNING_KEY" > "$RUNNER_TEMP/k.pem"
           python tools/build_index.py verify --index out/index.json --pubkey "$RUNNER_TEMP/k.pem"
+          python tools/build_index.py verify --index out/index-v2.json --pubkey "$RUNNER_TEMP/k.pem"
           rm -f "$RUNNER_TEMP/k.pem"
 
       - name: Publish to orphan branch `index`
@@ -81,13 +88,13 @@ jobs:
           set -e
           WORK="$RUNNER_TEMP/index-branch"
           rm -rf "$WORK"; mkdir "$WORK"
-          cp out/index.json out/index.json.sig "$WORK/"
+          cp out/index.json out/index.json.sig out/index-v2.json out/index-v2.json.sig "$WORK/"
           cd "$WORK"
           git init -q
           git checkout -q --orphan index
           git config user.name "zephyrgram-plugins-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add index.json index.json.sig
+          git add index.json index.json.sig index-v2.json index-v2.json.sig
           git commit -q -m "index: sequence $(python -c 'import json;print(json.load(open("index.json"))["sequence"])') from ${GITHUB_SHA::7}"
           git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin index

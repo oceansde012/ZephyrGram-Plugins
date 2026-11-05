@@ -22,9 +22,10 @@ ADR-style log reconstructed from `git log` and the plugin CHANGELOGs (as of `ori
 | D-016 | 2026-11-05 | Keep ai_autoreply under the 512 KB (524288 B) limit by trimming: removing version-history comments and long docstrings, one-line docstrings, dropping unused strings (commits `f46a94d`, `39dbfad`, `2c7a3c5`; 0.8.0 CHANGELOG). | The build validator rejects larger files; the file hit the limit three times in one day. Short-term only; see D-019. |
 | D-017 | 2026-11-05 | 0.8.1: revival also in groups, behind switch `revive_groups` (default off); `revive_daily` default 3; no new revival while the last one is unanswered. | 0.8.1 CHANGELOG. The user-visible chat-header toggle is not available in groups because the app does not render `CHAT_ACTION` (see STATE.md). |
 | D-018 | 2026-11-05 | Squash-merge PRs (#21) and tag every release with a report in `docs/release-reports.json` including the plugin file sha256. | Observed in git history; reason beyond traceability: unknown. |
-| D-019 | open | **Plugin size limit (OPEN).** See below. | |
+| D-019 | 2026-11-05 | **Plugin size limit** (was open; closed by D-020). See below. | |
+| D-020 | 2026-11-05 | Raise the plugin size limit to 2 MiB via a second signed index, `index-v2.json` (+ `.sig`, same schema, same Ed25519 key, same `index` branch), for app >= 0.2.5. `index.json` keeps only versions <= 512 KiB; in `index-v2.json` versions over 512 KiB get `minAppVersion` >= 0.2.5. App 0.2.5 fetches `index-v2.json` first and falls back to `index.json`. Closes D-019. | App <= 0.2.4 rejects the whole signed `index.json` if any version has `size` > 524288, so a big plugin in `index.json` would break the store for every old app. Rejected: multi-file plugins (needs a new app loader, updater, schema and validation, bigger attack surface; an app release is needed anyway), and two plugins (two installs and permission prompts, no settings bridge in the plugin API, version skew). Consequence: a plugin over 512 KiB is invisible to app <= 0.2.4. |
 
-## D-019 (OPEN): how to get past the 512 KB single-file limit
+## D-019 (CLOSED by D-020): how to get past the 512 KB single-file limit
 
 Context: ai_autoreply is 521299 B of 524288 B (2989 B free, 9189 lines). Features keep being added, and each release already needed a trimming commit (D-016). The limit lives in `tools/build_index.py` (`MAX_PLUGIN_BYTES`) and README rules; the app side (download size check against the index `size`, loader that runs exactly one file) is not in this repo and its own limit is `unknown`.
 

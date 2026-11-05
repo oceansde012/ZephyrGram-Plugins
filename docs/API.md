@@ -28,7 +28,7 @@ Metadata are plain top-level literals (parsed by regex in the app and by
 | `__icon__` | str, optional | short name; an `icon.png` (<=64 KB) next to the plugin is preferred |
 
 After the metadata: `from zephyr import ...` and exactly one `class Plugin(BasePlugin)`.
-Keep the file <= 512 KB, LF line endings, no BOM.
+Keep the file <= 2 MiB (over 512 KiB it needs app >= 0.2.5, see DECISIONS.md D-020), LF line endings, no BOM.
 
 ## 2. Permissions
 

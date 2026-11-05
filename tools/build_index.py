@@ -3,7 +3,9 @@
 
 Subcommands:
   validate  check every plugin under plugins/ (no output files)
-  build     validate + write index.json (history carried over from --prev)
+  build     validate + write index.json (versions <= 512 KiB, readable by every app)
+            and index-v2.json (all versions, for app >= 0.2.5); history carried
+            over from --prev / --prev-v2
   sign      sign index.json -> index.json.sig (base64 Ed25519 over exact bytes)
   verify    verify index.json against index.json.sig and a public key
   keygen    generate an Ed25519 key pair (private PEM written to --out)
@@ -26,7 +28,11 @@ import tempfile
 SCHEMA = 1
 SUPPORTED_API = {1}
 MAX_VERSIONS = 10
-MAX_PLUGIN_BYTES = 512 * 1024
+MAX_PLUGIN_BYTES = 2 * 1024 * 1024
+# Apps <= 0.2.4 reject the whole signed index.json if any version is larger than this,
+# so index.json only lists versions up to this size; index-v2.json lists everything.
+LEGACY_MAX_BYTES = 512 * 1024
+V2_MIN_APP_VERSION = "0.2.5"
 MAX_ICON_BYTES = 64 * 1024
 EXPIRES_DAYS = 60
 DEFAULT_REPO = "oceansde012/ZephyrGram-Plugins"
@@ -103,7 +109,7 @@ def read_metadata(path, errors):
     return raw, meta
 
 
-def validate_plugin(plugin_dir, pid):
+def validate_plugin(plugin_dir, pid, warnings=None):
     """Returns (record, errors). record has everything but url/published."""
     errors = []
     path = os.path.join(plugin_dir, pid + ".plugin")
@@ -129,6 +135,9 @@ def validate_plugin(plugin_dir, pid):
             errors.append("%s: unknown metadata %s" % (pid, k))
     if errors and any(k not in meta for k in REQUIRED):
         return None, errors
+    if warnings is not None and len(raw) > LEGACY_MAX_BYTES:
+        warnings.append("%s: %d bytes is over %d; it is only listed in %s and needs app >= %s"
+                        % (pid, len(raw), LEGACY_MAX_BYTES, V2_INDEX_NAME, V2_MIN_APP_VERSION))
 
     def need_str(k, maxlen):
         v = meta.get(k)
@@ -252,6 +261,18 @@ def utc_iso(t):
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+V2_INDEX_NAME = "index-v2.json"
+
+
+def for_v2(entry):
+    """Copy of a version entry as listed in index-v2.json: versions too big for old
+    apps require app >= V2_MIN_APP_VERSION (a higher declared minimum is kept)."""
+    e = dict(entry)
+    if e["size"] > LEGACY_MAX_BYTES and semver_key(e["minAppVersion"]) < semver_key(V2_MIN_APP_VERSION):
+        e["minAppVersion"] = V2_MIN_APP_VERSION
+    return e
+
+
 def load_prev(path):
     if not path or not os.path.isfile(path):
         return None
@@ -259,13 +280,15 @@ def load_prev(path):
         return json.load(f)
 
 
-def build(repo_dir, prev, repo, sha, now):
+def build(repo_dir, prev, repo, sha, now, prev_v2=None, warnings=None):
+    """Returns (index, index_v2) with the same sequence. History comes from prev_v2
+    when present (it has every version), otherwise from prev."""
     plugins_dir = os.path.join(repo_dir, "plugins")
     errors, records = [], []
     ids = sorted(d for d in os.listdir(plugins_dir)
                  if os.path.isdir(os.path.join(plugins_dir, d))) if os.path.isdir(plugins_dir) else []
     for pid in ids:
-        rec, errs = validate_plugin(os.path.join(plugins_dir, pid), pid)
+        rec, errs = validate_plugin(os.path.join(plugins_dir, pid), pid, warnings)
         errors.extend(errs)
         if rec:
             records.append(rec)
@@ -276,11 +299,12 @@ def build(repo_dir, prev, repo, sha, now):
                 errors.append("plugins/%s: stray file (only plugin directories allowed)" % n)
 
     prev_by_id = {p["id"]: p for p in (prev or {}).get("plugins", [])}
-    out_plugins = []
+    prev_v2_by_id = {p["id"]: p for p in (prev_v2 or {}).get("plugins", [])}
+    out_plugins, out_plugins_v1 = [], []
     published = utc_iso(now)
     for rec in records:
         pid = rec["id"]
-        old = prev_by_id.get(pid)
+        old = prev_v2_by_id.get(pid) or prev_by_id.get(pid)
         history = list(old["versions"]) if old else []
         by_code = {v["versionCode"]: v for v in history}
         entry = {
@@ -315,31 +339,48 @@ def build(repo_dir, prev, repo, sha, now):
         else:
             history.append(entry)
         history.sort(key=lambda v: v["versionCode"], reverse=True)
-        history = history[:MAX_VERSIONS]
+        history = [for_v2(v) for v in history[:MAX_VERSIONS]]
+        for v in history:
+            if v["maxAppVersion"] and semver_key(v["maxAppVersion"]) <= semver_key(v["minAppVersion"]):
+                errors.append("%s: version %s: __max_app_version__ %s is not above the required "
+                              "app %s (plugins over %d bytes need app >= %s)"
+                              % (pid, v["version"], v["maxAppVersion"], v["minAppVersion"],
+                                 LEGACY_MAX_BYTES, V2_MIN_APP_VERSION))
         revoked = sorted(set(rec["revoked_local"]) | set((old or {}).get("revoked", [])))
-        live = [v for v in history if v["versionCode"] not in revoked]
-        latest = (live[0] if live else history[0])["version"]
+
+        def latest_of(vs):
+            live = [v for v in vs if v["versionCode"] not in revoked]
+            return (live[0] if live else vs[0])["version"]
+
+        legacy_hist = [v for v in history if v["size"] <= LEGACY_MAX_BYTES]
         icon = rec["icon"]
         if rec["has_icon_png"]:
             icon = raw_url(repo, sha, "plugins/%s/icon.png" % pid)
         elif old and old.get("icon", "").startswith("https://") and not rec["icon"]:
             icon = ""
-        out_plugins.append({
+        base = {
             "id": pid, "name": rec["name"], "author": rec["author"],
             "description": rec["description"], "tags": rec["tags"], "icon": icon,
-            "permissions": rec["permissions"], "latest": latest,
-            "versions": history, "revoked": revoked,
-        })
+            "permissions": rec["permissions"],
+        }
+        out_plugins.append(dict(base, latest=latest_of(history), versions=history, revoked=revoked))
+        if legacy_hist:  # a plugin with only big versions is absent from index.json
+            out_plugins_v1.append(dict(base, latest=latest_of(legacy_hist),
+                                       versions=legacy_hist, revoked=revoked))
     present = {r["id"] for r in records}
-    removed = sorted(((set((prev or {}).get("removed", [])) | set(prev_by_id)) - present))
+    removed = sorted(((set((prev or {}).get("removed", [])) | set((prev_v2 or {}).get("removed", []))
+                       | set(prev_by_id) | set(prev_v2_by_id)) - present))
     if errors:
         raise ValidationError("\n".join(errors))
-    seq = int((prev or {}).get("sequence", 0)) + 1
-    return {
-        "schema": SCHEMA, "sequence": seq, "generated": utc_iso(now),
-        "expires": utc_iso(now + dt.timedelta(days=EXPIRES_DAYS)), "repo": repo,
-        "plugins": out_plugins, "removed": removed,
-    }
+    seq = max(int((prev or {}).get("sequence", 0)), int((prev_v2 or {}).get("sequence", 0))) + 1
+
+    def wrap(plugins):
+        return {
+            "schema": SCHEMA, "sequence": seq, "generated": utc_iso(now),
+            "expires": utc_iso(now + dt.timedelta(days=EXPIRES_DAYS)), "repo": repo,
+            "plugins": plugins, "removed": removed,
+        }
+    return wrap(out_plugins_v1), wrap(out_plugins)
 
 
 def dump_bytes(index):
@@ -404,13 +445,26 @@ def verify(index_bytes, sig_bytes, pubkeys):
 # ---- commands --------------------------------------------------------------
 
 def cmd_validate(a):
+    warnings = []
     try:
-        build(a.root, load_prev(a.prev), a.repo, "0" * 40, dt.datetime.now(dt.timezone.utc))
+        build(a.root, load_prev(a.prev), a.repo, "0" * 40, dt.datetime.now(dt.timezone.utc),
+              load_prev(prev_v2_path(a)), warnings)
     except ValidationError as e:
         print("VALIDATION FAILED:\n" + str(e), file=sys.stderr)
         return 1
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
     print("OK: all plugins valid")
     return 0
+
+
+def prev_v2_path(a):
+    """--prev-v2, else index-v2.json next to --prev (None when neither is given)."""
+    if a.prev_v2:
+        return a.prev_v2
+    if a.prev:
+        return os.path.join(os.path.dirname(os.path.abspath(a.prev)), V2_INDEX_NAME)
+    return None
 
 
 def cmd_build(a):
@@ -421,19 +475,27 @@ def cmd_build(a):
     if a.now:
         now = dt.datetime.strptime(a.now, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
     prev = load_prev(a.prev)
-    if a.prev and not prev:
+    prev_v2 = load_prev(prev_v2_path(a))
+    if a.prev and not prev and not prev_v2:
         print("note: no previous index found, starting at sequence 1", file=sys.stderr)
+    elif not prev_v2:
+        print("note: no previous %s, history comes from the legacy index" % V2_INDEX_NAME,
+              file=sys.stderr)
+    warnings = []
     try:
-        index = build(a.root, prev, a.repo, sha, now)
+        index, index_v2 = build(a.root, prev, a.repo, sha, now, prev_v2, warnings)
     except ValidationError as e:
         print("VALIDATION FAILED:\n" + str(e), file=sys.stderr)
         return 1
-    data = dump_bytes(index)
+    for w in warnings:
+        print("warning: " + w, file=sys.stderr)
+    out_v2 = a.out_v2 or os.path.join(os.path.dirname(os.path.abspath(a.out)), V2_INDEX_NAME)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    with open(a.out, "wb") as f:
-        f.write(data)
-    print("wrote %s: sequence=%d plugins=%d expires=%s"
-          % (a.out, index["sequence"], len(index["plugins"]), index["expires"]))
+    for path, idx in ((a.out, index), (out_v2, index_v2)):
+        with open(path, "wb") as f:
+            f.write(dump_bytes(idx))
+        print("wrote %s: sequence=%d plugins=%d expires=%s"
+              % (path, idx["sequence"], len(idx["plugins"]), idx["expires"]))
     return 0
 
 
@@ -513,11 +575,14 @@ def main(argv=None):
         sp.add_argument("--root", default=root_default, help="repo root (default: parent of tools/)")
         sp.add_argument("--repo", default=DEFAULT_REPO, help="owner/name used in URLs")
         sp.add_argument("--prev", help="previous index.json to carry version history from")
+        sp.add_argument("--prev-v2", help="previous index-v2.json (default: index-v2.json next "
+                                          "to --prev); its absence is tolerated")
 
     s = sub.add_parser("validate"); common(s); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("build"); common(s)
     s.add_argument("--sha", help="commit SHA to pin URLs to (default $GITHUB_SHA)")
     s.add_argument("--out", default="index.json")
+    s.add_argument("--out-v2", help="default: index-v2.json next to --out")
     s.add_argument("--now", help="override clock, UTC 'YYYY-MM-DDTHH:MM:SSZ' (tests)")
     s.set_defaults(fn=cmd_build)
     s = sub.add_parser("sign")

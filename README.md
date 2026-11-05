@@ -33,7 +33,9 @@ tools/keygen.md              owner-only: signing key setup
 
 Rules enforced by CI: valid id and matching names; types as in the API doc; SemVer
 `__version__`; known permissions only; file compiles (`py_compile`); UTF-8, LF, no BOM,
-no binaries, at most 512 KB; no stray files.
+no binaries, at most 2 MiB; no stray files. Plugins over 512 KiB are listed only in
+`index-v2.json` (app >= 0.2.5; `minAppVersion` is raised to at least 0.2.5 there), so older
+apps keep working with `index.json`; validation prints a warning for them.
 
 ## Versioning rules
 
