@@ -624,6 +624,22 @@
           "human_text": "После паузы бот учитывает, что писали, и не отвечает на уже отвеченное."
         }
       ]
+    },
+    {
+      "product": "inline_as_own",
+      "version": "1.0.0",
+      "sha256": "8abd7d2a48f89edbc3c599afb037c57950fa9f9701a867529b7caad67a474f64",
+      "checks": "7 new tests (tests/test_inline_as_own.py), all 946 Python tests and build_index validate passed. Needs app >= 0.2.5 (inline.hook). Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "INLINE-AS-OWN",
+          "title": "Инлайн как своё",
+          "scope": "complete",
+          "details": "add_inline_result_hook + InlineAction.send_as_own(); switch 'strip_caption' sends media with caption '' (text results always unchanged); results the app cannot re-send (can_send_as_own false) go out unchanged and the reason is logged without text, caption or chat id.",
+          "limitations": "Games, secret chats, external photos, external files not cached yet, geo/venue/contact/invoice/web page results are sent as usual. Messages already sent by others keep 'via @bot' (no render hook). Phone behaviour unverified.",
+          "human_text": "Гифки, стикеры, видео и тексты из инлайн-ботов уходят как ваше сообщение, без «via @bot» и кнопок бота. Подпись бота можно убирать."
+        }
+      ]
     }
   ]
 }
