@@ -38,8 +38,8 @@ EXPIRES_DAYS = 60
 DEFAULT_REPO = "oceansde012/ZephyrGram-Plugins"
 KNOWN_PERMISSIONS = {
     "network.requests", "updates.read", "messages.send", "ui.menu", "internet", "java.raw",
-    "ai.complete", "ai.memory", "chat.read",
-}
+    "ai.complete", "ai.memory", "memory.style", "chat.read", "inline.hook", "media.send",
+}  # same set as the app's PluginManifest (inline.hook / media.send since app 0.2.5)
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{2,31}$")
 SEMVER_RE = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$")
