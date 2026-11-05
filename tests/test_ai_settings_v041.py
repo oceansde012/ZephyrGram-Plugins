@@ -25,7 +25,7 @@ GLOBAL = {
     "debounce": ("Input", ""), "cooldown": ("Input", ""), "chat_hourly": ("Input", ""),
     "polite_stop": ("Switch", True), "owner_active": ("Input", ""), "quiet_hours": ("Input", ""),
     "skip_ack": ("Switch", True), "group_need_question": ("Switch", True), "daily_cap": ("Input", ""),
-    "hourly_cap": ("Input", ""), "human_timing": ("Switch", True), "scan": ("Switch", True),
+    "hourly_cap": ("Input", ""), "human_timing": ("Switch", False), "scan": ("Switch", False),  # 0.9.0: = preset (Balanced)
     "show_typing": ("Switch", True), "read_msgs": ("Switch", True), "read_always": ("Switch", False),
     "stickers": ("Switch", True), "sticker_pct": ("Input", "12"), "sticker_recent": ("Switch", True),
     "reactions": ("Selector", 0),                                 # 0.4.9

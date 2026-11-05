@@ -144,7 +144,7 @@ class TestLocalization(Base):
         self.assertIn("Автовідповідач", texts)
         self.assertIn("Тригер режиму друга", texts)
         self.assertIn("Розділ", texts)
-        self.assertIn("Час і паузи", texts)
+        self.assertIn("Темп і ліміти", texts)
         self.assertNotIn("Auto-reply", texts)
         self.assertNotIn("Timing and pauses", texts)
         self.p.settings["ui_lang"] = 2

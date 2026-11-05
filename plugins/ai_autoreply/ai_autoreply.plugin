@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.8.1"
-__version_code__ = 40
+__version__ = "0.9.0"
+__version_code__ = 41
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -1444,7 +1444,7 @@ def app_ui_lang():
 
 
 S = {
-    "natural_chat": ("Natural conversation", "Природне спілкування", "Живое общение"),
+    "natural_chat": ("Natural conversation", "Природне спілкування", "Естественное общение"),
     "natural_chat_s": ("Freer and longer; sets the GLM/DeepSeek models. Off = your models stay.", "Вільніше й довше; ставить моделі GLM/DeepSeek. Вимк. = ваші моделі лишаються.", "Свободнее и длиннее; ставит модели GLM/DeepSeek. Выкл. = ваши модели остаются."),
     "menu_off": ("Bot in this chat: off (tap to turn on)", "Бот у цьому чаті: вимк. (натисніть, щоб увімкнути)",
         "Бот в этом чате: выкл. (нажмите, чтобы включить)"),
@@ -1534,9 +1534,9 @@ S = {
     "preset_1": ("Chatty: ~3 s, 30/h", "Балакучий: ~3 с, 30/год", "Разговорчивый: ~3 с, 30/ч"),
     "preset_2": ("Quiet: ~6 s, 6/h", "Тихий: ~6 с, 6/год", "Тихий: ~6 с, 6/ч"),
     "chat_style": ("Conversation style", "Стиль спілкування", "Стиль общения"),
-    "chat_style_s": ("Wording only. Natural chat mode gives the most flexible wording.",
-        "Лише манера відповіді. Природний режим дає вільніше формулювання.",
-        "Только манера ответа. Естественный режим даёт более свободные формулировки."),
+    "chat_style_s": ("Wording only. “Natural conversation” gives the most flexible wording.",
+        "Лише манера відповіді. «Природне спілкування» дає вільніше формулювання.",
+        "Только манера ответа. «Естественное общение» даёт более свободные формулировки."),
     "chat_style_default": ("Use general style", "Як у загальних налаштуваннях", "Как в общих настройках"),
     "chat_style_0": ("Everyday", "Звичайний", "Обычный"),
     "chat_style_1": ("Warm", "Теплий", "Тёплый"),
@@ -1590,12 +1590,12 @@ S = {
     "banned_s": ("The built-in list (звісно, розумію...) always applies.",
         "Вбудований список (звісно, розумію...) діє завжди.",
         "Встроенный список (конечно, понимаю...) действует всегда."),
-    "reply_all": ("Answer everyone in private chats", "Відповідати всім в особистих", "Отвечать всем в личке"),
+    "reply_all": ("Answer everyone in private chats", "Відповідати всім в особистих", "Отвечать всем в личных чатах"),
     "reply_all_s": ("New private chats are added by themselves. Never bots, groups, channels; paused and removed stay so.", "Нові особисті чати додаються самі. Ніколи боти, групи, канали; призупинені й видалені такими й лишаються.", "Новые личные чаты добавятся сами. Никогда боты, группы, каналы; приостановленные и удалённые остаются такими."),
-    "all_accounts": ("Answer everyone: accounts (1,2...; empty = all)",
-        "Відповідати всім: акаунти (1,2...; порожньо = усі)",
-        "Отвечать всем: аккаунты (1,2...; пусто = все)"),
-    "chat_gender": ("Her/his gender (for \"you\" forms)", "Стать співрозмовника (для форм «ти»)",
+    "all_accounts": ("Answer everyone: only accounts № (1, 2; empty = all)",
+        "Відповідати всім: лише акаунти № (1, 2; порожньо = усі)",
+        "Отвечать всем: только аккаунты № (1, 2; пусто = все)"),
+    "chat_gender": ("Their gender (for “you” forms)", "Стать співрозмовника (для форм «ти»)",
         "Пол собеседника (для форм «ты»)"),
     "chat_gender_s": ("Auto: by how they speak of themselves (я зробила / я зробив). Set it by hand to be sure.", "Авто: за тим, як людина говорить про себе (я зробила / я зробив). Вкажіть вручну для певності.", "Авто: по тому, как человек говорит о себе (я сделала / я сделал). Укажите вручную для точности."),
     "gender_0": ("Auto", "Авто", "Авто"), "gender_1": ("Man", "Чоловік", "Мужчина"),
@@ -1611,23 +1611,23 @@ S = {
     "natural_split_s": ("Not always the same number of lines: neighbours are sometimes joined (1-3 messages).", "Не завжди однаково рядків: сусідні іноді зливаються (1-3 повідомлення).", "Не всегда одинаково строк: соседние иногда склеиваются (1-3 сообщения)."),
     "lore": ("About me", "Про себе", "О себе"),
     "lore_s": ("Facts, not instructions: who you are, what you do, how you talk. The AI states nothing else about you.", "Факти, а не інструкції: хто ви, чим живете, як говорите. Іншого про вас ШІ не скаже.", "Факты, а не инструкции: кто вы, чем живёте, как говорите. Другого о вас ИИ не скажет."),
-    "lore_learn": ("Remember facts about people", "Запам'ятовувати факти про співрозмовників", "Запоминать факты о собеседниках"),
-    "lore_learn_s": ("Up to 12 notes per chat (sensitive data filtered); seen and edited on the chat page.", "До 12 нотаток на чат (чутливе відфільтровано); видно й правляться на сторінці чату.", "До 12 заметок на чат (чувствительное отфильтровано); видны и правятся на странице чата."),
-    "chat_lore": ("What else I know about them", "Що ще знаю про людину", "Что ещё знаю о нём"),
+    "lore_learn": ("Remember facts about people", "Запам’ятовувати факти про співрозмовників", "Запоминать факты о собеседниках"),
+    "lore_learn_s": ("Up to 12 notes per chat (sensitive data filtered); seen and edited on the chat page.", "До 12 нотаток на чат (чутливі дані відфільтровано); видно й правляться на сторінці чату.", "До 12 заметок на чат (чувствительные данные отфильтрованы); видны и правятся на странице чата."),
+    "chat_lore": ("What else I know about them", "Що ще знаю про людину", "Что ещё знаю о человеке"),
     "chat_lore_s": ("What you know about this person and how you two talk (facts from you).",
         "Що ви знаєте про цю людину і як ви спілкуєтесь (факти від вас).",
         "Что вы знаете об этом человеке и как вы общаетесь (факты от вас)."),
     "chat_learned": ("Notes learned from this chat", "Нотатки, вивчені з цього чату",
         "Заметки, выученные из этого чата"),
-    "chat_learned_s": ("Filled in automatically when 'Learn notes' is on. Edit or clear freely.",
-        "Заповнюється автоматично, коли ввімкнено «Вчити нотатки». Можна змінити чи очистити.",
-        "Заполняется автоматически, когда включено «Учить заметки». Можно править или очищать."),
+    "chat_learned_s": ("Filled in automatically when “Remember facts about people” is on. Edit or clear freely.",
+        "Заповнюється автоматично, коли ввімкнено «Запам’ятовувати факти про співрозмовників». Можна змінити чи очистити.",
+        "Заполняется автоматически, когда включено «Запоминать факты о собеседниках». Можно править или очищать."),
     "skip_links": ("Do not answer messages with links", "Не відповідати на повідомлення з посиланнями",
         "Не отвечать на сообщения со ссылками"),
     "revive": ("Revive a quiet conversation", "Оживляти розмову, що затихла", "Оживлять затихший разговор"),
-    "revive_s": ("Auto chats only, a few times a day at most. Timing: section “Timing and pauses”.",
-        "Лише чати в режимі Авто, кілька разів на добу щонайбільше. Час: розділ «Час і паузи».",
-        "Только чаты в режиме Авто, несколько раз в сутки максимум. Время: раздел «Время и паузы»."),
+    "revive_s": ("Auto chats only, a few times a day at most. Timing: “Pace and limits” → “Typing, two parts, revival”.",
+        "Лише чати в режимі Авто, кілька разів на добу щонайбільше. Час: «Темп і ліміти» → «Набір, дві частини, оживлення».",
+        "Только чаты в режиме Авто, несколько раз в сутки максимум. Время: «Темп и лимиты» → «Набор, две части, оживление»."),
     "revive_groups": ("Revive in groups too", "Оживляти і в групах", "Оживлять и в группах"),
     "revive_after": ("Revive: silence before, minutes",
         "Оживлення: тиша перед ним, хвилин",
@@ -1666,7 +1666,7 @@ S = {
         "5 пробних відповідей на останні вхідні. Нічого не надсилається.",
         "5 пробных ответов на последние входящие. Ничего не отправляется."),
     "h_test_result": ("Last style test", "Останній тест стилю", "Последний тест стиля"),
-    "default_prompt": ("Default system prompt", "Системний промпт за замовчуванням", "Системный промпт по умолчанию"),
+    "default_prompt": ("Default system prompt", "Типовий системний промпт", "Системный промпт по умолчанию"),
     "default_prompt_s": ("Extra instructions for every chat. Empty = none.",
         "Додаткові інструкції для всіх чатів. Порожньо = без них.",
         "Дополнительные инструкции для всех чатов. Пусто = без них."),
@@ -1695,15 +1695,15 @@ S = {
         "Умная: ответы, .ai и возобновление тихого разговора."),
     "model_cheap": ("Cheap model for background work", "Дешева модель для фонових задач", "Дешёвая модель для фоновых задач"),
     "model_cheap_s": ("Chat memory, chat notes, sticker picker. Empty = the model above.",
-        "Пам'ять чату, нотатки, вибір стікерів. Порожньо = модель вище.",
+        "Пам’ять чату, нотатки, вибір стікерів. Порожньо = модель вище.",
         "Память чата, заметки, выбор стикеров. Пусто = модель выше."),
     "prompt_max": ("Max size of one AI request (characters)", "Макс. розмір одного запиту до ШІ (символів)",
         "Макс. размер одного запроса к ИИ (символов)"),
-    "prompt_max_s": ("Instructions + memory + history; oldest history is cut first. Empty = 24000, 8000-60000.", "Інструкції + пам'ять + історія; першою обрізається стара історія. Порожньо = 24000, 8000-60000.", "Инструкции + память + история; первой обрезается старая история. Пусто = 24000, 8000-60000."),
+    "prompt_max_s": ("Instructions + memory + history; oldest history is cut first. Empty = 24000, 8000-60000.", "Інструкції + пам’ять + історія; першою обрізається стара історія. Порожньо = 24000, 8000-60000.", "Инструкции + память + история; первой обрезается старая история. Пусто = 24000, 8000-60000."),
     "helper_daily": ("Background AI calls per day (all chats)", "Фонових викликів ШІ на день (усі чати)",
         "Фоновых вызовов ИИ в день (все чаты)"),
     "helper_daily_s": ("Memory, notes, sticker picker. Empty = 200, 0 = none.",
-        "Пам'ять, нотатки, вибір стікерів. Порожньо = 200, 0 = жодного.",
+        "Пам’ять, нотатки, вибір стікерів. Порожньо = 200, 0 = жодного.",
         "Память, заметки, выбор стикеров. Пусто = 200, 0 = ни одного."),
     "usage_today": ("Today: %d replies (~%s tokens), %d of %d background calls (~%s tokens).", "Сьогодні: %d відповідей (~%s токенів), %d з %d фонових викликів (~%s токенів).", "Сегодня: %d ответов (~%s токенов), %d из %d фоновых вызовов (~%s токенов)."),
     "disclosure": ("Disclose AI in first reply", "Позначати ШІ в першій відповіді", "Помечать ИИ в первом ответе"),
@@ -1798,7 +1798,7 @@ S = {
     "scan_on_s": ("Finds messages the app did not deliver to the plugin.",
         "Знаходить повідомлення, які застосунок не передав плагіну.",
         "Находит сообщения, которые приложение не передало плагину."),
-    "show_typing": ("Show typing…", "Показувати набір тексту", "Показывать набор текста"),
+    "show_typing": ("Show typing", "Показувати набір тексту", "Показывать набор текста"),
     "show_typing_s": ("Not shown if ghost mode hides typing.",
         "Не показується, якщо ghost-режим ховає набір.",
         "Не показывается, если ghost-режим скрывает набор."),
@@ -1814,13 +1814,13 @@ S = {
     "sticker_pct": ("Sticker: chance (%)", "Стікер: шанс (%)", "Стикер: шанс (%)"),
     "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
     "transcribe_voice": ("Transcribe voice messages", "Розпізнавати голосові", "Распознавать голосовые"),
-    "memory": ("Compact chat memory", "Стисла пам'ять чату", "Краткая память чата"),
+    "memory": ("Compact chat memory", "Стисла пам’ять чату", "Краткая память чата"),
     "memory_consent": ("Your AI server summarises older text of this chat; kept on this phone. Off keeps saved files.", "Ваш ШІ-сервер стискає старий текст чату; зберігається на телефоні. Вимкнення не видаляє файли.", "Ваш ИИ-сервер сжимает старый текст чата; хранится на телефоне. Выключение не удаляет файлы."),
-    "memory_auto": ("Chat memory in private chats", "Пам'ять у приватних чатах", "Память в личных чатах"),
-    "memory_auto_s": ("A short summary of older messages, kept on this phone. Off for one chat: on its page.", "Коротке резюме старих повідомлень, зберігається на телефоні. Вимкнути для чату: на його сторінці.", "Краткое резюме старых сообщений, хранится на телефоне. Выключить для чата: на его странице."),
-    "memory_daily": ("Memory updates per chat and day", "Оновлень пам'яті на чат за день", "Обновлений памяти на чат в день"),
+    "memory_auto": ("Chat memory in private chats", "Пам’ять у приватних чатах", "Память в личных чатах"),
+    "memory_auto_s": ("A short summary of older messages, kept on this phone. Off for one chat: on its page.", "Короткий підсумок старих повідомлень, зберігається на телефоні. Вимкнути для чату: на його сторінці.", "Краткая сводка старых сообщений, хранится на телефоне. Выключить для чата: на его странице."),
+    "memory_daily": ("Memory updates per chat and day", "Оновлень пам’яті на чат за день", "Обновлений памяти на чат в день"),
     "memory_daily_s": ("Empty = 6, 0 = keep the summary as it is.", "Порожньо = 6, 0 = не оновлювати підсумок.",
-        "Пусто = 6, 0 = не обновлять резюме."),
+        "Пусто = 6, 0 = не обновлять сводку."),
     "media_consent": ("Sends incoming photos/frames of this chat to your AI server.",
         "Надсилає вхідні фото/кадри цього чату вашому ШІ-серверу.",
         "Отправляет входящие фото/кадры этого чата вашему ИИ-серверу."),
@@ -1828,9 +1828,9 @@ S = {
         "Надсилає аудіо цього чату вашому ШІ-серверу для розпізнавання (сервер має це підтримувати).",
         "Отправляет аудио этого чата вашему ИИ-серверу для распознавания (сервер должен это поддерживать)."),
     "media_per_chat": ("Seeing photos, voice transcription and chat memory are allowed per chat: tap the chat in the list above.",
-        "Бачити фото, розпізнавати голосові й пам'ять чату дозволяються окремо для кожного чату: натисніть на чат у списку вище.",
+        "Бачити фото, розпізнавати голосові й пам’ять чату дозволяються окремо для кожного чату: натисніть на чат у списку вище.",
         "Видеть фото, распознавать голосовые и память чата разрешаются отдельно для каждого чата: нажмите на чат в списке выше."),
-    "sticker_recent": ("Only from recent stickers", "Лише з недавніх", "Только из недавних"),
+    "sticker_recent": ("Only from recent stickers", "Лише з недавніх стікерів", "Только из недавних стикеров"),
     "lat_warm_min": ("Warm talk: reply after, min (s)", "Жвава розмова: відповідь через, мін (с)", "Живая беседа: ответ через, мин (с)"),
     "lat_warm_max": ("Warm talk: reply after, max (s)", "Жвава розмова: відповідь через, макс (с)", "Живая беседа: ответ через, макс (с)"),
     "lat_cold_min": ("Cold start: reply after, min (s)", "Холодний старт: відповідь через, мін (с)", "Холодный старт: ответ через, мин (с)"),
@@ -1838,10 +1838,10 @@ S = {
     "lat_long_pct": ("Cold start: chance of a long wait, %", "Холодний старт: шанс довгого очікування, %", "Холодный старт: шанс долгого ожидания, %"),
     "lat_long_min": ("Long wait min (s)", "Довге очікування, мін (с)", "Долгое ожидание, мин (с)"),
     "lat_long_max": ("Long wait max (s)", "Довге очікування, макс (с)", "Долгое ожидание, макс (с)"),
-    "warm_window": ("Talk is live after a pause up to (s)", "Розмова жвава після паузи до (с)", "Беседа живая после паузы до (с)"),
+    "warm_window": ("Talk counts as warm if the pause is under (s)", "Розмова жвава, якщо пауза менша за (с)", "Беседа живая, если пауза меньше (с)"),
     "cold_after": ("Talk has cooled after (s)", "Розмова охолола після (с)", "Беседа остыла после (с)"),
     "type_ms": ("Typing speed (ms per character)", "Швидкість набору (мс на символ)", "Скорость набора (мс на символ)"),
-    "warm_cap": ("Whole wait, up to (s)", "Усе очікування, до (с)", "Всё ожидание, до (с)"),
+    "warm_cap": ("Warm talk: total wait, max (s)", "Жвава розмова: усе очікування, макс (с)", "Живая беседа: всё ожидание, макс (с)"),
     "split2_pct": ("Chance to send the reply as 2 messages, %", "Шанс надіслати відповідь двома повідомленнями, %", "Шанс отправить ответ двумя сообщениями, %"),
     "split_gap_min": ("Pause between the 2 messages, min (s)", "Пауза між двома повідомленнями, мін (с)", "Пауза между двумя сообщениями, мин (с)"),
     "split_gap_max": ("Pause between the 2 messages, max (s)", "Пауза між двома повідомленнями, макс (с)", "Пауза между двумя сообщениями, макс (с)"),
@@ -1881,7 +1881,7 @@ S = {
         "Ви пишете .ai, бот пише повідомлення за вас",
         "Вы пишете .ai, бот пишет сообщение за вас"),
     "gs_media": ("Stickers; photos, voice and memory are per chat",
-        "Стікери; фото, голос і пам'ять — у кожному чаті",
+        "Стікери; фото, голос і пам’ять — у кожному чаті",
         "Стикеры; фото, голос и память — в каждом чате"),
     "gs_prompts": ("Your instructions, context, model, AI disclosure",
         "Ваші інструкції, контекст, модель, позначка ШІ",
@@ -1910,7 +1910,7 @@ S = {
     "sec_live": ("Timing and pauses", "Час і паузи", "Время и паузы"),
     "sec_limits": ("Limits", "Ліміти", "Лимиты"),
     "sec_cmd": ("Commands", "Команди", "Команды"),
-    "sec_media": ("Media and memory", "Медіа й пам'ять", "Медиа и память"),
+    "sec_media": ("Media and memory", "Медіа й пам’ять", "Медиа и память"),
     "sec_prompts": ("Prompts and model", "Промпти та модель", "Промпты и модель"),
     "sec_test": ("Style test", "Тест стилю", "Тест стиля"),
     "sec_log": ("Log", "Журнал", "Журнал"),
@@ -1940,17 +1940,17 @@ S = {
 
 R = {
     "memory_unavailable": ("Compact chat memory is unavailable; replying without updating it", "Стисла пам’ять чату недоступна; відповідь без її оновлення", "Краткая память чата недоступна; ответ без её обновления"),
-    "memory_updated": ("chat memory updated in the background:", "пам'ять чату оновлено у фоні:", "память чата обновлена в фоне:"),
+    "memory_updated": ("chat memory updated in the background:", "пам’ять чату оновлено у фоні:", "память чата обновлена в фоне:"),
     "memory_gap": ("chat memory: some older messages were no longer in the phone's recent history, the summary may miss them",
-        "пам'ять чату: частини давніших повідомлень уже немає в недавній історії телефона, підсумок може їх не містити",
-        "память чата: части старых сообщений уже нет в недавней истории телефона, резюме может их не содержать"),
-    "memory_daily_cap": ("chat memory: today's update limit for this chat is reached", "пам'ять чату: денний ліміт оновлень цього чату вичерпано",
+        "пам’ять чату: частини давніших повідомлень уже немає в недавній історії телефона, підсумок може їх не містити",
+        "память чата: части старых сообщений уже нет в недавней истории телефона, сводка может их не содержать"),
+    "memory_daily_cap": ("chat memory: today's update limit for this chat is reached", "пам’ять чату: денний ліміт оновлень цього чату вичерпано",
         "память чата: дневной лимит обновлений этого чата исчерпан"),
     "memory_full": ("chat memory storage is full: the last summary is kept and used, no new updates",
-        "сховище пам'яті заповнене: останній підсумок зберігається й використовується, нових оновлень немає",
-        "хранилище памяти заполнено: последнее резюме сохраняется и используется, новых обновлений нет"),
+        "сховище пам’яті заповнене: останній підсумок зберігається й використовується, нових оновлень немає",
+        "хранилище памяти заполнено: последняя сводка сохраняется и используется, новых обновлений нет"),
     "helper_daily_cap": ("today's limit of background AI calls is reached (memory, notes, stickers)",
-        "денний ліміт фонових викликів ШІ вичерпано (пам'ять, нотатки, стікери)",
+        "денний ліміт фонових викликів ШІ вичерпано (пам’ять, нотатки, стікери)",
         "дневной лимит фоновых вызовов ИИ исчерпан (память, заметки, стикеры)"),
     "cheap_model_failed": ("the cheap model failed; the main model did the background task",
         "дешева модель не спрацювала; фонову задачу виконала основна",
@@ -2287,7 +2287,7 @@ R["pending_timer_recovered"] = ("Recovered a pending reply timer", "Віднов
 R["group_burst_coalesced"] = ("Skipped older unscoped group fragments to avoid a reply burst", "Пропущено старі короткі репліки без теми, щоб не засипати групу відповідями", "Пропущены старые реплики без темы, чтобы не засыпать группу ответами")
 R.update({
     "cloud_title": ("Memory in Neon", "Пам’ять у Neon", "Память в Neon"),
-    "cloud_consent": ("Opt-in for this chat/topic: sends new text and the saved private-chat summary to your AI server's Neon database. No media or full archive. Off stops collection; Delete removes saved cloud data.", "Окремий дозвіл для цього чату/теми: нові тексти й збережений підсумок особистого чату передаються в Neon вашого AI-сервера. Без медіа й повного архіву. Вимкнення зупиняє збір; видалення очищає хмару.", "Отдельное разрешение для этого чата/темы: новые тексты и сохранённый итог личного чата передаются в Neon вашего AI-сервера. Без медиа и полного архива. Выключение останавливает сбор; удаление очищает облако."),
+    "cloud_consent": ("Opt-in for this chat/topic: sends new text and the saved private-chat summary to your AI server's Neon database. No media or full archive. Off stops collection; Delete removes saved cloud data.", "Окремий дозвіл для цього чату/теми: нові тексти й збережений підсумок особистого чату передаються в Neon вашого AI-сервера. Без медіа й повного архіву. Вимкнення зупиняє збір; видалення очищає хмару.", "Отдельное разрешение для этого чата/темы: новые тексты и сохранённая сводка личного чата передаются в Neon вашего AI-сервера. Без медиа и полного архива. Выключение останавливает сбор; удаление очищает облако."),
     "cloud_need_app": ("Requires the app update with memory support and the ai.memory permission.", "Потрібне оновлення застосунку з підтримкою пам’яті та дозвіл ai.memory.", "Нужно обновление приложения с поддержкой памяти и разрешение ai.memory."),
     "cloud_unknown_topic": ("Topic unknown: cloud memory is unavailable here until the app identifies it.", "Тема невідома: хмарна пам’ять недоступна, доки застосунок її не визначить.", "Тема неизвестна: облачная память недоступна, пока приложение её не определит."),
     "cloud_topic": ("Topic for these actions", "Тема для цих дій", "Тема для этих действий"),
@@ -2305,8 +2305,8 @@ R.update({
     "cloud_unavailable": ("Memory unavailable. Collection has not been enabled or this request was skipped. Check the account, server and app update.", "Пам’ять недоступна. Збір не ввімкнено або цей запит пропущено. Перевірте акаунт, сервер і оновлення застосунку.", "Память недоступна. Сбор не включён или этот запрос пропущен. Проверьте аккаунт, сервер и обновление приложения."),
     "cloud_delete_pending": ("Collection stopped; deletion awaits confirmation. Reconnect and retry.", "Збір зупинено; видалення очікує підтвердження. Відновіть з’єднання й повторіть.", "Сбор остановлен; удаление ждёт подтверждения. Восстановите соединение и повторите."),
     "cloud_deleted": ("Deletion confirmed by the server; collection is off", "Сервер підтвердив видалення; збір вимкнено", "Сервер подтвердил удаление; сбор выключен"),
-    "cloud_imported": ("Saved local summary transferred; new text collection is on", "Збережений локальний підсумок перенесено; збір нових текстів увімкнено", "Сохранённый локальный итог перенесён; сбор новых текстов включён"),
-    "cloud_import_failed": ("New text collection is on, but the saved local summary was not transferred. Enable again to retry.", "Збір нових текстів увімкнено, але локальний підсумок не перенесено. Увімкніть знову, щоб повторити.", "Сбор новых текстов включён, но локальный итог не перенесён. Включите снова, чтобы повторить."),
+    "cloud_imported": ("Saved local summary transferred; new text collection is on", "Збережений локальний підсумок перенесено; збір нових текстів увімкнено", "Сохранённая локальная сводка перенесена; сбор новых текстов включён"),
+    "cloud_import_failed": ("New text collection is on, but the saved local summary was not transferred. Enable again to retry.", "Збір нових текстів увімкнено, але локальний підсумок не перенесено. Увімкніть знову, щоб повторити.", "Сбор новых текстов включён, но локальная сводка не перенесена. Включите снова, чтобы повторить."),
 })
 R["group_topic_unavailable"] = ("Topic metadata is unavailable; keeping only the current message",
                                 "Тема недоступна; враховано лише поточне повідомлення",
@@ -2323,7 +2323,9 @@ S.update({
     "lore_replace": ("Only this chat's lore", "Лише лор цього чату", "Только лор этого чата"),
     "lore_name": ("Name (optional)", "Ім’я (необов’язково)", "Имя (необязательно)"),
     "lore_age": ("Age (optional)", "Вік (необов’язково)", "Возраст (необязательно)"),
-    "lore_city": ("Location (optional)", "Місто (необов’язково)", "Город (необязательно)"),
+    "reset_pace_s": ("Delays only; pace, limits and switches stay.", "Лише затримки; темп, ліміти й перемикачі не змінюються.", "Только задержки; темп, лимиты и переключатели не меняются."),
+    "disclosure_s": ("Natural conversation has its own value.", "Для природного спілкування окреме значення.", "Для естественного общения своё значение."),
+    "lore_city": ("City (optional)", "Місто (необов’язково)", "Город (необязательно)"),
     "paused_saved": ("Paused in %s; settings saved", "Призупинено в %s; налаштування збережено", "Пауза в %s; настройки сохранены"),
     "deleted": ("Removed %s from auto-reply", "%s видалено з автовідповідача", "%s удалён из автоответчика"),
     "add_cmds": (".ai on / off / pause / delete / status / start. Off and pause keep settings.", ".аі увімк / вимк / пауза / видалити / стан / старт. Вимк і пауза зберігають налаштування.", ".аи вкл / офф / пауза / удалить / статус / старт. Офф и пауза сохраняют настройки."),
@@ -2334,11 +2336,12 @@ pg_persona|About me (lore)|Про мене (лор)|Обо мне (лор)
 pg_style|Conversation manner|Манера спілкування|Манера общения
 pg_media|Stickers and media|Стікери й медіа|Стикеры и медиа
 pg_timing|Pace and limits|Темп і ліміти|Темп и лимиты
-pg_memory|Memory|Пам'ять|Память
+pg_memory|Memory|Пам’ять|Память
 pg_model|Model and prompt|Модель і промпт|Модель и промпт
 pg_cmd|.ai command|Команда .ai|Команда .ai
 pg_service|Service|Сервіс|Сервис
 pg_style_adv|Fine tuning|Тонке налаштування|Тонкая настройка
+pg_time_cold|Cold start|Холодний старт|Холодный старт
 pg_time_adv|Delays in detail|Затримки докладно|Задержки подробно
 pg_type_adv|Typing, two parts, revival|Набір, дві частини, оживлення|Набор, две части, оживление
 pg_limits_adv|Limits and filters|Ліміти й фільтри|Лимиты и фильтры
@@ -2355,8 +2358,8 @@ h_len|Length|Довжина|Длина
 h_split|Splitting|Розбиття|Разбиение
 h_learn|Style learning|Навчання стилю|Обучение стилю
 h_collect|Collecting messages (s)|Збір повідомлень (с)|Сбор сообщений (с)
-h_warm|Live talk (s)|Жвава розмова (с)|Живая беседа (с)
-h_cold|After silence (s)|Після тиші (с)|После тишины (с)
+h_warm|Warm talk (s)|Жвава розмова (с)|Живая беседа (с)
+h_cold|Cold start (s)|Після тиші (с)|После тишины (с)
 h_skip|What to skip|Що пропускати|Что пропускать
 h_safety|Safety net|Страховка|Страховка
 h_cost|Usage|Витрата|Расход
@@ -2389,11 +2392,11 @@ reset_pace|Restore pace values|Повернути значення темпу|В
 bl_reset|Delays follow the pace again|Затримки знову за темпом|Задержки снова по темпу
 chat_sort|Sort|Сортування|Сортировка
 sort_0|By interest|За інтересом|По интересу
-sort_1|By name|За ім'ям|По имени
+sort_1|By name|За ім’ям|По имени
 sort_2|Enabled first|Спершу увімкнені|Сначала включённые
 interest|interest %s %d|інтерес %s %d|интерес %s %d
-mem_bar|memory %s %d%%|пам'ять %s %d%%|память %s %d%%
-mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Резюме чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Резюме чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
+mem_bar|memory %s %d%%|пам’ять %s %d%%|память %s %d%%
+mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Підсумки чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Сводки чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
 refresh|Refresh the topic now|Освіжити тему зараз|Освежить тему сейчас
 refresh_s|Writes first on a new topic, no invented facts. Auto only.|Напише першим на нову тему, без вигадок. Лише Авто.|Напишет первым на новую тему, без выдумок. Только Авто.
 bl_refresh|Writing on a new topic…|Пишу на нову тему…|Пишу на новую тему…
@@ -2817,18 +2820,7 @@ class Plugin(BasePlugin):
         self._repair_store()
         with self._lock:
             self._fps = self._fingerprints()
-        self.add_menu_item(MenuItem(
-            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_off"),
-            on_click=self.on_enable_click, priority=0,
-            condition=self.cond_show_off, key="ai_autoreply_off"))
-        self.add_menu_item(MenuItem(
-            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_on"),
-            on_click=self.on_disable_click, priority=0,
-            condition=self.cond_show_on, key="ai_autoreply_on"))
-        self.add_menu_item(MenuItem(
-            menu_type=MenuType.CHAT_ACTION, text=self.t("menu_cmd"),
-            on_click=self.on_cmd_click, priority=0,
-            condition=self.cond_show_cmd, key="ai_autoreply_cmd"))
+        self._menus()
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
                                                           PRESET_NAMES[self._preset_index()]))
         self._ensure_scan()
@@ -3423,10 +3415,28 @@ class Plugin(BasePlugin):
             return 0
 
     # --- menu
+    def _menus(self, lang=None):
+        """Chat header items; a new interface language re-adds them (the app keeps the text it got)."""
+        if lang is not None:
+            self.set_setting("ui_lang", int(lang))
+        for n, click, cond in (("off", self.on_enable_click, self.cond_show_off),
+                               ("on", self.on_disable_click, self.cond_show_on),
+                               ("cmd", self.on_cmd_click, self.cond_show_cmd)):
+            if lang is not None:
+                self.remove_menu_item("ai_autoreply_" + n)
+            self.add_menu_item(MenuItem(menu_type=MenuType.CHAT_ACTION, text=self.t("menu_" + n), on_click=click,
+                                        priority=0, condition=cond, key="ai_autoreply_" + n))
+
     def cond_show_off(self, ctx):
         try:
             did = ctx.get("dialog_id") or 0
-            return bool(did) and not self.is_enabled(self.chat_key(ctx.get("account"), did))
+            if not did or self.is_enabled(self.chat_key(ctx.get("account"), did)):
+                return False
+            try:                     # cache only, no network: hide where the bot can never work
+                info = self._dialog_info(ctx.get("account") or 0, did) or {}
+            except Exception:
+                info = {}
+            return not (info.get("type") in ("channel", "secret") or info.get("is_bot"))
         except Exception:
             return False
 
@@ -4407,7 +4417,8 @@ class Plugin(BasePlugin):
             cap = int(self._pnum("hourly_cap", 0, 100000))
             if cap and len(self._hourly) >= cap:                  # 0 = no global hourly cap (Live)
                 return "hourly cap reached"
-            if self._usage()["n"].get(key, 0) >= int(self._pnum("daily_cap", 1, 100000)):
+            cap = int(self._pnum("daily_cap", 0, 100000))
+            if cap and self._usage()["n"].get(key, 0) >= cap:
                 return "daily cap reached"
         return None
 
@@ -7534,7 +7545,7 @@ class Plugin(BasePlugin):
                     on(self._revive_on()), on(self.get_setting("lore_learn", False)), on(self._pbool("human_timing")),
                     n(self._pnum("owner_active", 0, 3600)), n(self._pnum("debounce", 0, 60)),
                     n(self._pnum("cooldown", 0, 3600)), n(self._pnum("chat_hourly", 1, 1000)),
-                    n(self._pnum("hourly_cap", 0, 100000)), n(self._pnum("daily_cap", 1, 100000)),
+                    n(self._pnum("hourly_cap", 0, 100000)), n(self._pnum("daily_cap", 0, 100000)),
                     on(self._pbool("scan")), n(self._pnum("scan_interval", 10, 600)),
                     on(self.get_setting("read_msgs", True)), on(self.get_setting("show_typing", True)),
                     on(self.get_setting("stickers", True)), on(self.get_setting("cmd_enable", True)), hours))
@@ -8119,7 +8130,8 @@ class Plugin(BasePlugin):
     def cond_show_cmd(self, ctx):
         try:
             did = ctx.get("dialog_id") or 0
-            return bool(did) and bool(self.get_setting("cmd_enable", True)) and                 self.is_enabled(self.chat_key(ctx.get("account"), did))
+            return bool(did) and bool(self.get_setting("cmd_enable", True)) and \
+                self.is_enabled(self.chat_key(ctx.get("account"), did))
         except Exception:
             return False
 
@@ -8392,7 +8404,7 @@ class Plugin(BasePlugin):
     def _pswitch(self, key, label, subtext=None):
         """Switch whose unset value means 'use the preset' (all of them..."""
         hint = self.t("preset_sw", self.t("st_on" if self._preset().get(key) else "st_off"))
-        return Switch(key=key, text=self.t(label), default=True,
+        return Switch(key=key, text=self.t(label), default=bool(self._preset().get(key)),
                       subtext=("%s %s" % (self.t(subtext), hint)) if subtext else hint)
 
     def create_settings(self, page=None):
@@ -8436,7 +8448,8 @@ class Plugin(BasePlugin):
                      subtext=t("preset_s")),
             Selector(key="reactions", text=t("reactions"), items=[t("react_mode_%d" % i) for i in range(3)],
                      default=0, subtext=t("reactions_s")),
-            Selector(key="ui_lang", text=t("lang"), items=[t("ms_0")] + LANG_NAMES[1:], default=0, subtext=t("lang_s")),
+            Selector(key="ui_lang", text=t("lang"), items=[t("ms_0")] + LANG_NAMES[1:], default=0, subtext=t("lang_s"),
+                     on_change=self._menus),
         ]
         return items
 
@@ -8599,7 +8612,7 @@ class Plugin(BasePlugin):
             self._pinput("chat_hourly"),
             Switch(key="polite_stop", text=t("polite_stop"), default=True),
             self._pinput("hourly_cap", "zero_none"),
-            self._pinput("daily_cap"),
+            self._pinput("daily_cap", "zero_none"),
             Input(key="prompt_max", text=t("prompt_max"), default="", subtext=t("prompt_max_s")),
             Input(key="helper_daily", text=t("helper_daily"), default="", subtext=t("helper_daily_s")),
             note(self._usage_note()),
@@ -8655,7 +8668,7 @@ class Plugin(BasePlugin):
             Input(key="temperature", text=t("temperature"), default="0.85",
                   on_change=lambda _v: self.set_setting("temp_pick", None)),
             Switch(key="natural_disclosure" if self.get_setting("natural_chat", False) else "disclosure",
-                   text=t("disclosure"), default=not bool(self.get_setting("natural_chat", False))),
+                   text=t("disclosure"), default=not bool(self.get_setting("natural_chat", False)), subtext=t("disclosure_s")),
             Input(key="disclosure_text", text=t("disclosure_text"), default=ROBOT + " "),
         ]
 
@@ -8786,8 +8799,8 @@ class Plugin(BasePlugin):
         "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
                   "polite_stop revive revive_groups >time_adv >type_adv >limits_adv",
         "time_adv": "#h_collect debounce cooldown cooldown_jitter owner_defers #h_warm lat_warm_min lat_warm_max "
-                    "warm_window warm_cap #h_cold cold_after lat_cold_min lat_cold_max lat_long_pct lat_long_min "
-                    "lat_long_max @reset",
+                    "warm_window warm_cap >time_cold @reset",
+        "time_cold": "#h_cold cold_after lat_cold_min lat_cold_max lat_long_pct lat_long_min lat_long_max",
         "type_adv": "typing_delay typing_cap type_ms split2_pct split_gap_min split_gap_max revive_after "
                     "revive_window revive_daily",
         "limits_adv": "#sec_limits hourly_cap daily_cap loop_burst #h_skip skip_links skip_ack ack_reply_pct "
@@ -8810,7 +8823,7 @@ class Plugin(BasePlugin):
         "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{}",
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
-    ADV = ("style_adv", "time_adv", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
+    ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
     ICONS = dict(x.split(":") for x in ("chats:chats queue:timing persona:prompts style:style media:general "
                  "timing:timing memory:memory model:prompts cmd:commands service:log log:log setup1:general").split())
 
@@ -8866,6 +8879,7 @@ class Plugin(BasePlugin):
             m.update((i.key, i) for i in f() if getattr(i, "key", None))
         m["model_cheap_pick"] = self._pick("model_cheap_pick", "model_cheap", self.MODEL_PRESETS, "", [t("cheap_same")])
         m["temp_pick"] = self._pick("temp_pick", "temperature", TEMPS, "0.85", [t("temp_%d" % i) for i in range(3)])
+        m["log_report"] = Text(text=t("log_report"), key="log_report", on_click=self.copy_report)
         m["ui_mode"] = Selector(key="ui_mode", text=t("ui_mode"), items=[t("ui_mode_0"), t("ui_mode_1")],
                                 default=int(self._adv()))
         if DialogPicker is not None:
@@ -8935,14 +8949,16 @@ class Plugin(BasePlugin):
         out = [Header(text=t("h_bot_chats_n", sum(1 for c in self._chats.values() if c.get("enabled")),
                              len(self._chats))),
                Selector(key="chat_sort", text=t("chat_sort"), items=[t("sort_%d" % i) for i in range(3)], default=0)]
+        n, accs = len(self._chats), {int(c.get("account", 0)) for c in self._chats.values()}
+        cap = 13 - len(self.PAGES["chats"].split()) - (n > 1) - (len(accs) if len(accs) > 1 else 0)
+        cap = max(1, cap - (n > cap))                   # the whole page stays within 14 rows
         how = self._int("chat_sort", 0, 0, 2)
         sc = self._scores()
         ordered = sorted(self._chats.items(), key=lambda kv: (
             int(kv[1].get("account", 0)), -sc.get(kv[0], -1) if how == 0 else
             (self._fresh_title(kv[0], kv[1]).lower() if how == 1 else not kv[1].get("enabled"))))
-        if len(ordered) > self.CHATS_SHOWN and not getattr(self, "_all_chats", False):
-            ordered = ordered[:self.CHATS_SHOWN]
-        accs = {int(c.get("account", 0)) for c in self._chats.values()}
+        if n > cap and not getattr(self, "_all_chats", False):
+            ordered = ordered[:cap]
         last = None
         for key, c in ordered:
             a = int(c.get("account", 0))
@@ -8951,7 +8967,7 @@ class Plugin(BasePlugin):
             last = a
             out.append(Page(key="pg_chat:" + key, text=self._fresh_title(key, c), icon="chats",
                             subtext=self.chat_row_sub(key, c) + self._chat_extra(key, sc)))
-        if len(self._chats) > self.CHATS_SHOWN:
+        if n > cap:
             out.append(Text(text=t("chats_less") if getattr(self, "_all_chats", False) else
                             t("chats_more", len(self._chats)), key="chats_all", on_click=self._toggle_all_chats))
         if len(self._chats) > 1:
@@ -8996,7 +9012,7 @@ class Plugin(BasePlugin):
             for k in PACE_KEYS:
                 self.set_setting(k, "")
             client.bulletin(self.t("bl_reset"))
-        return [Text(text=self.t("reset_pace"), key="reset_pace", on_click=cb)]
+        return [self._text_row(self.t("reset_pace"), "reset_pace", cb, self.t("reset_pace_s"))]
 
     def _mem_line(self):
         lens = list(self._mem_len.values())
