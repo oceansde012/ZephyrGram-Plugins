@@ -640,6 +640,38 @@
           "human_text": "Гифки, стикеры, видео и тексты из инлайн-ботов уходят как ваше сообщение, без «via @bot» и кнопок бота. Подпись бота можно убирать."
         }
       ]
+    },
+    {
+      "product": "chat_history_export",
+      "version": "1.0.4",
+      "sha256": "cc64a574f104c66c504fe23031e891de456e8961df262d1c23d24337f50a6902",
+      "checks": "4 new tests in tests/test_chat_history_export.py; all 950 Python tests and build_index validate passed. Crash reproduced by code reading only (no device log); phone behaviour unverified.",
+      "items": [
+        {
+          "id": "EXPORT-CONFIRM-CRASH",
+          "title": "Падение после «Экспортировать»",
+          "scope": "complete",
+          "details": "The confirm dialog's dynamic_proxy onClick ran outside any plugin callback, so client.run_in_bg raised 'This API must run inside an active plugin callback' and the PyException escaped into Android's dialog click handler on the UI thread. Now the listener is one module-level proxy class, the action runs in a copy of the plugin context (contextvars) and errors never leave onClick.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Приложение больше не падает после нажатия «Экспортировать»."
+        },
+        {
+          "id": "EXPORT-NETWORK-STALL",
+          "title": "Подвисание ответов Telegram во время экспорта",
+          "scope": "complete",
+          "details": "deliver() ran on the app's network callback thread and waited for the session lock held by process() for a whole page; it now hands off to run_in_bg at once.",
+          "limitations": "",
+          "human_text": "Во время экспорта приложение не подвисает."
+        },
+        {
+          "id": "EXPORT-TIMEOUT",
+          "title": "Таймаут запроса",
+          "scope": "complete",
+          "details": "threading.Timer callback had no plugin context, so the 50 s timeout raised and was lost; it is now bound to the plugin context.",
+          "limitations": "",
+          "human_text": "Если Telegram не ответил, экспорт завершается, а не ждёт вечно."
+        }
+      ]
     }
   ]
 }
