@@ -244,36 +244,177 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class StrictRuntime(object):
+    """Like the app: client.run_in_bg / run_on_ui / send_request work only inside a plugin callback (the Java-side
+    caller check, PluginHooks.requireCaller). Queued callbacks run later as plugin callbacks."""
+
+    def __init__(self):
+        import threading as _threading
+        self.local = _threading.local()
+        self.queue = []
+        self.requests = []
+
+    def inside(self):
+        return getattr(self.local, 'depth', 0) > 0
+
+    def _check(self, name):
+        if not self.inside():
+            raise RuntimeError('java.lang.SecurityException: %s outside a plugin callback' % name)
+
+    def enter(self, fn, *args):
+        self.local.depth = getattr(self.local, 'depth', 0) + 1
+        try:
+            return fn(*args)
+        finally:
+            self.local.depth -= 1
+
+    def run_in_bg(self, fn):
+        self._check('run_in_bg')
+        self.queue.append((0, fn))
+
+    def run_on_ui(self, fn, delay_ms=0):
+        self._check('run_on_ui')
+        self.queue.append((int(delay_ms), fn))
+
+    def send_request(self, request, callback=None, account=None):
+        self._check('send_request')
+        self.requests.append(callback)
+
+    def drain(self, max_delay_ms=None, steps=10000):
+        """Runs queued callbacks (as plugin callbacks) until nothing is left whose delay is <= max_delay_ms."""
+        for _ in range(steps):
+            index = next((i for i, (d, _) in enumerate(self.queue) if max_delay_ms is None or d <= max_delay_ms), None)
+            if index is None:
+                return
+            _, fn = self.queue.pop(index)
+            self.enter(fn)
+        raise AssertionError('callback loop did not settle')
+
+
+class Fixes105(unittest.TestCase):
+    """1.0.5: Android listeners and timers are outside plugin callbacks, where the app refuses client.*."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.rt = StrictRuntime()
+        patcher = patch.multiple(_client, run_in_bg=self.rt.run_in_bg, run_on_ui=self.rt.run_on_ui,
+                                 send_request=self.rt.send_request, create=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_version(self):
+        self.assertEqual((mod.__version__, mod.__version_code__), ('1.0.5', 6))
+
+    def dialog(self):
+        """Opens the confirmation inside a plugin callback; returns (plugin, listeners, started)."""
+        class FakeProxyBase(object):
+            def __init__(self):
+                pass
+        java = types.ModuleType('java')
+        java.dynamic_proxy = lambda iface: FakeProxyBase
+        listeners = {}
+
+        class Builder(object):
+            def __init__(self, activity): pass
+            def setTitle(self, t): pass
+            def setMessage(self, m): pass
+            def setPositiveButton(self, text, listener): listeners['ok'] = listener
+            def setNegativeButton(self, text, listener): listeners['cancel'] = listener
+            def setOnDismissListener(self, listener): listeners['dismiss'] = listener
+            def show(self): listeners['shown'] = True
+
+        def fake_jclass(name):
+            return Builder if name.endswith('AlertDialog$Builder') else object
+        mod._PROXY_CLASSES.clear()
+        self.addCleanup(mod._PROXY_CLASSES.clear)
+        plugin = mod.Plugin()
+        plugin._active = True
+        notices = []
+        plugin._notice = notices.append
+        started = []
+        plugin._start = lambda ctx, info: started.append((self.rt.inside(), info['title']))
+        fragment = types.SimpleNamespace(getParentActivity=lambda: object())
+        with patch.dict(sys.modules, {'java': java}), patch.object(mod, 'jclass', fake_jclass):
+            self.rt.enter(plugin._confirm, {'fragment': fragment, 'account': 0, 'dialog_id': 5}, {'title': 'Chat'})
+        self.assertTrue(listeners.get('shown'))
+        self.assertEqual(notices, [])
+        return plugin, listeners, started
+
+    def test_export_button_starts_the_export(self):
+        plugin, listeners, started = self.dialog()
+        listeners['ok'].onClick(None, -1)        # Android thread, no plugin callback: must not raise
+        listeners['dismiss'].onDismiss(None)     # Android dismisses the dialog right after the click
+        self.rt.drain()
+        self.assertEqual(started, [(True, 'Chat')])  # started inside a plugin callback
+
+    def test_cancel_and_dismiss_stop_the_watch(self):
+        for key in ('cancel', 'dismiss'):
+            plugin, listeners, started = self.dialog()
+            if key == 'cancel':
+                listeners['cancel'].onClick(None, -2)
+            else:
+                listeners['dismiss'].onDismiss(None)
+            self.rt.drain()
+            self.assertEqual(started, [])
+            self.assertEqual(self.rt.queue, [])
+
+    def test_watch_gives_up_after_the_limit(self):
+        plugin, listeners, started = self.dialog()
+        with patch.object(mod.time, 'time', lambda: 10 ** 12):
+            self.rt.drain()
+        self.assertEqual((started, self.rt.queue), ([], []))
+
+    def test_listeners_never_raise(self):
+        plugin, listeners, started = self.dialog()
+        listeners['ok'].st = None  # broken state: still nothing escapes into Java
+        listeners['ok'].onClick(None, -1)
+
+    def session(self):
+        plugin = types.SimpleNamespace(data_dir=self.temp.name, _active=True, _status='', _last_file='',
+            _notice=lambda text: None, set_setting=lambda *args: None)
+        s = mod.Session(plugin, {'account': 0, 'dialog_id': 5}, {'title': 'x'}, types.SimpleNamespace(), False, 42)
+        s.valid = lambda: not s.stopped
+        self.addCleanup(s.archive.discard)
+        patcher = patch.object(mod, '_new', lambda *names: types.SimpleNamespace())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return s
+
+    def test_lost_answer_times_out_through_the_app_scheduler(self):
+        s = self.session()
+        processed = []
+        s.process = lambda response, error: processed.append(error)
+        self.rt.enter(s.request)
+        self.assertEqual(len(self.rt.requests), 1)          # the request went out
+        self.assertEqual([d for d, _ in self.rt.queue], [mod.REQUEST_TIMEOUT_MS])
+        self.rt.drain()                                      # no answer: the timeout fires as a plugin callback
+        self.assertEqual(processed, ['REQUEST_TIMEOUT'])
+
+    def test_answer_wins_and_the_stale_timeout_is_ignored(self):
+        s = self.session()
+        processed = []
+        s.process = lambda response, error: processed.append(error)
+        self.rt.enter(s.request)
+        callback = self.rt.requests[0]
+        self.rt.enter(callback, response([message(9)]), None)  # the app runs request callbacks as plugin callbacks
+        self.rt.drain()
+        self.assertEqual(processed, [None])
+
+    def test_no_threading_timer_left(self):
+        source = _path.read_text(encoding='utf-8')
+        self.assertNotIn('threading.Timer(', source)
+        self.assertNotIn('contextvars', source)
+
+
 class CrashAndStallFixes104(unittest.TestCase):
-    """1.0.4: the dialog button and the request timer run outside plugin callbacks; deliver never blocks."""
+    """1.0.4: deliver never blocks on the session lock."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.plugin = types.SimpleNamespace(data_dir=self.temp.name, _active=True, _status='', _last_file='',
             _notice=lambda text: None, set_setting=lambda *args: None)
-
-    def test_version(self):
-        self.assertEqual((mod.__version__, mod.__version_code__), ('1.0.4', 5))
-
-    def test_bound_runs_in_the_creating_context_on_another_thread_and_swallows_errors(self):
-        var = mod.contextvars.ContextVar('owner_test', default=None)
-        token = var.set('plugin')
-        try:
-            seen = []
-            fn = mod._bound(lambda: seen.append(var.get()))
-            boom = mod._bound(lambda: 1 / 0)
-        finally:
-            var.reset(token)
-        import threading as _threading
-        threads = [_threading.Thread(target=fn), _threading.Thread(target=boom)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        self.assertEqual(seen, ['plugin'])
-        fn(); fn()  # the same bound function may run more than once
-        self.assertEqual(seen, ['plugin', 'plugin', 'plugin'])
 
     def test_deliver_does_not_wait_for_the_session_lock(self):
         s = mod.Session(self.plugin, {'account': 0, 'dialog_id': 5}, {'title': 'x'}, types.SimpleNamespace(), False, 42)
@@ -299,45 +440,3 @@ class CrashAndStallFixes104(unittest.TestCase):
             t.join()
         self.assertEqual(len(handed), 1)
         s.archive.discard()
-
-    def test_confirm_button_never_raises_into_java(self):
-        clicks = []
-
-        class FakeProxyBase(object):
-            def __init__(self):
-                pass
-
-        java = types.ModuleType('java')
-        java.dynamic_proxy = lambda iface: FakeProxyBase
-        buttons = {}
-
-        class Builder(object):
-            def __init__(self, activity):
-                pass
-
-            def setTitle(self, t): pass
-
-            def setMessage(self, m): pass
-
-            def setPositiveButton(self, text, listener): buttons['ok'] = listener
-
-            def setNegativeButton(self, text, listener): pass
-
-            def show(self): clicks.append('shown')
-
-        def fake_jclass(name):
-            return Builder if name.endswith('AlertDialog$Builder') else object
-        mod._CLICK_CLASS.clear()
-        plugin = mod.Plugin()
-        plugin._notice = lambda text: clicks.append(text)
-        fragment = types.SimpleNamespace(getParentActivity=lambda: object())
-        with patch.dict(sys.modules, {'java': java}), patch.object(mod, 'jclass', fake_jclass):
-            plugin._confirm({'fragment': fragment, 'account': 0, 'dialog_id': 5}, {'title': 'Chat'})
-        self.assertEqual(clicks, ['shown'])
-        with patch.object(_client, 'run_in_bg', side_effect=RuntimeError('This API must run inside an active plugin callback')):
-            buttons['ok'].onClick(None, -1)  # must not raise
-        started = []
-        plugin._start = lambda ctx, info: started.append(info['title'])
-        buttons['ok'].onClick(None, -1)
-        self.assertEqual(started, ['Chat'])
-        mod._CLICK_CLASS.clear()
