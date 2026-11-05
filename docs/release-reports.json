@@ -912,6 +912,38 @@
           "human_text": "Сами сообщения в облаке теперь хранятся только если включить отдельный тумблер; группы в облако не попадают вообще."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.7",
+      "sha256": "850997a5f11ea48ee32698164753e5e3f0b69171c5401e1473a70ad7fc7f1851",
+      "checks": "1081 Python tests and plugin validation passed; no live provider calls. Size 610383 B: minAppVersion 0.2.5, index-v2.json only (D-020). New fake-bridge tests in tests/test_ai_media_v097.py.",
+      "items": [
+        {
+          "id": "MEDIA-VIDEO-FRAME",
+          "title": "Кадр видео, кружка и GIF для модели",
+          "scope": "partial",
+          "details": "Per-chat switch see_video_{sk} (needs see_media_{sk}). For an incoming video/gif message client.video_frame (feature flag client.VIDEO_FRAME, worker thread, 15 s) replaces the thumbnail from get_message_media when that is not already a frame; JPEG read from the returned path, dropped above 400 KB, fall back to the preview on any failure.",
+          "limitations": "Not checked on a phone; app 0.2.7+ only, older apps keep the previous behaviour.",
+          "human_text": "Бот видит кадр присланного видео или кружка, а не только крошечное превью."
+        },
+        {
+          "id": "MEDIA-VIDEO-MENTION",
+          "title": "Видео, о котором говорят в разговоре",
+          "scope": "partial",
+          "details": "If the newest incoming text matches video/round/gif words (ru/uk/en) and no image is attached yet, the newest earlier incoming video or gif of the last 30 history rows is looked up with get_message_media and a frame is attached with a note naming the message id. Needs see_media and see_video.",
+          "limitations": "Keyword match, one older video at most; round videos are recognised as type 'video' by the app.",
+          "human_text": "Если собеседник спрашивает про видео, которое присылал раньше, бот посмотрит на него."
+        },
+        {
+          "id": "MEDIA-XPAGE",
+          "title": "Страница «Расширенные настройки общения»",
+          "scope": "partial",
+          "details": "Page pg_xmedia under the chat's AI access page with see_media, see_video and transcribe_voice; the rows moved out of the access page. Profile bio now comes from client.get_user_profile when client.USER_PROFILE exists (the old Java path stays as fallback).",
+          "limitations": "Sending GIFs, voice and photos is not in this page: app 0.2.7 has no send call for saved GIFs (send_sticker searches stickers only), and there is no speech synthesis. Profile photo is not used.",
+          "human_text": "Все переключатели «что ИИ может смотреть» собраны на одной странице чата."
+        }
+      ]
     }
   ]
 }
