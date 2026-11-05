@@ -203,8 +203,7 @@ GENDER_MASC_ADDR_RE = re.compile(
 
 
 def gender_scores(other_texts, owner_texts=()):
-    """(feminine, masculine) hit counts: how the OTHER person talks about themselves, and how the OWNER
-    addresses them (ти зробила / ты сделал, forms of address)."""
+    """(feminine, masculine) hit counts: how the OTHER person talks about themselves, and how the OWNER..."""
     fem = masc = 0
     for t in other_texts:
         t = str(t or "")
@@ -233,8 +232,7 @@ def gender_level(other_texts, owner_texts=()):
 
 
 def detect_gender(texts):
-    """'f' / 'm' / None from how the OTHER person talks about themselves (я зробила / я зробив ...).
-    Needs at least GENDER_MIN_EVIDENCE hits and a lead of 2 over the other gender; never guessed from one word."""
+    """'f' / 'm' / None from how the OTHER person talks about themselves (я зробила / я зробив ...)."""
     fem = masc = 0
     for t in texts:
         t = str(t or "")
@@ -366,8 +364,7 @@ def _iban_end(match):
 
 
 def cloud_redact(text):
-    """Text for the cloud memory with passwords, codes, card numbers, IBANs and keys replaced by CLOUD_HIDDEN.
-    Ordinary numbers stay: phones, dates, times, sums, order numbers."""
+    """Text for the cloud memory with passwords, codes, card numbers, IBANs and keys replaced by CLOUD_HIDDEN."""
     text = str(text or "")
     if _CLOUD_WHOLE_RE.fullmatch(text):
         return CLOUD_HIDDEN
@@ -704,8 +701,7 @@ def strip_leak(text):
 
 
 def clean_humanized(reply, limit=300, preserve_filler=False, cap=True):
-    """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler; cap the length (cap=False: the caller
-    splits a too long text into messages with fit_parts instead)."""
+    """Strip markdown, quotes, 'Assistant:' prefixes, assistant filler; cap the length (if cap)."""
     if not isinstance(reply, str):
         return ""
     t = strip_leak(strip_markdown(reply).strip())
@@ -773,8 +769,7 @@ def echoes(text, refs):
 
 
 def vary_parts(parts, rng):
-    """A real person does not always send the same number of lines: merge neighbours until a random target count
-    is reached (1 message 40 %, 2 messages 38 %, 3 messages 16 %, 4+ the rest), shortest pair first."""
+    """A real person does not always send the same number of lines: merge neighbours until a random target..."""
     parts = [p for p in parts if p]
     n = len(parts)
     if n < 2:
@@ -828,8 +823,7 @@ def split_reply(text, max_parts=3):
     while len(merged) > max(1, max_parts):
         i = min(range(len(merged) - 1), key=lambda k: len(merged[k]) + len(merged[k + 1]))
         if by_line:
-            # 0.7.7: a line break survives only between finished thoughts ('не' + 'завтра' -> 'не, завтра', never
-            # 'не завтра' and never a break in the middle of a sentence); smooth_breaks() decides about the rest.
+            # 0.7.7: never a line break inside a sentence ('не' + 'завтра' -> 'не, завтра')
             end, glue = break_glue(merged[i], merged[i + 1])
             glue = "\n" if end else glue
         else:
@@ -839,14 +833,13 @@ def split_reply(text, max_parts=3):
 
 
 # ---- 0.7.7: line breaks inside one message
-# A preposition/conjunction at the end of a line means the sentence goes on in the next line.
 CONT_WORDS = frozenset(u"""и й а но или либо чтобы если потому в во на с со к ко по за из от до для у о об обо
 про при без над под через между не ни мой моя мои твой твоя твои который которая которое которые який яка яке які
 щоб якщо бо та або і з із зі від після перед біля між""".split())
 
 
 def ends_thought(text):
-    """True when the text ends a finished thought: . ! ? … (also after quotes), a smiley ')' or an emoji."""
+    """Ends with . ! ? … (also before quotes), a smiley ')' or an emoji."""
     t = str(text or "").rstrip()
     if not t:
         return True
@@ -857,9 +850,7 @@ def ends_thought(text):
 
 
 def break_glue(left, right):
-    """(finished, glue) for joining two lines into one message. finished=True: the left line is a whole thought, a
-    line break between them is allowed (glue is the text to use without it). Otherwise glue joins one sentence:
-    a space after a comma/preposition/conjunction, else a comma ('норм вроде' + 'только тупит')."""
+    """(finished thought: a line break may stay, glue to use instead of the line break)."""
     l, r = str(left or "").rstrip(), str(right or "").lstrip()
     if not l or not r:
         return True, ""
@@ -877,8 +868,7 @@ def break_glue(left, right):
 
 
 def smooth_breaks(text, keep_pct=0.0, rng=None, keep_long=300):
-    """Line breaks inside one message: a break in the middle of a sentence becomes a space/comma; a break between
-    finished thoughts stays only with the chance keep_pct (percent), or always in a long text (paragraphs)."""
+    """A line break inside a sentence becomes a space/comma; between thoughts it stays with keep_pct % chance."""
     t = str(text or "").strip()
     if "\n" not in t:
         return t
@@ -896,7 +886,6 @@ def smooth_breaks(text, keep_pct=0.0, rng=None, keep_long=300):
 
 
 def join_parts(parts, keep_pct=0.0, rng=None):
-    """Several parts as one message (group post, draft): joined like smooth_breaks joins lines."""
     return smooth_breaks("\n".join(p for p in parts if p), keep_pct, rng)
 
 
@@ -907,8 +896,7 @@ _TRIM_EDGE = u" \t\n,;:-\u2013\u2014"
 
 
 def _cut_index(text, limit):
-    """Where the first piece of text (at most limit characters) ends: a sentence end, else a clause (comma, dash),
-    else a word boundary. Never inside a word: a single word longer than the limit stays whole."""
+    """End of the first piece: sentence, else clause, else word; never inside a word."""
     if len(text) <= limit:
         return len(text)
     floor = max(1, int(limit * 0.3))
@@ -930,7 +918,6 @@ def _cut_index(text, limit):
 
 
 def chunk_text(text, limit):
-    """Text -> pieces of at most `limit` characters cut at natural boundaries, no '…' and no dangling dash."""
     t = str(text or "").strip()
     limit = max(1, int(limit))
     out = []
@@ -943,8 +930,7 @@ def chunk_text(text, limit):
 
 
 def fit_parts(parts, limit, max_parts):
-    """Every part within the limit (the rest of a too long part becomes the next part). With more parts than
-    max_parts, neighbours that fit together are merged; what still does not fit is dropped as whole parts."""
+    """Too long parts continue in the next one; extra parts are merged if they fit, else dropped whole."""
     out = []
     for p in parts:
         out.extend(chunk_text(p, limit))
@@ -967,15 +953,13 @@ LAUGHTER_RE = re.compile(u"(?i)(?<!\\w)(?:%s)(?!\\w)|\\){2,}|[\U0001F602\U0001F9
 LAUGH_STRIP_RE = re.compile(u"(?i)[ \\t]*(?:(?<!\\w)(?:%s)(?!\\w)|\\){2,}|[\U0001F602\U0001F923\U0001F606\U0001F639])"
                             u"(?:[ \\t]*[!.,]+)?" % LAUGH_WORD)
 LAUGH_VARIANTS = (u"ахах", u"ахаха", u"хах", u"хаха", u"ахахах")
-LAUGH_WINDOW = 4             # among our last this many replies ...
-LAUGH_MAX_IN_WINDOW = 2      # ... at most this many laugh; and never two replies in a row
-# Serious or sad news: no laughing at it (unless they laugh themselves).
+LAUGH_WINDOW = 4             # of our last 4 replies at most 2 laugh, never two in a row
+LAUGH_MAX_IN_WINDOW = 2
 SAD_RE = re.compile(
-    u"(?i)(?<!\\w)(?:умер\\w*|помер\\w*|скончал\\w*|похорон\\w*|бол(?:ею|еет|еешь|ит|ят|ел|ела|ели)|"
-    u"заболе\\w*|хвор\\w*|захвор\\w*|больниц\\w*|лікарн\\w*|госпитал\\w*|(?<!не )плохо|(?<!не )погано|"
-    u"(?<!без )проблем\\w*|ужас\\w*|жах\\w*|беда|біда|горе|грустно|сумно|плач\\w*|депресс\\w*|депрес\\w*|"
-    u"развод\\w*|розлуч\\w*|уволили|звільнили|авари\\w*|аварі\\w*|соболезн\\w*|співчу\\w*|страшно|тяжело|"
-    u"важко|жаль|шкода|сломал\\w*|зламал\\w*|травм\\w*|операци\\w*|операці\\w*)(?!\\w)")
+    u"(?i)(?<!\\w)(?:(?:у|по)мер|скончал|похорон|бол(?:ею|еет|еешь|ит|ят|ел)|заболе|(?:за)?хвор|больниц|лікарн|"
+    u"госпитал|(?<!не )плохо|(?<!не )погано|(?<!без )проблем|ужас|жах|беда|біда|горе|грустн|сумн|плач|депрес|"
+    u"развод|розлуч|уволили|звільнили|авар|соболезн|співчу|страшн|тяжел|важко|жаль|шкода|(?:с|з)ламал|травм|"
+    u"операц)\\w*")
 
 
 def has_laugh(text):
@@ -983,7 +967,6 @@ def has_laugh(text):
 
 
 def strip_laughs(text):
-    """Remove laughter (ахах, хах, лол, ))), xD, 😂) and the punctuation it leaves behind."""
     t = LAUGH_STRIP_RE.sub("", str(text or ""))
     t = re.sub(r"[ \t]{2,}", " ", t)
     t = re.sub(u"(?m)^[ \\t,.!\u2014\u2013-]+", "", t)
@@ -993,7 +976,6 @@ def strip_laughs(text):
 
 
 def very_funny(text):
-    """Their message is laughing hard (АХАХАХ, a long ахахахаха, 😂/🤣): only then a caps laugh fits."""
     t = str(text or "")
     if re.search(u"[\U0001F602\U0001F923]", t):
         return True
@@ -1007,25 +989,21 @@ def very_funny(text):
 # ---- 0.7.7: personal facts nobody mentioned (relatives, illness, death)
 FACT_GROUPS = (
     ("grandma", u"бабушк\\w*|бабул\\w*|бабус\\w*|бабц\\w*"),
-    ("grandpa", u"дедушк\\w*|дедул\\w*|дідус\\w*|дід|діда|дідові|дідом"),
-    ("mother", u"мама|мамы|маме|маму|мамой|мамин\\w*|мамочк\\w*|мамул\\w*|матери|матерью|матір\\w*|"
-               u"матус\\w*|ненька"),
-    ("father", u"папа|папы|папе|папу|папой|папин\\w*|отец|отца|отцу|отцом|батя|бати|батей|тато|тата|татові|"
-               u"татом|батьк\\w*|батьків"),
-    ("brother", u"брата|брату|братом|братик\\w*|братишк\\w*|братья\\w*|братів|"
-                u"(?:мой|мій|твой|твій|его|її|ее|её|старш\\w*|младш\\w*|молодш\\w*|двоюр\\w*)\\s+брат"),
-    ("sister", u"сестр\\w*|сестрич\\w*|сестрёнк\\w*|сестренк\\w*"),
-    ("aunt_uncle", u"тётя|тетя|тёти|тети|тёте|тете|тётю|тетю|тітк\\w*|дядя|дяди|дяде|дядю|дядьк\\w*"),
-    ("illness", u"бол(?:ею|еет|еешь|еем|еют|ел|ела|ели|еть|ит|ят|езн\\w*)|заболе\\w*|хвор\\w*|захвор\\w*|"
-                u"больниц\\w*|лікарн\\w*|госпитал\\w*|госпітал\\w*|диагноз\\w*|діагноз\\w*|инсульт\\w*|"
-                u"інсульт\\w*|инфаркт\\w*|інфаркт\\w*"),
-    ("death", u"умер|умерла|умерли|помер|померла|померли|похорон\\w*|скончал\\w*|поминк\\w*"),
+    ("grandpa", u"дедушк\\w*|дедул\\w*|дідус\\w*|ді(?:д|да|дові|дом)"),
+    ("mother", u"мам(?:а|ы|е|у|ой|ин\\w*|очк\\w*|ул\\w*)|матер(?:и|ью)|матір\\w*|матус\\w*|ненька"),
+    ("father", u"пап(?:а|ы|е|у|ой|ин\\w*)|от(?:ец|ца|цу|цом)|бат(?:я|и|ей)|тат(?:о|а|ові|ом)|батьк\\w*|батьків"),
+    ("brother", u"брат(?:а|у|ом|ик\\w*|ишк\\w*|ья\\w*|ів)|(?:мой|мій|твой|твій|его|її|ее|её|старш\\w*|младш\\w*|"
+                u"молодш\\w*|двоюр\\w*)\\s+брат"),
+    ("sister", u"сестр\\w*|сестрич\\w*|сестрёнк\\w*"),
+    ("aunt_uncle", u"т[её]т(?:я|и|е|ю)|тітк\\w*|дяд(?:я|и|е|ю)|дядьк\\w*"),
+    ("illness", u"бол(?:ею|еет|еешь|еем|еют|ел|ела|ели|еть|ит|ят|езн\\w*)|заболе\\w*|(?:за)?хвор\\w*|больниц\\w*|"
+                u"лікарн\\w*|госпіт?ал\\w*|госпитал\\w*|д[иі]агноз\\w*|[иі]нсульт\\w*|[иі]нфаркт\\w*"),
+    ("death", u"умер(?:ла|ли)?|помер(?:ла|ли)?|похорон\\w*|скончал\\w*|поминк\\w*"),
 )
 FACT_GROUP_RES = tuple((name, re.compile(u"(?i)(?<!\\w)(?:%s)(?!\\w)" % rx)) for name, rx in FACT_GROUPS)
 
 
 def unsupported_facts(text, context):
-    """Names of the FACT_GROUPS the reply mentions while neither the conversation nor the lore/notes do."""
     t, ctx = str(text or ""), str(context or "")
     return [name for name, rx in FACT_GROUP_RES if rx.search(t) and not rx.search(ctx)]
 
@@ -1058,9 +1036,7 @@ def looks_reference(text):
 
 
 def conv_kind(gap_in, gap_act, gap_reply, p):
-    """'warm' / 'medium' / 'cold' from the gaps (seconds, None = unknown) before the batch: warm = the
-    interlocutor's previous message is younger than warm_window AND somebody (bot/owner) replied recently;
-    cold = nothing at all for more than cold_after (or nothing known)."""
+    """'warm' / 'medium' / 'cold' from the gaps (seconds, None = unknown) before the batch: warm = the..."""
     if gap_act is None or gap_act >= p["cold_after"]:
         return "cold"
     if (gap_in is not None and gap_in < p["warm_window"]
@@ -1070,10 +1046,7 @@ def conv_kind(gap_in, gap_act, gap_reply, p):
 
 
 def latency_seconds(rng, kind, in_len, reply_len, p):
-    """Human reply latency counted from the arrival of the first message: (total seconds, typing seconds).
-    warm: lat_warm_min..max; medium: between warm and cold; cold: lat_cold_min..max with lat_long_pct % chance
-    of lat_long_min..max. A little extra for reading (incoming length) and typing (type_ms per reply character).
-    Warm total is hard-capped at warm_cap."""
+    """Human reply latency counted from the arrival of the first message: (total seconds, typing seconds)."""
     read_s = min(3.0, 0.02 * max(0, int(in_len))) * rng.uniform(0.8, 1.2)
     type_s = max(0, int(reply_len)) * (float(p["type_ms"]) / 1000.0) * rng.uniform(0.85, 1.2)
     if kind == "warm":
@@ -1161,8 +1134,7 @@ REACT_SADS_W = frozenset(u"сум сумно сумна сумний сумую 
 
 
 def pick_reaction(text, sticker=False):
-    """Emoji for a reaction by simple rules (no AI call): an emoji message is mirrored when the set has it,
-    thanks -> heart, laughter -> grin, sadness -> crying face, ok and everything else -> thumbs up."""
+    """Emoji for a reaction by simple rules (no AI call): an emoji message is mirrored when the set has it..."""
     t = str(text or "")
     if not sticker and is_emoji_only(t):
         for ch in t.replace(u"\ufe0f", ""):
@@ -1213,11 +1185,7 @@ EN_WORDS = frozenset(("i", "you", "he", "she", "we", "they", "it", "this", "that
 
 
 def english_signal(text):
-    """Conservative evidence of English, rather than simply a Latin-script identifier.
-
-    A handle, URL, code-like token or language-neutral acknowledgement alone has no signal.
-    This is not a general language classifier: ambiguous bare names/terms inherit chat language.
-    """
+    """Conservative evidence of English, rather than simply a Latin-script identifier."""
     value = str(text or "")
     value = re.sub(r"(?:https?://|www\.|t\.me/)[^\s<>]+", " ", value, flags=re.I)
     value = re.sub(r"(?<!\w)[@#][A-Za-z0-9_]+", " ", value)
@@ -1276,9 +1244,7 @@ def _side_language(texts):
 
 
 def context_language(own_texts, incoming_texts):
-    """'Ukrainian' / 'Russian' / None from the chat history (oldest first). The owner's own messages decide;
-    a real mix follows the owner's latest message that shows a language; with no own signal the other
-    person's messages are used."""
+    """'Ukrainian' / 'Russian' / None from the chat history (oldest first)."""
     ou, orr, olast = _side_language(own_texts)
     if ou or orr:
         if ou > 1.5 * orr:
@@ -1293,8 +1259,7 @@ def context_language(own_texts, incoming_texts):
 
 
 def incoming_language(batch, recent):
-    """Language of the interlocutor: 'Ukrainian' / 'Russian' / 'English' / None (no signal). The messages being
-    answered come first, then the last 2-3 incoming ones. Texts are oldest first."""
+    """Language of the interlocutor: 'Ukrainian' / 'Russian' / 'English' / None (no signal)."""
     for texts in (batch, recent):
         texts = [t for t in (texts or []) if str(t or "").strip()]
         if not texts:
@@ -1495,8 +1460,7 @@ LANG_NAMES = ["Auto / Авто", "Українська", "Русский", "Engl
 
 
 def detect_ui_lang():
-    """Language of the phone as seen from Python (zephyr.client has no app-locale API and java.raw is not
-    requested). Only uk/ru are trusted; anything else (including 'C') gives None."""
+    """Language of the phone as seen from Python (zephyr.client has no app-locale API and java.raw is not..."""
     cand = [os.environ.get(k) for k in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG")]
     try:
         cand.append(locale.getlocale()[0])
@@ -1785,19 +1749,16 @@ S = {
     "max_reply": ("Max reply length (characters)", "Макс. довжина відповіді (символів)", "Макс. длина ответа (символов)"),
     "max_reply_min": ("Random length limit: from (characters)", "Випадковий ліміт довжини: від (символів)",
                       "Случайный лимит длины: от (символов)"),
-    "max_reply_min_s": ("Empty = always the maximum above. A longer text is never cut with '…': the rest goes as "
-                        "the next message.",
-                        "Порожньо = завжди максимум вище. Довший текст не обрізається «…»: решта йде наступним "
-                        "повідомленням.",
-                        "Пусто = всегда максимум выше. Длинный текст не обрезается «…»: остаток уходит следующим "
-                        "сообщением."),
+    "max_reply_min_s": ("Empty = the maximum. The rest goes as the next message.",
+                        "Порожньо = максимум. Решта йде наступним повідомленням.",
+                        "Пусто = максимум. Остаток уходит следующим сообщением."),
     "newline_pct": ("Line break between thoughts, % (0-100)", "Перенос рядка між думками, % (0-100)",
                     "Перенос строки между мыслями, % (0-100)"),
     "newline_pct_s": ("Default 10. Never in the middle of a sentence.", "Типово 10. Ніколи посеред речення.",
                       "По умолчанию 10. Никогда посреди предложения."),
     "laugh_control": ("Natural laughter", "Природний сміх", "Естественный смех"),
-    "laugh_control_s": ("Not in every message and never at sad news.", "Не в кожному повідомленні й ніколи на сумні новини.",
-                        "Не в каждом сообщении и никогда на грустные новости."),
+    "laugh_control_s": ("Not every time, never at sad news.", "Не щоразу, ніколи на сумне.",
+                        "Не каждый раз, никогда на грустное."),
     "temperature": ("Temperature (0-2)", "Температура (0-2)", "Температура (0-2)"),
     "test_pick": ("Test style: choose a chat", "Тест стилю: вибрати чат", "Тест стиля: выбрать чат"),
     "test_pick_s": ("5 sample replies to the last incoming messages. Nothing is sent.",
@@ -2241,9 +2202,8 @@ R = {
     "emoji_only": ("only emoji in the message", "у повідомленні лише емодзі", "в сообщении только эмодзи"),
     "lore_learned": ("notes about this chat updated", "нотатки про цей чат оновлено",
                      "заметки об этом чате обновлены"),
-    "trivia_shortened": ("a quiz-like question got a short human answer instead of a reference text",
-                         "на питання-вікторину відповідь скорочено до людської, без довідки",
-                         "на вопрос-викторину ответ сокращён до человеческого, без справки"),
+    "trivia_shortened": ("quiz question: reply shortened", "питання-вікторина: відповідь скорочено",
+                         "вопрос-викторина: ответ сокращён"),
     "lore_learn_failed": ("could not update the notes about this chat", "не вдалося оновити нотатки про цей чат",
                           "не удалось обновить заметки об этом чате"),
     "link": ("the message contains a link: not answered", "у повідомленні посилання: не відповідаю",
@@ -2398,8 +2358,7 @@ R = {
 
 
 def note(text):
-    """Non-interactive multi-line explanation row. zephyr.ui.Divider renders its text as a plain grey
-    block (UItem.asShadow): not clickable, wraps to the full text, unlike Text which is a one-line button."""
+    """Non-interactive multi-line explanation row."""
     d = Divider()
     d.text = str(text)
     return d
@@ -2569,14 +2528,7 @@ except ImportError:
 
 
 class ChatMemoryStore:
-    """Worker-thread-only SQLite summary store; no cross-chat/account fallback.
-
-    Both ``store.enabled`` and each operation's ``enabled=True`` are required.
-    This makes the plugin-wide opt-in and explicit per-chat opt-in independent.
-    Permission checks, account ownership, prompt trust and summary generation
-    belong to the caller. SQLite busy/unavailable/full errors return None/False
-    with a diagnostic code in ``last_error``; summary text is never logged.
-    """
+    """Worker-thread-only SQLite summary store; no cross-chat/account fallback."""
     FILE_NAME = "ai_chat_memory_v1.sqlite3"
 
     def __init__(self, data_dir, enabled=False, max_summary_chars=12000,
@@ -2718,12 +2670,7 @@ class ChatMemoryStore:
 
     def set_summary(self, account, dialog_id, summary, through_id,
                     expected_revision=0, enabled=False):
-        """Append a summary iff its previous revision still matches.
-
-        Through-id cannot regress; an edited summary at the same through-id is
-        preserved as a new revision. An identical summary/id is a no-op. Return
-        False on stale revision, limit/SQLite failure, invalid input or opt-out.
-        """
+        """Append a summary iff its previous revision still matches."""
         with self._lock:
             if not self._guard(account, dialog_id, enabled):
                 return False
@@ -2952,12 +2899,7 @@ class Plugin(BasePlugin):
         return bool(self.get_setting("humanize", True))
 
     def _first_reply_disclosure(self):
-        """A prefix is an explicit presentation choice, independent of honest direct answers.
-
-        Until 0.6.0 natural-profile activation forced the legacy disclosure preference on.
-        A separate opt-in avoids treating that inherited value as a request for an introduction.
-        Legacy modes retain their existing preference.
-        """
+        """A prefix is an explicit presentation choice, independent of honest direct answers."""
         natural = bool(self.get_setting("natural_chat", False))
         value = self.get_setting("natural_disclosure" if natural else "disclosure", not natural)
         return value is True or str(value).strip().lower() == "true"
@@ -3032,8 +2974,7 @@ class Plugin(BasePlugin):
         self._dec_flush_ts = 0.0
 
     def _flush_decisions(self, force=False):
-        """Writes the log to the settings store when it changed: at most every DECISIONS_FLUSH_SEC seconds,
-        or right away with force=True (unload, copy, report). Never raises."""
+        """Writes the log to the settings store when it changed: at most every DECISIONS_FLUSH_SEC seconds, or..."""
         try:
             with self._lock:
                 if not getattr(self, "_dec_dirty", False):
@@ -3187,8 +3128,7 @@ class Plugin(BasePlugin):
         return bridge
 
     def _cas_update(self, key, fn, default=None):
-        """Read-modify-write of one stored value shared with the core screen. fn(stored value) returns the new
-        value, or None to write nothing; it may run more than once. Returns the value stored afterwards."""
+        """Read-modify-write of one stored value shared with the core screen."""
         with self._lock:
             bridge = self._store_bridge()
             for _ in range(self.CAS_TRIES if bridge is not None else 0):
@@ -3216,10 +3156,7 @@ class Plugin(BasePlugin):
             return new
 
     def _commit(self, key, set=None, drop=(), remove=False, create=False):
-        """Reload-merge-save: re-read the stored chats, apply ONLY this mutation to one chat, write back.
-        A newer external change (core screen) to other chats or other fields is never overwritten, and an
-        entry removed externally is not resurrected unless create=True. Returns the stored entry or None.
-        'enabled' is mirrored into keep_<sk> here (the settings switch), wherever it changes."""
+        """Reload-merge-save: re-read the stored chats, apply ONLY this mutation to one chat, write back."""
         out = {}
 
         def mutate(value):
@@ -3255,8 +3192,7 @@ class Plugin(BasePlugin):
             return cur
 
     def _repair_store(self):
-        """Older versions changed 'enabled' (errors, auto-resume) without keep_<sk> and filled missing titles only
-        while drawing the settings screen. Done once on load and after a core edit, never while drawing."""
+        """Older versions changed 'enabled' (errors, auto-resume) without keep_<sk> and filled missing titles..."""
         try:
             for key, c in list(self._read_chats().items()):
                 if not isinstance(c, dict):
@@ -3300,9 +3236,7 @@ class Plugin(BasePlugin):
                 fps["chats"][key] = fp
 
     def on_app_event(self, event):
-        """The core app screen edited our prefs (chats, mode_/keep_/rlang_<sk>, master): reload what we cache.
-        Debounce/cooldown/in-flight state (self._states) is deliberately kept. The event arrives as the plain
-        string 'settings_changed' (PluginRuntime.dispatchAppEventTo); an enum-like object is handled too."""
+        """The core app screen edited our prefs (chats, mode_/keep_/rlang_<sk>, master): reload what we cache."""
         name = getattr(event, "name", None) or getattr(event, "value", None) or event
         name = str(name).strip().lower()
         if name in ("start", "resume"):
@@ -3594,8 +3528,7 @@ class Plugin(BasePlugin):
         return c
 
     def chat_off(self, key, remove):
-        """Turn a chat off (remove=False: stays in the list as paused) or drop it. Returns its title or None.
-        The stored list decides (not the cache): a chat just added on the core screen can be switched off too."""
+        """Turn a chat off (remove=False: stays in the list as paused) or drop it."""
         sk = self._sk(key)
         self._cloud_cancel()
         if remove:
@@ -3686,9 +3619,7 @@ class Plugin(BasePlugin):
         self._cas_update("all_skip", mutate, "[]")
 
     def _auto_add(self, account, did, key, m):
-        """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto).
-        Never groups/channels/bots/secret chats, never a chat that is already listed (even paused) or that the
-        owner removed. Returns True when the chat is now enabled."""
+        """Reply-all: a person writes in a private chat that is not in the list yet -> add it (mode Auto)."""
         if not self.get_setting("reply_all", False) or not self.get_setting("master", True):
             return False
         try:
@@ -3832,8 +3763,7 @@ class Plugin(BasePlugin):
         return "\n\n".join(out)
 
     def _learn_tick(self, key, st, n):
-        """After an answer: every LEARN_EVERY incoming messages (and at most every LEARN_GAP_SEC) update the notes
-        about this chat in the background. Off unless 'lore_learn' is on."""
+        """After an answer: every LEARN_EVERY incoming messages (and at most every LEARN_GAP_SEC) update the..."""
         try:
             if self._is_group(key) or not self.get_setting("lore_learn", False) or st.learn_busy:
                 return
@@ -4098,8 +4028,7 @@ class Plugin(BasePlugin):
             st.owner_mid = mid
 
     def _after_owner(self, st, batch):
-        """The owner answered in the middle of a batch: messages up to his reply count as answered by him, the
-        ones that came after it still need an answer. Without a known owner message id everything is dropped."""
+        """The owner answered in the middle of a batch: messages up to his reply count as answered by him, the..."""
         mark = st.owner_mid
         if not mark:
             return []
@@ -4307,9 +4236,7 @@ class Plugin(BasePlugin):
 
     # ------------------------------------------------------------------ scheduling
     def _awake(self, seconds):
-        """Ask the app (newer builds) to keep the CPU awake for up to `seconds`: while the phone sleeps the process
-        lives on but its timers and sleeps stand still, so a debounce or a human-pace pause would only end when the
-        owner opens the app. Never raises, a no-op on older apps."""
+        """Ask the app (newer builds) to keep the CPU awake for up to `seconds`: while the phone sleeps the..."""
         try:
             fn = getattr(client, "keep_awake", None)
             if fn is not None:
@@ -4552,8 +4479,7 @@ class Plugin(BasePlugin):
         return self._int("prompt_max", PROMPT_MAX_DEFAULT, PROMPT_MAX_MIN, PROMPT_MAX_HARD)
 
     def _model_for(self, kind):
-        """Model name for a kind of AI task ('' = the app's default). Replies, .ai, revivals and the style test use
-        'model'; background helpers use 'model_cheap' and fall back to 'model' when it is empty."""
+        """Model name for a kind of AI task ('' = the app's default)."""
         main = str(self.get_setting("model", "") or "").strip()
         if kind in HELPER_KINDS:
             return str(self.get_setting("model_cheap", "") or "").strip() or main
@@ -4594,8 +4520,7 @@ class Plugin(BasePlugin):
         return [cheap, main]
 
     def _ai_stats(self):
-        """Today's AI request counters {'day', 'k': {kind: [calls, chars, largest]}, 'm': {chat: memory calls},
-        'prev': yesterday's 'k'} from the setting 'ai_stats'; a new day starts empty."""
+        """Today's AI request counters {'day', 'k': {kind: [calls, chars, largest]}, 'm': {chat: memory calls}..."""
         try:
             s = json.loads(self.get_setting("ai_stats", "{}") or "{}")
         except (ValueError, TypeError):
@@ -4657,8 +4582,7 @@ class Plugin(BasePlugin):
             self._decide(key, "info", reason)
 
     def _helper_complete(self, kind, key, messages, system, temperature=0.2, timeout=45):
-        """One background helper request: cheap model, bounded input, daily limits, the main model as fallback when
-        the cheap one fails. Raises HelperSkipped (limit), ValueError (too big) or the AI error of the last model."""
+        """One background helper request: cheap model, bounded input, daily limits, the main model as fallback..."""
         chars = len(system or "") + sum(len(str(m.get("content") or "")) for m in messages)
         if chars > HELPER_MAX_CHARS:
             raise ValueError("helper request too large")
@@ -4800,9 +4724,7 @@ class Plugin(BasePlugin):
         return False
 
     def _defer_owner(self, key, st, batch, remaining):
-        """The owner wrote here recently: log why, and (a limited number of times) answer after the silence
-        window instead of dropping the message. A reply the owner already gave is detected later
-        (the last message is no longer from them)."""
+        """The owner wrote here recently: log why, and (a limited number of times) answer after the silence..."""
         live = self._live()
         limit = int(self._pnum("owner_defers", 0, 100)) if live else MAX_OWNER_DEFERS
         deferred = False
@@ -4824,8 +4746,7 @@ class Plugin(BasePlugin):
         return "owner active"
 
     def _requeue(self, key, st, batch, why):
-        """A passing failure (AI error, empty or repeated answer, no history): keep the messages and try again a
-        little later instead of dropping them. At most MAX_RETRIES times per batch. True = requeued."""
+        """A passing failure (AI error, empty or repeated answer, no history): keep the messages and try again..."""
         with self._lock:
             if st.retries >= MAX_RETRIES:
                 st.retries = 0
@@ -5187,8 +5108,7 @@ class Plugin(BasePlugin):
 
     # ---- reactions (0.4.9): emoji reactions instead of a reply to 'ok / thanks / lol', and now and then extra
     def _react_mode(self, key, c, did):
-        """0 off, 1 instead of replying to reaction-like messages, 2 that and sometimes on regular messages.
-        Private chats only; the chat's own selector (0 as in general, 1 off, 2 on) wins over the general one."""
+        """0 off, 1 instead of replying to reaction-like messages, 2 that and sometimes on regular messages."""
         try:
             if int(did) <= 0 or (c or {}).get("type") not in (None, "", "user"):
                 return 0
@@ -5340,8 +5260,7 @@ class Plugin(BasePlugin):
 
     # ---- compact, per-chat opt-in factual memory (not owner style examples)
     def _memory_flag(self, key):
-        """Chat memory allowed here: the chat's own switch (memory_<sk>) when it was ever set, otherwise the default
-        (0.5.2: on in private chats unless 'memory_auto' is off; group chats only with their own switch)."""
+        """Chat memory allowed here: the chat's own switch (memory_<sk>) when it was ever set, otherwise the..."""
         c = self._chats.get(key)
         if self._is_group(key) or not (c and c.get("enabled")):
             return False
@@ -5842,8 +5761,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _memory_block(record, max_chars=None):
-        """Prompt block with the first (most important) MEM_INJECT_MAX characters of the summary; with max_chars
-        the whole block stays within it (a summary cut below 200 characters is left out)."""
+        """Prompt block with the first (most important) MEM_INJECT_MAX characters of the summary; with..."""
         if not record or not str(record.get("summary") or "").strip():
             return ""
 
@@ -5880,9 +5798,7 @@ class Plugin(BasePlugin):
         return store, owner_id, (int(account), owner_id, int(did))
 
     def _memory_record(self, key, account, did, messages=None, refresh=False):
-        """The stored summary record of this exact chat or None. refresh=False (replies): returned at once, a due
-        update is only started in a background worker, so a helper call never delays an answer. refresh=True
-        (that worker, tests): the update runs here first. refresh=None: just read, nothing is started."""
+        """The stored summary record of this exact chat or None."""
         ctx = self._memory_ctx(key, account, did)
         if ctx is None:
             return None
@@ -5949,8 +5865,7 @@ class Plugin(BasePlugin):
         return sorted(unique.values(), key=lambda row: (row["date"], row["id"]))
 
     def _memory_refresh(self, key, account, did, messages, store, owner_id, token, record):
-        """Update the summary when it is due. Older TEXT only, no attachments or send actions; bounded input per
-        call, at most MEM_CHAIN chained calls, per-chat and global daily limits, the cheap model."""
+        """Update the summary when it is due."""
         now = self._now()
         with self._lock:
             last = self._memory_attempts.get(token)
@@ -6051,8 +5966,7 @@ class Plugin(BasePlugin):
                 self._memory_busy.discard(token)
 
     def _memory_seen(self, key):
-        """A message of an enabled chat went by. After MEM_SEEN_KICK of them an update check starts even when the
-        bot does not reply (you answer yourself, draft or friend mode, quiet hours). Never raises."""
+        """A message of an enabled chat went by."""
         try:
             st = self._state(key)
             st.mem_seen += 1
@@ -6180,8 +6094,7 @@ class Plugin(BasePlugin):
         return result, images
 
     def _complete_for_chat(self, key, account, did, messages, _kind="reply", **kwargs):
-        """The only way a reply-like request reaches the AI: system prompt + messages are cut to prompt_max here
-        whatever built them (generate() already fits them; this is the hard guard) and the size is counted."""
+        """The only way a reply-like request reaches the AI: system prompt + messages are cut to prompt_max..."""
         task = getattr(self._work_context, "task", None)
         if task is not None and not self._task_alive(key, account, did):
             return ""
@@ -6209,15 +6122,7 @@ class Plugin(BasePlugin):
         return out or ([len(messages) - 1] if messages else [])
 
     def _fit_prompt(self, head, lore, extras, record, messages, tail="", style=None):
-        """(system, messages) of one reply request: together at most prompt_max characters minus RETRY_RESERVE (the
-        note of a second attempt). The system prompt (rules, your prompt, style examples, lore, notes) takes at most
-        SYSTEM_SHARE. The rest goes, in this order, to the messages being answered, the chat memory (at most
-        MEM_INJECT_MAX), the newest and then older history. head(n) builds the base prompt with at most n style
-        examples. 0.7.3: with style(n) the owner's style section (measured style + n real messages) closes the
-        system prompt right before the language rule (tail) and is given up last: 24 -> STYLE_MIN_EXAMPLES examples,
-        then shorter lore, then a hard cut of the rules/lore/notes part; fewer examples only when the style section
-        alone would take more than STYLE_MAX_SHARE of the system part. Without style: fewer examples first, then
-        shorter lore, then a hard cut (the language rule is kept)."""
+        """(system, messages) of one reply request: together at most prompt_max characters minus RETRY_RESERVE..."""
         budget = self._prompt_budget() - RETRY_RESERVE
         cap = int(budget * SYSTEM_SHARE)
         extras = [x for x in extras if x]
@@ -6361,10 +6266,7 @@ class Plugin(BasePlugin):
         return m
 
     def _cached_sticker_document(self, account, did, mid):
-        """Exact account/dialog/message lookup, RAM first then read-only Telegram storage queue.
-        Used by the safety-net scan, whose public JSON does not contain document references.
-        No file download, network call, read receipt or database write occurs here.
-        """
+        """Exact account/dialog/message lookup, RAM first then read-only Telegram storage queue."""
         if not isinstance(mid, int) or mid <= 0:
             return None
         try:
@@ -6470,9 +6372,7 @@ class Plugin(BasePlugin):
             for mid, _fid, _text in batch)
 
     def _queue_sticker_document(self, key, st, did, account, document, parent=None):
-        """Use the same native outbox path as app0.1.5 send_sticker, with the incoming document.
-        Queued is not server acknowledgement. Cancellation is checked again on the UI thread.
-        """
+        """Use the same native outbox path as app0.1.5 send_sticker, with the incoming document."""
         if not self._task_alive(key, account, did) or not self._is_sticker_document(document):
             return False
         owner_id = self._memory_owner_id(account)
@@ -6582,10 +6482,7 @@ class Plugin(BasePlugin):
 
 
     def _maybe_sticker(self, c, did, account, batch, parts, ack_hint, key=None, hist=None):
-        """{'id', 'set', 'emoji', 'instead'} or None. With probability sticker_pct a short ai_complete 'picker' call
-        decides from the chat context whether one of the recent stickers fits (strict JSON); fallback when the
-        output is garbage: a sticker whose emoji matches the reply's emotion, else none. Never in groups, never for
-        questions. Needs get_recent_stickers/send_sticker in the app."""
+        """{'id', 'set', 'emoji', 'instead'} or None."""
         def skip(why):
             if key:
                 self._decide(key, "info", "sticker_skipped_" + why)
@@ -6667,8 +6564,7 @@ class Plugin(BasePlugin):
         return bool(ok)
 
     def deliver(self, key, c, st, did, parts, batch, humanize, timing=None, sticker=None):
-        """Send the parts one by one with a short typing delay (or the human timing); raises on send failure.
-        Returns False when the delivery was stopped while waiting (st.abort has the reason)."""
+        """Send the parts one by one with a short typing delay (or the human timing); raises on send failure."""
         parts = list(parts)
         if self._is_group(key) and len(parts) > 1:
             parts = [join_parts(parts, self._newline_pct(), self._rng)]
@@ -6863,9 +6759,7 @@ class Plugin(BasePlugin):
         return self._int("conversation_style", 0, 0, len(CHAT_PROMPT_PRESETS) - 1)
 
     def build_system(self, key, profile, max_examples=24, with_style=True):
-        """System prompt: anti-AI rules + tone + owner's own prompt (CUSTOM_PROMPT_MAX) + the style section
-        (learned style + examples, _style_block) last. with_style=False leaves the style section out: generate()
-        lets _fit_prompt put it after lore and notes, right before the language rule."""
+        """System prompt: anti-AI rules + tone + owner's own prompt (CUSTOM_PROMPT_MAX) + the style section..."""
         if not self._humanize():
             return self._chat_prompt(key)
         try:
@@ -6907,9 +6801,7 @@ class Plugin(BasePlugin):
 
     @staticmethod
     def _style_block(profile, max_examples=24):
-        """The owner's voice: measured style and up to max_examples of their real messages, closed by one concrete
-        instruction. It is the last block before the language rule, so it is what the model reads right before
-        writing (0.7.3)."""
+        """The owner's voice: measured style and up to max_examples of their real messages, closed by one..."""
         style = (profile or {}).get("style") or {}
         rules = style_rules(style)
         parts = []
@@ -7156,9 +7048,7 @@ class Plugin(BasePlugin):
         return tail, users[-3:]
 
     def reply_problems(self, text, st, last_in="", extra=(), context=None):
-        """List of problems: 'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat' (same as our last reply),
-        'typo', 'unsupported_fact' (0.7.7: relatives/illness/death that neither `context` nor the lore mention;
-        checked only when context is given)."""
+        """'banned:<words>', 'ai-tell', 'wrong-lang', 'repeat', 'typo', 'unsupported_fact' (with context)."""
         out = []
         natural = bool(self.get_setting("natural_chat", False))
         tell = STRONG_TELL_RE if natural or self.get_setting("disclosure", True) else AI_TELL_RE
@@ -7191,10 +7081,7 @@ class Plugin(BasePlugin):
         return self._float("newline_pct", NEWLINE_PCT, 0.0, 100.0)
 
     def _tune_laughs(self, parts, st, incoming):
-        """0.7.7: laughter as a person laughs. No laughing at serious or sad news (unless they laugh themselves),
-        never in two replies in a row and at most LAUGH_MAX_IN_WINDOW of the last LAUGH_WINDOW replies; the extra
-        laughter is cut out, not regenerated. Caps laughter only when their message is really funny; the same
-        laugh word as last time is swapped for another spelling."""
+        """0.7.7: extra laughter is cut out (no regeneration); caps only for a really funny message."""
         if not parts or not self.get_setting("laugh_control", True) or not has_laugh(" ".join(parts)):
             return parts
         hist = list(st.laughs)[-LAUGH_WINDOW:] if st is not None and hasattr(st, "laughs") else []
@@ -7300,8 +7187,6 @@ class Plugin(BasePlugin):
         return self._int("max_reply", (240, 600, 1600)[self._answer_detail()], 40, MAX_REPLY_CHARS)
 
     def _reply_limit_pick(self):
-        """0.7.7: the limit of one reply, random between 'max_reply_min' and the limit above when the minimum is
-        set (empty = always the limit itself, as before)."""
         hi = self._reply_limit()
         raw = self._explicit("max_reply_min")
         if raw is None:
@@ -7336,8 +7221,7 @@ class Plugin(BasePlugin):
         return text[:head] + marker + text[-(limit - len(marker) - head):]
 
     def _bound_context(self, messages, required_indexes=None, budget=None):
-        """Newest context wins; current questions get space before older history. No roles are fabricated.
-        budget (0.5.2): the room left in the request; the smaller of it and context_chars is used."""
+        """Newest context wins; current questions get space before older history."""
         items = [dict(role=m.get("role", "user"), content=str(m.get("content") or "")) for m in messages]
         if not items:
             return []
@@ -7742,8 +7626,7 @@ class Plugin(BasePlugin):
                 "retries": g("retries", 0), "defers": g("defers", 0), "abort": str(g("abort", "") or "")}
 
     def _report_history(self, key, since, snap):
-        """[(t, kind, line)] of the chat's history rows inside the window, at most REPORT_HIST_MSGS, never the text.
-        kind: 'in' | 'out'. Raises on a history failure (the caller writes 'history unavailable')."""
+        """[(t, kind, line)] of the chat's history rows inside the window, at most REPORT_HIST_MSGS, never the..."""
         acc, did = (int(x) for x in str(key).split(":", 1))
         rows = client.get_recent_messages(did, limit=max(30, REPORT_HIST_MSGS * 2), account=acc) or []
         keep = []
@@ -8364,9 +8247,7 @@ class Plugin(BasePlugin):
         return g if g in (0, 1, 2, 3) else 3
 
     def pick_reply_lang(self, key, account, did, last_in="", batch=None, recent=None):
-        """'Ukrainian' / 'Russian' / 'English' to answer in. Auto: from the last ~15 messages of the chat
-        (the owner's own count most), cached 10 minutes per chat; no signal: the language of last_in,
-        Ukrainian by default."""
+        """'Ukrainian' / 'Russian' / 'English' to answer in."""
         mode = self._reply_lang_mode(key)
         if mode == 1:
             return "Ukrainian"
@@ -8523,8 +8404,7 @@ class Plugin(BasePlugin):
             return ""
 
     def _fresh_title(self, key, c):
-        """Chat title: stored one, else from the app's dialog info (cache only). Only shown: drawing the settings
-        screen never writes (0.4.5; missing titles are stored by _repair_store on load / after a core edit)."""
+        """Chat title: stored one, else from the app's dialog info (cache only)."""
         title = str(c.get("title") or "")
         if title and title != str(c.get("dialog_id")):
             return title
