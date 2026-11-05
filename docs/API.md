@@ -786,3 +786,97 @@ The autoreply plugin asks separately for each scope and does not inherit consent
 ### Style memory (ai_autoreply 0.9.6)
 
 Uses the app bridge `client.memory_*` of stage 2 (permission `memory.style`, feature flag `client.MEMORY_STYLE`; app 0.2.5+). It is separate from `ai.memory`. Private chats only, per-chat opt-in kept in the plugin setting `style_state_<account>_<dialog>` (owner id, opaque binding, revision). Writes: `memory_style_add` (pair of the incoming text and the owner's real reply), `memory_feedback` (fate of a suggested reply), `memory_facts_add` (learned notes as `peer` facts). Reads: `memory_style_search` (k=3) and `memory_facts_search` (`peer`), inserted as quoted untrusted JSON inside the 3000-character memory budget. Deleting uses `memory_delete_area`. Messages themselves go to Neon only through a separate per-chat switch (`raw`), and groups are never sent.
+
+## App 0.2.7 additions
+
+Everything below exists only in app 0.2.7+. On 0.2.5/0.2.6 the names are **missing** (`AttributeError` for
+`client.<name>`, `ui.FilePicker`, `MenuType.CHAT_HEADER_BUTTON`), so always feature-detect with `getattr`.
+The `client.*` flags are plain `True` constants, absent on older apps:
+
+| Flag | Covers |
+|---|---|
+| `client.HEADER_BUTTON` | `MenuType.CHAT_HEADER_BUTTON` |
+| `client.USER_PROFILE` | `get_user_profile`, `download_profile_photo` |
+| `client.VIDEO_FRAME` | `video_frame` |
+| `client.STICKER_SETS` | `get_sticker_sets`, `get_set_stickers` |
+| `client.SAVED_GIFS` | `get_saved_gifs` |
+| `client.SEND_VOICE` | `send_media(kind="voice")` |
+| `client.FILE_PICKER` | `ui.FilePicker` |
+
+```python
+if getattr(client, "VIDEO_FRAME", False):
+    ...  # safe to call client.video_frame
+```
+
+"Worker thread only" means: call from `client.run_in_bg` (or an app worker), never from the UI thread.
+
+### Chat header button
+
+`MenuItem(MenuType.CHAT_HEADER_BUTTON, text, on_click, icon="ai_chat", ...)` puts an icon button in the chat
+header (next to the call icon; extra buttons go to the "three dots" menu). Permission `ui.menu`. Without it the
+item is not added and a line goes to the plugin log (the plugin still loads). `on_click(ctx)` and `condition(ctx)`
+as in section 4; `ai_chat` is a stock icon.
+
+```python
+if getattr(client, "HEADER_BUTTON", False):
+    self.add_menu_item(MenuItem(MenuType.CHAT_HEADER_BUTTON, "AI", self.on_ai, icon="ai_chat"))
+```
+
+### Users, media, stickers, GIFs (all `chat.read`)
+
+```python
+client.get_user_profile(user_id, account=None) -> dict | None
+```
+Cached data, never waits for the network (safe on any thread). `None` if the user is unknown. Keys: `id,
+first_name, last_name, username (or None), bio (None until loaded), bio_loaded, is_premium, has_photo, is_bot,
+is_self`. A missing bio starts one background load (at most once per 10 min per user); ask again later.
+
+```python
+client.download_profile_photo(user_id, small=True, account=None, timeout_s=20) -> str | None
+```
+JPEG path (160 px, or 640 px with `small=False`) or `None` (no photo / timeout; `timeout_s` 1..60). Worker thread
+only. The file is in the app cache and may disappear.
+
+```python
+client.video_frame(dialog_id, message_id, account=None, at_ms=None, timeout_s=20) -> str | None
+```
+One JPEG frame (longest side <= 512 px) of a video, GIF or round video message, for vision models. Taken at `at_ms`
+(`None` = middle) if the video is already on the device, otherwise the message thumbnail is used; the video is never
+downloaded. Secret chats and failures give `None`. Worker thread only; the newest 20 frames are kept.
+
+```python
+client.get_sticker_sets(account=None) -> [{id, title, short_name, count}]
+client.get_set_stickers(set_id, limit=200, account=None) -> [{id, emoji, set_title, mime, is_animated}]
+client.get_saved_gifs(limit=100, account=None) -> [{id, mime, w, h, duration}]
+```
+Served from cache, never wait for the network: an empty cache returns `[]` and starts one background load, so
+retry after a moment. `limit` is clamped to 1..200. Sticker ids work with `client.send_sticker`.
+
+```python
+for pack in client.get_sticker_sets():
+    stickers = client.get_set_stickers(pack["id"], limit=20)
+```
+
+### Voice messages: `send_media(kind="voice")` (`media.send`)
+
+`client.send_media(dialog_id, "reply.ogg", kind="voice", reply_to=None, on_done=cb)` sends an OGG/Opus file as a
+voice message (duration and waveform are computed; up to 20 MB). Only the `OggS` header is checked, the codec is
+not. `kind="voice"` is never picked by `auto`. Other `send_media` rules are unchanged (section 6).
+
+### `ui.FilePicker` (no permission)
+
+```python
+ui.FilePicker(key, text, on_pick, subtext=None, kind="any", multiple=False)
+```
+Opens the system file chooser (`kind`: `any|image|video|audio`). Chosen files are copied into
+`data_dir/picked/` (at most 20 files, 50 MB each, names sanitised) and `on_pick(paths)` runs with a list of paths
+**relative to `data_dir`**, e.g. `["picked/cat.jpg"]`, which `send_media` accepts as they are. A cancelled or
+failed choice calls `on_pick([])`. Copies older than 24 hours are deleted on plugin load and on every pick, so use
+them right away or copy them elsewhere.
+
+```python
+def create_settings(self, page=None):
+    return [ui.FilePicker("pics", "Photos to send", self.on_pics, kind="image", multiple=True)]
+def on_pics(self, paths):
+    self.set_setting("pics", json.dumps(paths))  # settings hold str/int/float/bool; copies expire after 24 h
+```
