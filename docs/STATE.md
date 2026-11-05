@@ -13,12 +13,12 @@ Snapshot taken 2026-11-05 from `origin/main` at `b84569e` ("ai_autoreply 0.8.1: 
 
 All four use `__api_version__ = 1`. The published index on the `index` branch is `sequence 42`, generated 2026-11-05T13:35:25Z from `b84569e`, and lists the same versions (ai_autoreply 0.8.1/40, chat_history_export 1.0.2/3, copy_message_id 1.0.0/1, outgoing_signature 1.0.0/1). The last `publish` workflow runs on GitHub were all successful.
 
-Other repo parts: `tools/build_index.py` (validate/build/sign/verify/keygen), `.github/workflows/publish.yml`, `templates/hello.plugin`, `docs/API.md` (plugin API v1), `docs/release-reports.json` (per-release report registry, schema 1).
+Other repo parts: `tools/build_index.py` (validate/build/sign/verify/keygen; build writes `index.json` and `index-v2.json`), `.github/workflows/publish.yml`, `templates/hello.plugin`, `docs/API.md` (plugin API v1), `docs/release-reports.json` (per-release report registry, schema 1).
 
 ## ai_autoreply
 
 - Version 0.8.1 (code 40) is merged to `main` (PR #21, squash). sha256 of the plugin file: `22824a1f883ed7aa9b6b6289ab2ada3b4eaba326e3be6ed4778dd1fb7d4e5939`; it matches the entry in `docs/release-reports.json`.
-- **Size**: 521299 B against the hard limit `MAX_PLUGIN_BYTES = 512 * 1024 = 524288 B` in `tools/build_index.py`. Headroom: 2989 B (0.57 %). The file has 9189 lines. Practically any feature now needs a size trim first (see DECISIONS.md, D-016 and the open D-019).
+- **Size**: 521299 B. The hard limit is now `MAX_PLUGIN_BYTES = 2 MiB` (D-020); `LEGACY_MAX_BYTES = 512 KiB` is the limit for `index.json`, which old apps (<= 0.2.4) need. Growing past 524288 B makes ai_autoreply invisible to app <= 0.2.4 (it is omitted from `index.json`; those users stay on the last small version they have, if any) and requires app >= 0.2.5. Until app 0.2.5 ships and is adopted, keep the file under 524288 B (headroom 2989 B). The file has 9189 lines.
 - **Tests**: 869 tests collected and passing (`python3 -m pytest -q tests`, about 3 s); the 0.8.1 release report records the same 869. Collect-only count: `python3 -m pytest --collect-only -q tests | tail -2`. No `pytest.ini`/`conftest.py`; tests are plain files in `tests/`. Two files pin the exact version and code (`tests/test_ai_autoreply_v034.py` line 527 and `tests/test_ai_autoreply_v036.py` lines 825-826), so every version bump must edit them (see RELEASE.md).
 - **Settings structure**: with `client.SETTINGS_PAGES` true (app 0.2.2+) the screen is a tree of `Page` rows defined by `Plugin.PAGES` (root, chats, persona, style, style_adv, media, timing, time_adv, type_adv, limits_adv, memory, model, model_custom, cmd, service, log, queue, news, bulk, setup1-3, per-chat `chat`, `lore`, `access`). Simple/advanced view is stored as `ui_mode`; a fresh install without chats gets simple view and the three-step quick setup. Without page support the plugin falls back to a legacy flat screen with a `ui_section` selector (`Plugin.UI_SECTIONS`). Enforced by `tests/test_ai_settings_pages_v080.py`: each main category page (root, chats, persona, style, media, timing, memory, model, cmd, service) has at most 14 items (`assertLessEqual(len(...), 14)`); every key of the legacy screen must remain reachable in the page tree; no duplicate keys on any page. The legacy flat screen itself is not limited by that test: the 14-item limit applies to the main (page) items, not to the legacy screen.
 - **Presets** (`PRESET_NAMES`): `Balanced`, `Chatty`, `Quiet`, `Live (human-like, default)`; `LIVE_PRESET = 3` is used when no preset is stored.
@@ -50,14 +50,14 @@ The six `feature/*` branches and `plugin-cost` sit at `a33de2b` (an old main com
 ## Known limitations
 
 - **Menu types**: `docs/API.md` lists `MESSAGE_CONTEXT`, `CHAT_ACTION`, `PROFILE_ACTION`, `DRAWER`. The current app does not render `CHAT_ACTION` or `PROFILE_ACTION` menus; only `MESSAGE_CONTEXT` is wired in `ChatActivity` (stated in the 0.8.1 release report; the app source is not in this repo, so this was not re-verified here). Consequences: the ai_autoreply chat-header toggle (`menu_on`/`menu_off`/`menu_cmd`, registered as `CHAT_ACTION`) and chat_history_export's "export" menu item (`CHAT_ACTION`) are not reachable from the chat header; chat_history_export is started from its settings screen instead (since 1.0.1).
-- **Plugin size**: single file, 512 KB hard limit, 2989 B left in ai_autoreply.
+- **Plugin size**: single file, 2 MiB hard limit via `index-v2.json` (D-020; app >= 0.2.5 must fetch `index-v2.json` first, falling back to `index.json`; the app is not in this repo, so this is not verified here). Versions over 512 KiB are hidden from older apps. 2989 B left below the legacy 512 KiB line in ai_autoreply.
 - **Phone verification**: 0.8.0/0.8.1 behaviour and the settings pages have not been checked on a real device (unverified in release reports).
 - Release reports mention that earlier races (typing cancellation, lost timer) were tested only with synthetic tests.
 - Anti-inline-bot plugin is blocked on a core hook request (branch `feature/anti-inline`, not merged).
 
 ## Next steps
 
-1. Decide the size-limit question (DECISIONS.md D-019, recommended: multi-file plugin support) before any further ai_autoreply feature work.
+1. Ship app 0.2.5 (fetch `index-v2.json` + `.sig` first, fallback `index.json`); after the first publish check that the `index` branch has all four files. D-019 is closed by D-020. Until 0.2.5 is widely adopted, avoid pushing ai_autoreply over 524288 B.
 2. Check 0.8.1 and the 0.8.0 settings pages on a phone and record the result.
 3. Decide on `feature/anti-inline` (docs request for a core hook) and the app side of `CHAT_ACTION`/`PROFILE_ACTION` rendering.
 4. Clean up merged branches/worktrees listed above (inspect the two worktrees with uncommitted changes first).
