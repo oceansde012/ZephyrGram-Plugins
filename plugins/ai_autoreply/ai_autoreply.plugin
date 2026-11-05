@@ -119,9 +119,10 @@ NATURAL_CHAT_PROMPT = (
 NO_DISCLOSE_RULE = DISCLOSE_RULE
 MIRROR_RULE = ("Length: reply to the last message about as long as it is; a short message gets a few words. No lectures, "
                "lists, dashes, quotation marks or explanations nobody asked for.")
-ANNOYED_RULE = "They sound annoyed or asked to stop: acknowledge it in a few words and drop the topic."
-ANNOYED_RE = re.compile(u"(?i)(?<!\\w)(?:хватит|харе|досить|годі|отстань|відчеп|відстань|надоел|набрид|достал|"
-                        u"задолбал|заткнись|замолчи|бесишь|дратуєш|стоп|stop)")
+ANNOYED_RULE = "If they sound annoyed or ask you to stop, acknowledge it in a few words and drop the topic."
+ANNOYED_RE = re.compile(u"(?i)(?<!\\w)(?:(?:хватит|досить|годі)(?=\\s*(?:[.!?,)]|$|уже|вже|про|этого|цього|с меня|з мене))|"
+                        u"харе|отстань|отвали|відчепись|відвали|надоел\\w*|набрид\\w*|достал[аи]?|задолбал\\w*|"
+                        u"заткнись|замолчи|бесишь|дратуєш|стоп|stop)(?!\\w)")
 MIRROR_MIN = 60
 PART_CAP = 160
 STICKER_BACK_PCT = 30        # a sticker gets a sticker back this often, otherwise words
@@ -1834,9 +1835,9 @@ S = {
         "Иногда отправляет ваш недавний стикер, когда подходит; никогда на вопросы."),
     "sticker_pct": ("Sticker: chance (%)", "Стікер: шанс (%)", "Стикер: шанс (%)"),
     "quote_pct": ("Quote the message: chance (%)", "Цитувати повідомлення: шанс (%)", "Цитировать сообщение: шанс (%)"),
-    "quote_pct_s": ("Default 10. With several new messages the one answered is always quoted.",
-                    "Типово 10. Коли нових повідомлень кілька, завжди цитує те, на яке відповідає.",
-                    "По умолчанию 10. Если новых сообщений несколько, всегда цитирует то, на которое отвечает."),
+    "quote_pct_s": ("Default 10. If the answered message is not the last one, it is always quoted.",
+                    "Типово 10. Якщо відповідь на не останнє повідомлення, воно цитується завжди.",
+                    "По умолчанию 10. Если ответ на не последнее сообщение, оно цитируется всегда."),
     "see_media": ("See media (stickers, photos, GIFs)", "Бачити медіа (стікери, фото, GIF)", "Видеть медиа (стикеры, фото, GIF)"),
     "transcribe_voice": ("Transcribe voice messages", "Розпізнавати голосові", "Распознавать голосовые"),
     "memory": ("Compact chat memory", "Стисла пам’ять чату", "Краткая память чата"),
@@ -6386,13 +6387,14 @@ class Plugin(BasePlugin):
         return True
 
     def _quote_target(self, c, batch):
-        """Message id to quote: always in groups and with several new messages, else quote_pct."""
+        """Message id to quote: groups the last one; private the answered one if not last, else quote_pct."""
         ids = [b for b in batch or () if isinstance(b[0], int)]
-        if not ids:
-            return None
-        if c.get("type") != "group" and len(ids) < 2 and self._rng.random() * 100.0 >= self._float("quote_pct", 10.0, 0.0, 100.0):
-            return None
-        return next((b[0] for b in reversed(ids) if has_request(b[2] or "")), ids[-1][0])
+        if not ids or c.get("type") == "group":
+            return ids[-1][0] if ids else None
+        mid = next((b[0] for b in reversed(ids) if has_request(b[2] or "")), ids[-1][0])
+        if mid != ids[-1][0] or self._rng.random() * 100.0 < self._float("quote_pct", 10.0, 0.0, 100.0):
+            return mid
+        return None
 
     def _reply_sticker_only(self, key, c, st, did, account, batch, hist):
         """Mandatory selection: no sticker_pct/AI-decline gate and never a..."""
@@ -6939,10 +6941,10 @@ class Plugin(BasePlugin):
         natural = bool(self.get_setting("natural_chat", False))
         short = bool(self.get_setting("short_msgs", True)) and not natural
         max_parts = self._int("max_parts", DEFAULT_MAX_PARTS, 1, 6)
-        if natural or self._live():
+        if not short or self._live():
             max_parts = min(2, max_parts)
         mirror = kind == "reply" and self._answer_detail() < 2
-        total = (MIRROR_MIN if ANNOYED_RE.search(last_in) else max(MIRROR_MIN, 2 * len(incoming))) if mirror else 1 << 30
+        total = max(MIRROR_MIN, (1 if ANNOYED_RE.search(last_in) else 2) * len(incoming)) if mirror else 1 << 30
         if mirror:
             limit = min(limit, PART_CAP)
         split_min = (int(self._pnum("split_min", 40, 1500)) if self._explicit("split_min")

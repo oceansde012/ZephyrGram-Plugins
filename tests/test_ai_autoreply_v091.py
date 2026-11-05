@@ -101,6 +101,10 @@ class TestPartsCap(Chat):
         self.p.settings.update(natural_chat=True, max_parts="4")
         self.assertLessEqual(len(self.answer(self.three())), 2)
 
+    def test_short_msgs_off_sends_at_most_two_parts(self):
+        self.p.settings.update(human_timing=False, natural_chat=False, short_msgs=False, max_parts="4")
+        self.assertLessEqual(len(self.answer(self.three())), 2)
+
     def test_short_mode_keeps_its_parts(self):
         self.p.settings.update(human_timing=False, natural_chat=False, short_msgs=True, max_parts="4")
         self.assertEqual(len(self.answer(self.three())), 3)
@@ -130,15 +134,24 @@ class TestSentPunctuation(Chat):
 
 class TestAnnoyed(Chat):
     def test_detection(self):
-        for t in (u"хватит уже", u"досить про це", u"отстань", u"набридло", u"стоп", u"Stop it"):
+        for t in (u"хватит уже", u"хватит, надоело", u"досить", u"досить про це", u"отстань", u"набридло", u"стоп",
+                  u"Stop it", u"достали уже", u"годі!"):
             self.assertTrue(mod.ANNOYED_RE.search(t), t)
-        for t in (u"як справи?", u"остановка автобуса", u"достатньо часу"):
+        for t in (u"як справи?", u"остановка автобуса", u"достатньо часу", u"стопудово приду", u"стопка книг",
+                  u"мне досталось", u"хватит ли денег", u"яка відстань до міста", u"it stopped raining",
+                  u"досить добре"):
             self.assertFalse(mod.ANNOYED_RE.search(t), t)
 
     def test_rule_and_tiny_reply(self):
         sent = self.answer(LONG, text=u"хватит, надоело про это")
         self.assertIn(mod.ANNOYED_RULE, self.calls[0]["system"])
         self.assertLessEqual(len(" ".join(sent)), mod.MIRROR_MIN + 5)
+
+    def test_annoyed_long_message_caps_at_its_length(self):
+        text = u"хватит уже, я тебе сто раз говорил что мне это не интересно и не надо больше об этом писать мне"
+        sent = self.answer(LONG, text=text)
+        self.assertLessEqual(len(" ".join(sent)), len(text) + 5)
+        self.assertGreater(len(text), mod.MIRROR_MIN)
 
     def test_no_rule_for_a_normal_message(self):
         self.answer(u"ок", text=u"як справи?")
@@ -149,6 +162,17 @@ class TestAnnoyed(Chat):
 class TestQuote(Chat):
     def replies_to(self):
         return [s[2] for s in CLIENT.sent]
+
+    def test_answer_to_the_last_message_follows_the_chance(self):
+        self.p.settings["quote_pct"] = "0"
+        CLIENT.ai_result = lambda m, **kw: u"норм"
+        self.incoming(text=u"привіт", mid=511)
+        self.incoming(text=u"як справи?", mid=512)
+        self.fire_timers()
+        self.assertEqual(self.replies_to(), [None])
+
+    def test_group_quotes_the_last_message(self):
+        self.assertEqual(self.p._quote_target({"type": "group"}, [(1, 7, u"коли?"), (2, 7, u"ок")]), 2)
 
     def test_several_new_messages_quote_the_question(self):
         self.p.settings["quote_pct"] = "0"

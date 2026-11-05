@@ -556,14 +556,14 @@
     {
       "product": "ai_autoreply",
       "version": "0.9.1",
-      "sha256": "233bbeca5b576ee0dcb017abf31aa6d313d2dfd2a4a7a41e17aced576360b698",
-      "checks": "935 Python tests (904 before) and plugin validation passed; no live provider calls. Size 526465 B is over 524288 B: minAppVersion 0.2.5, listed only in index-v2.json (D-020); build dry run keeps 0.9.0 as latest in index.json.",
+      "sha256": "41eb4b7dede70d075f4d9677e5094816df7f713f4305dad6491799b2259b5e5b",
+      "checks": "939 Python tests (904 before) and plugin validation passed; no live provider calls. Size 526663 B is over 524288 B: minAppVersion 0.2.5, listed only in index-v2.json (D-020); build dry run keeps 0.9.0 as latest in index.json.",
       "items": [
         {
           "id": "MIRROR-LENGTH",
           "title": "Длина ответа как у входящего",
           "scope": "complete",
-          "details": "Reply kind with answer_detail < 2: MIRROR_RULE in the system prompt; total = max(60, 2 x incoming chars), 60 when annoyed; per-part cap 160; over total -> 'big' rewrite with the total, then mirror_trim cuts at a sentence/clause end. Balanced detail rule no longer says 'one to three paragraphs'.",
+          "details": "Reply kind with answer_detail < 2: MIRROR_RULE in the system prompt; total = max(60, 2 x incoming chars), max(60, incoming) when annoyed; per-part cap 160; over total -> 'big' rewrite with the total, then mirror_trim cuts at a sentence/clause end. Balanced detail rule no longer says 'one to three paragraphs'.",
           "limitations": "Phone behaviour unverified; no live provider calls.",
           "human_text": "На короткое сообщение бот отвечает коротко, без лекций."
         },
@@ -571,9 +571,9 @@
           "id": "TWO-PARTS",
           "title": "Не больше 2 сообщений в «Живом» темпе",
           "scope": "complete",
-          "details": "max_parts capped at 2 when natural_chat or human timing (was: when short_msgs off).",
+          "details": "max_parts capped at 2 when short replies are off (natural chat or short_msgs off) or with human timing.",
           "limitations": "Phone behaviour unverified; no live provider calls.",
-          "human_text": "В «Живом человеке» и «Естественном общении» не больше двух сообщений подряд."
+          "human_text": "В «Живом человеке», «Естественном общении» и без «Коротких сообщений» не больше двух сообщений подряд."
         },
         {
           "id": "NO-DASH-QUOTES",
@@ -587,7 +587,7 @@
           "id": "ANNOYED",
           "title": "Раздражение собеседника",
           "scope": "complete",
-          "details": "ANNOYED_RE on the last incoming message (хватит, отстань, досить, набрид, стоп, stop...) adds ANNOYED_RULE and a 60-char total.",
+          "details": "ANNOYED_RE matches whole words only (хватит/досить/годі only before end, punctuation or уже/про/этого; стоп, stop, отстань, достал(а|и), набрид*...); adds the conditional ANNOYED_RULE and caps the total at max(60, incoming).",
           "limitations": "Keyword list only, no sentiment model. Phone behaviour unverified; no live provider calls.",
           "human_text": "Если просят прекратить, бот коротко соглашается и бросает тему."
         },
@@ -595,9 +595,9 @@
           "id": "QUOTE",
           "title": "Цитата сообщения, на которое отвечает",
           "scope": "complete",
-          "details": "_quote_target: groups and batches with 2+ new messages quote the last message with a request, else the last; a single private message is quoted with chance quote_pct (default 10, style_adv page). Only the first part quotes.",
+          "details": "_quote_target: groups quote the last message (as before); in private chats the answered message (last with a request, else last) is quoted when it is not the last one in the batch, otherwise with chance quote_pct (default 10, style_adv page). Only the first part quotes.",
           "limitations": "Phone behaviour unverified.",
-          "human_text": "Если пришло несколько сообщений, бот отвечает цитатой на нужное."
+          "human_text": "Если бот отвечает не на последнее сообщение, он его цитирует."
         },
         {
           "id": "STICKER-WORDS",
