@@ -800,6 +800,7 @@ The `client.*` flags are plain `True` constants, absent on older apps:
 | `client.VIDEO_FRAME` | `video_frame` |
 | `client.STICKER_SETS` | `get_sticker_sets`, `get_set_stickers` |
 | `client.SAVED_GIFS` | `get_saved_gifs` |
+| `client.SEND_GIF` | `send_saved_gif` |
 | `client.SEND_VOICE` | `send_media(kind="voice")` |
 | `client.FILE_PICKER` | `ui.FilePicker` |
 
@@ -855,6 +856,21 @@ retry after a moment. `limit` is clamped to 1..200. Sticker ids work with `clien
 ```python
 for pack in client.get_sticker_sets():
     stickers = client.get_set_stickers(pack["id"], limit=20)
+```
+
+### Sending a saved GIF: `send_saved_gif` (`messages.send`)
+
+```python
+client.send_saved_gif(dialog_id, gif_id, reply_to=None, account=None, on_done=None)
+```
+Sends a GIF whose `id` comes from `get_saved_gifs` as an ordinary outgoing message (hooks skipped, like
+`send_sticker`). Non-blocking: `on_done(ok, error)` runs afterwards on a worker thread. `error` is `"gif_not_found"`
+(the id is not among the saved GIFs, e.g. the list was not loaded yet), `"secret_chat"` (refused) or a message text.
+Queued is not delivered. Without `on_done` failures go to the plugin log.
+
+```python
+if getattr(client, "SEND_GIF", False) and (gifs := client.get_saved_gifs(20)):
+    client.send_saved_gif(dialog_id, gifs[0]["id"], on_done=lambda ok, err: ok or self.log(err))
 ```
 
 ### Voice messages: `send_media(kind="voice")` (`media.send`)
