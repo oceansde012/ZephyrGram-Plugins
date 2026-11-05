@@ -1971,6 +1971,10 @@ S = {
     "media_per_chat": ("Seeing photos, voice transcription and chat memory are allowed per chat: tap the chat in the list above.",
         "Бачити фото, розпізнавати голосові й пам’ять чату дозволяються окремо для кожного чату: натисніть на чат у списку вище.",
         "Видеть фото, распознавать голосовые и память чата разрешаются отдельно для каждого чата: нажмите на чат в списке выше."),
+    "sticker_sets": ("Sticker packs", "Стікерпаки", "Стикерпаки"),
+    "sticker_sets_s": ("Pack names separated by commas; empty = any. Only stickers from your recent and favorites. Seen: %s",
+                       "Назви паків через кому; порожньо = будь-які. Лише стікери з недавніх і обраних. Видно: %s",
+                       "Названия паков через запятую; пусто = любые. Только стикеры из недавних и избранных. Видно: %s"),
     "sticker_recent": ("Only from recent stickers", "Лише з недавніх стікерів", "Только из недавних стикеров"),
     "lat_warm_min": ("Warm talk: reply after, min (s)", "Жвава розмова: відповідь через, мін (с)", "Живая беседа: ответ через, мин (с)"),
     "lat_warm_max": ("Warm talk: reply after, max (s)", "Жвава розмова: відповідь через, макс (с)", "Живая беседа: ответ через, макс (с)"),
@@ -6702,8 +6706,7 @@ class Plugin(BasePlugin):
         candidates = []
         if callable(getattr(client, "get_recent_stickers", None)):
             try:
-                candidates = [s for s in client.get_recent_stickers(limit=100, account=account) or []
-                              if isinstance(s, dict) and s.get("id")]
+                candidates = self._sticker_filter(client.get_recent_stickers(limit=100, account=account) or [])
             except Exception:
                 pass
         candidates.sort(key=lambda s: (s.get("id") == st.last_sticker[0], s.get("id") in self._sticker_hist))
@@ -6762,6 +6765,30 @@ class Plugin(BasePlugin):
         return "ok"
 
 
+    def _sticker_wanted(self):
+        """Pack names chosen in 'Sticker packs' (lowercase), [] = any (#10)."""
+        raw = str(self.get_setting("sticker_sets", "") or "")
+        return [w.strip().lower() for w in re.split(r"[,;\n]+", raw) if w.strip()]
+
+    def _sticker_filter(self, lst):
+        want = self._sticker_wanted()
+        out = [s for s in lst if isinstance(s, dict) and s.get("id")]
+        if want:
+            out = [s for s in out if any(w in str(s.get("set_title") or "").lower() for w in want)]
+        return out
+
+    def _sticker_set_titles(self):
+        """Pack titles among the recent and favorite stickers, for the setting's hint (cache only, never blocks)."""
+        try:
+            seen = []
+            for s in client.get_recent_stickers(limit=100) or []:
+                t = str((s or {}).get("set_title") or "").strip() if isinstance(s, dict) else ""
+                if t and t not in seen:
+                    seen.append(t)
+            return seen
+        except Exception:
+            return []
+
     def _maybe_sticker(self, c, did, account, batch, parts, ack_hint, key=None, hist=None):
         """{'id', 'set', 'emoji', 'instead'} or None."""
         def skip(why):
@@ -6779,8 +6806,11 @@ class Plugin(BasePlugin):
             if self._rng.random() * 100.0 >= pct:
                 return None
             lim = 25 if self.get_setting("sticker_recent", True) else 60
-            lst = [s for s in (client.get_recent_stickers(limit=lim, account=account) or [])[:lim]
-                   if isinstance(s, dict) and s.get("id")]
+            if self._sticker_wanted():
+                lst = self._sticker_filter(client.get_recent_stickers(limit=100, account=account) or [])[:lim]
+            else:
+                lst = [s for s in (client.get_recent_stickers(limit=lim, account=account) or [])[:lim]
+                       if isinstance(s, dict) and s.get("id")]
             if not lst:
                 return skip("no_candidates")
             st = self._state(key) if key else None
@@ -9008,6 +9038,8 @@ class Plugin(BasePlugin):
             Switch(key="stickers", text=t("stickers"), default=True, subtext=t("stickers_s")),
             Input(key="sticker_pct", text=t("sticker_pct"), default="12"),
             Switch(key="sticker_recent", text=t("sticker_recent"), default=True),
+            Input(key="sticker_sets", text=t("sticker_sets"), default="",
+                  subtext=t("sticker_sets_s", ", ".join(self._sticker_set_titles()[:8]) or "—")),
             Switch(key="memory_auto", text=t("memory_auto"), default=True, subtext=t("memory_auto_s"),
                    on_change=self._media_consent_changed),
             Input(key="memory_daily", text=t("memory_daily"), default="", subtext=t("memory_daily_s")),
@@ -9159,7 +9191,7 @@ class Plugin(BasePlugin):
                  "laugh_control banned_words comma_skip typo_pct >style_adv",
         "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs quote_pct #h_learn learn_style "
                      "learn_n style_share style_cache_min",
-        "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
+        "media": "reactions stickers sticker_pct sticker_recent sticker_sets voice_realtime !media_per_chat",
         "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
                   "polite_stop revive revive_groups >time_adv >type_adv >limits_adv",
         "time_adv": "#h_collect debounce cooldown cooldown_jitter owner_defers #h_warm lat_warm_min lat_warm_max "
