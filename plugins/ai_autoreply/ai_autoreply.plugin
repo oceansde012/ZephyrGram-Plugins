@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.8.0"
-__version_code__ = 39
+__version__ = "0.8.1"
+__version_code__ = 40
 __api_version__ = 1
 __min_app_version__ = "0.2.2"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -407,7 +407,7 @@ SHORT_SPLIT_CHARS = 45       # in that mode even a one-line answer longer than t
 SHORT_MAX_WORDS = 20         # in that mode a sentence with more words than this counts as too complex
 REVIVE_AFTER_MIN = 20        # silence of the other person (minutes) before the bot may restart the conversation
 REVIVE_WINDOW_H = 3          # ... but only within this many hours after the last message (older chats are finished)
-REVIVE_DAILY = 1             # at most this many revivals per chat and day
+REVIVE_DAILY = 3             # at most this many revivals per chat and day
 REVIVE_CHECK_SEC = 300       # one chat's history is looked at for a revival at most this often
 REVIVE_PER_PASS = 3          # at most this many chats are examined per scan pass
 DECISIONS_MAX = 400          # decision log depth (the settings screen shows 10, "Copy log" the last 40)
@@ -1628,6 +1628,7 @@ S = {
     "revive_s": ("Auto chats only, a few times a day at most. Timing: section “Timing and pauses”.",
         "Лише чати в режимі Авто, кілька разів на добу щонайбільше. Час: розділ «Час і паузи».",
         "Только чаты в режиме Авто, несколько раз в сутки максимум. Время: раздел «Время и паузы»."),
+    "revive_groups": ("Revive in groups too", "Оживляти і в групах", "Оживлять и в группах"),
     "revive_after": ("Revive: silence before, minutes",
         "Оживлення: тиша перед ним, хвилин",
         "Оживление: тишина перед ним, минут"),
@@ -3842,7 +3843,8 @@ class Plugin(BasePlugin):
         now = self._now()
         due = []
         for key, c in list(self._chats.items()):
-            if not c.get("enabled") or c.get("type", "user") != "user" or self._chat_mode(key) != MODE_AUTO:
+            if (not c.get("enabled") or self._chat_mode(key) != MODE_AUTO
+                    or (c.get("type", "user") != "user" and not (self._is_group(key) and self.get_setting("revive_groups", False)))):
                 continue
             st = self._state(key)
             if st.inflight or st.pending or st.revive_busy or now - st.revive_chk < REVIVE_CHECK_SEC:
@@ -8585,6 +8587,7 @@ class Plugin(BasePlugin):
             "lat_warm_min", "lat_warm_max", "lat_cold_min", "lat_cold_max", "lat_long_pct", "lat_long_min",
             "lat_long_max", "warm_window", "cold_after", "type_ms", "warm_cap", "split2_pct", "split_gap_min",
             "split_gap_max")] + [
+            Switch(key="revive_groups", text=t("revive_groups"), default=False),
             Input(key="revive_after", text=t("revive_after"), default=str(REVIVE_AFTER_MIN)),
             Input(key="revive_window", text=t("revive_window"), default=str(REVIVE_WINDOW_H)),
             Input(key="revive_daily", text=t("revive_daily"), default=str(REVIVE_DAILY)),
@@ -8781,7 +8784,7 @@ class Plugin(BasePlugin):
                      "learn_n style_share style_cache_min",
         "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
         "timing": "preset human_timing show_typing read_msgs read_always owner_active quiet_hours chat_hourly "
-                  "polite_stop revive >time_adv >type_adv >limits_adv",
+                  "polite_stop revive revive_groups >time_adv >type_adv >limits_adv",
         "time_adv": "#h_collect debounce cooldown cooldown_jitter owner_defers #h_warm lat_warm_min lat_warm_max "
                     "warm_window warm_cap #h_cold cold_after lat_cold_min lat_cold_max lat_long_pct lat_long_min "
                     "lat_long_max @reset",
