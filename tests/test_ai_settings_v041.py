@@ -11,7 +11,7 @@ GLOBAL = {
     "master": ("Switch", True), "ui_lang": ("Selector", 0), "preset": ("Selector", 3),
     "reply_lang": ("Selector", 3), "reply_all": ("Switch", False), "all_accounts": ("Input", ""),
     "skip_links": ("Switch", True), "lore": ("Input", ""), "lore_learn": ("Switch", False), "revive": ("Switch", False), "revive_after": ("Input", "20"),
-    "revive_window": ("Input", "3"), "revive_daily": ("Input", "1"),
+    "revive_window": ("Input", "3"), "revive_daily": ("Input", "3"), "revive_groups": ("Switch", False),
     "cmd_enable": ("Switch", True), "cmd_triggers": ("Input", mod.DEFAULT_TRIGGERS), "cmd_mode": ("Selector", 0),
     "cmd_any_private": ("Switch", False), "cmd_openers": ("Input", ""),
     "humanize": ("Switch", True), "learn_style": ("Switch", True), "learn_n": ("Input", "40"),

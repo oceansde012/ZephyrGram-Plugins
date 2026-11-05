@@ -456,6 +456,22 @@
           "human_text": "Плагин остался в пределах 512 КБ, несмотря на новые страницы."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.8.1",
+      "sha256": "22824a1f883ed7aa9b6b6289ab2ada3b4eaba326e3be6ed4778dd1fb7d4e5939",
+      "checks": "869 Python tests and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "REVIVE-GROUPS",
+          "title": "Оживление разговора в группах",
+          "scope": "complete",
+          "details": "New switch revive_groups (off by default): the periodic revival pass also looks at group chats in Auto mode, with the same silence/window/daily rules. revive_daily default 3 (was 1).",
+          "limitations": "The chat-header quick toggle is not shown in group chats by the app (CHAT_ACTION menu is not wired in the app). Phone behaviour unverified.",
+          "human_text": "Бот может оживлять затихший разговор и в группах (включается отдельно), по умолчанию до 3 раз в сутки на чат."
+        }
+      ]
     }
   ]
 }
