@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.7"
-__version_code__ = 48
+__version__ = "0.9.8"
+__version_code__ = 49
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "memory.style", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -2301,6 +2301,7 @@ R = {
         ".ai mode проигнорировано: неизвестный режим"),
     "menu_on": ("chat header menu: bot turned on", "меню чату: бота увімкнено", "меню чата: бот включён"),
     "menu_off": ("chat header menu: bot turned off", "меню чату: бота вимкнено", "меню чата: бот выключен"),
+    "menu_mode": ("chat header button: mode changed", "кнопка в шапці чату: змінено режим", "кнопка в шапке чата: изменён режим"),
     "admin_refused": (".ai on refused: only private chats with a person",
         ".ai on відхилено: лише особисті чати з людиною",
         ".ai on отклонено: только личные чаты с человеком"),
@@ -2536,6 +2537,18 @@ pg_setup2|Next: about me|Далі: про мене|Далее: обо мне
 pg_setup3|Next: where to answer|Далі: де відповідати|Далее: где отвечать
 pg_lore|Lore and notes|Лор і нотатки|Лор и заметки
 pg_access|AI access|Доступ ШІ|Доступ ИИ
+hdr_text|AI|ШІ|ИИ
+hdr_title|AI auto-reply|ШІ-автовідповідач|ИИ-автоответчик
+hdr_on|Turn auto-reply on in this chat|Увімкнути автовідповідач у цьому чаті|Включить автоответчик в этом чате
+hdr_off|Turn auto-reply off in this chat|Вимкнути автовідповідач у цьому чаті|Выключить автоответчик в этом чате
+hdr_to_draft|Mode: answer with drafts|Режим: відповідати чернетками|Режим: отвечать черновиками
+hdr_to_auto|Mode: answer automatically|Режим: відповідати автоматично|Режим: отвечать автоматически
+hdr_start|Start a conversation|Почати діалог|Начать диалог
+hdr_learn|Study this chat|Вивчити цей чат|Изучить этот чат
+hdr_mem_reset|Start this chat's memory over|Почати пам’ять цього чату заново|Начать память этого чата заново
+hdr_cancel|Cancel|Скасувати|Отмена
+hdr_mode_set|Mode changed|Режим змінено|Режим изменён
+mem_cloud_line|In Neon: %d of 200 messages · chats %d of 20 · kept until %s|У Neon: %d із 200 повідомлень · чатів %d із 20 · зберігається до %s|В Neon: %d из 200 сообщений · чатов %d из 20 · хранится до %s
 pg_xmedia|Advanced chat settings|Розширені налаштування спілкування|Расширенные настройки общения
 xmedia_note|What the AI may look at in this chat. Photos, a video frame and the voice audio go to your AI server only for this chat and only while the switch is on. Sending GIFs, voice and photos from you needs a newer app and is not available yet.|Що ШІ може дивитися в цьому чаті. Фото, кадр відео й аудіо голосових йдуть на ваш ШІ-сервер лише для цього чату й лише поки перемикач увімкнено. Надсилання GIF, голосових і фото від вас потребує новішого застосунку й поки недоступне.|Что ИИ может смотреть в этом чате. Фото, кадр видео и аудио голосовых уходят на ваш ИИ-сервер только для этого чата и только пока переключатель включён. Отправка GIF, голосовых и фото от вас требует более нового приложения и пока недоступна.
 see_video|See a frame of videos and round videos|Бачити кадр відео й кружків|Видеть кадр видео и кружков
@@ -3097,6 +3110,8 @@ class Plugin(BasePlugin):
         self._cloud_scheduled = set()
         self._cloud_network_lock = threading.RLock()
         self._style_notes = {}
+        self._cloud_usage = {}
+        self._cloud_usage_busy = set()
         self._style_last_in = {}
         self._cloud_notes = {}
         self._cloud_last_owner = {}
@@ -3150,7 +3165,7 @@ class Plugin(BasePlugin):
         self._repair_store()
         with self._lock:
             self._fps = self._fingerprints()
-        self._menus()
+        self._register_menus()
         self.log("loaded %s v%s, %d chats, preset %s" % (self.name, self.version, len(self._chats),
                                                           PRESET_NAMES[self._preset_index()]))
         self._ensure_scan()
@@ -3764,7 +3779,7 @@ class Plugin(BasePlugin):
             return 0
 
     # --- menu
-    def _menus(self, lang=None):
+    def _register_menus(self, lang=None):
         """Chat header items; a new interface language re-adds them (the app keeps the text it got)."""
         if lang is not None:
             self.set_setting("ui_lang", int(lang))
@@ -3775,6 +3790,7 @@ class Plugin(BasePlugin):
                 self.remove_menu_item("ai_autoreply_" + n)
             self.add_menu_item(MenuItem(menu_type=MenuType.CHAT_ACTION, text=self.t("menu_" + n), on_click=click,
                                         priority=0, condition=cond, key="ai_autoreply_" + n))
+        self._header_button(replace=lang is not None)
 
     def cond_show_off(self, ctx):
         try:
@@ -3795,6 +3811,121 @@ class Plugin(BasePlugin):
             return bool(did) and self.is_enabled(self.chat_key(ctx.get("account"), did))
         except Exception:
             return False
+
+    # ---- 0.9.8: the "AI" button in the chat header (app 0.2.7+) opens a quick menu of this chat
+    def _header_button(self, replace=False):
+        kind = getattr(MenuType, "CHAT_HEADER_BUTTON", None)
+        if kind is None or not getattr(client, "HEADER_BUTTON", False):
+            return
+        try:
+            if replace:
+                self.remove_menu_item("ai_autoreply_hdr")
+            self.add_menu_item(MenuItem(menu_type=kind, text=self.t("hdr_text"), on_click=self.on_header_click,
+                                        icon="ai_chat", priority=0, condition=self.cond_header, key="ai_autoreply_hdr"))
+        except Exception as e:
+            self.log("header button not added: %s" % e)
+
+    def cond_header(self, ctx):
+        return bool(self.cond_show_on(ctx) or self.cond_show_off(ctx))
+
+    def _quick_actions(self, account, did):
+        """[(label, callable)] of the quick menu; the callables run in a worker."""
+        t, key = self.t, self.chat_key(account, did)
+        ctx = {"account": account, "dialog_id": did}
+        if not self.is_enabled(key):
+            return [(t("hdr_on"), lambda: self.on_enable_click(ctx))]
+        acts = [(t("hdr_off"), lambda: self.on_disable_click(ctx))]
+        draft = self._chat_mode(key) == MODE_DRAFT
+        acts.append((t("hdr_to_auto" if draft else "hdr_to_draft"), lambda: self._set_chat_mode(key, MODE_AUTO if draft else MODE_DRAFT)))
+        if not self._is_group(key):
+            def start():
+                if self._start_command(account, did, key, False, ""):
+                    self._decide(key, "cmd", "admin_start")
+            acts.append((t("hdr_start"), start))
+            acts.append((t("hdr_learn"), self._learn_now_cb(key)))
+            if self._memory_flag(key):
+                acts.append((t("hdr_mem_reset"), lambda: client.run_in_bg(lambda: self._memory_reset(key))))
+        return acts
+
+    def _set_chat_mode(self, key, mode):
+        self.set_setting("mode_" + self._sk(key), mode)
+        self._decide(key, "cmd", "menu_mode")
+        client.bulletin(self.t("hdr_mode_set"))
+
+    def on_header_click(self, ctx):
+        try:
+            account, did = int(ctx.get("account") or 0), int(ctx.get("dialog_id") or 0)
+            if not did:
+                return
+            acts = self._quick_actions(account, did)
+            self._show_quick(ctx, [a[0] for a in acts], acts)
+        except Exception as e:
+            self.error(e)
+
+    _QUICK_POLL_MS = 300
+    _QUICK_MAX_SEC = 600
+
+    @staticmethod
+    def _quick_listener(kind, state):
+        """Dialog listener that only stores a plain value: Android calls it outside any plugin callback, where
+        client.* is refused (see chat_history_export 1.0.5). A poll started inside a callback acts on the value."""
+        from java import dynamic_proxy, jclass as get_class
+        if kind == "click":
+            class QuickClick(dynamic_proxy(get_class("android.content.DialogInterface$OnClickListener"))):
+                def __init__(self, st):
+                    super().__init__()
+                    self.st = st
+
+                def onClick(self, dialog, which):
+                    try:
+                        self.st["which"] = int(which)
+                    except Exception:
+                        pass
+            return QuickClick(state)
+
+        class QuickDismiss(dynamic_proxy(get_class("android.content.DialogInterface$OnDismissListener"))):
+            def __init__(self, st):
+                super().__init__()
+                self.st = st
+
+            def onDismiss(self, dialog):
+                try:
+                    self.st["closed"] = True
+                except Exception:
+                    pass
+        return QuickDismiss(state)
+
+    def _show_quick(self, ctx, labels, acts):
+        from java import jarray, jclass as get_class
+        fragment = ctx.get("fragment")
+        activity = fragment.getParentActivity() if fragment else None
+        if activity is None:
+            return
+        state = {"which": None, "closed": False}
+        builder = get_class("android.app.AlertDialog$Builder")(activity)
+        builder.setTitle(self.t("hdr_title"))
+        builder.setItems(jarray(get_class("java.lang.CharSequence"))(list(labels)), self._quick_listener("click", state))
+        try:
+            builder.setOnDismissListener(self._quick_listener("dismiss", state))
+        except Exception:
+            pass
+        builder.show()
+        deadline = self._now() + self._QUICK_MAX_SEC
+        client.run_on_ui(lambda: self._watch_quick(state, deadline, acts), delay_ms=self._QUICK_POLL_MS)
+
+    def _watch_quick(self, state, deadline, acts):
+        """Plugin callback every _QUICK_POLL_MS while the quick menu is open."""
+        try:
+            which = state.get("which")
+            if which is not None:
+                if 0 <= which < len(acts):
+                    client.run_in_bg(acts[which][1])
+                return None
+            if state.get("closed") or self._now() > deadline:
+                return None
+            client.run_on_ui(lambda: self._watch_quick(state, deadline, acts), delay_ms=self._QUICK_POLL_MS)
+        except Exception as e:
+            self.error(e)
 
     def on_enable_click(self, ctx):
         account, did = ctx.get("account") or 0, ctx.get("dialog_id") or 0
@@ -9564,7 +9695,7 @@ class Plugin(BasePlugin):
             Selector(key="reactions", text=t("reactions"), items=[t("react_mode_%d" % i) for i in range(3)],
                      default=0, subtext=t("reactions_s")),
             Selector(key="ui_lang", text=t("lang"), items=[t("ms_0")] + LANG_NAMES[1:], default=0, subtext=t("lang_s"),
-                     on_change=self._menus),
+                     on_change=self._register_menus),
         ]
         return items
 
@@ -10169,6 +10300,56 @@ class Plugin(BasePlugin):
             client.run_in_bg(lambda: self._revive_run(key, True))
         return out + [self._text_row(self.t("refresh"), "refresh_" + self._sk(key), cb, self.t("refresh_s"))]
 
+    def _cloud_usage_line(self, key):
+        """0.9.8: 'In Neon: 143 of 200 messages · chats 11 of 20 · kept until 05.12' from the status counters of the
+        server (usage). '' when cloud memory is off, the server/app gives no usage or a read failed. Cached for
+        5 minutes, read in a worker, never on the UI thread."""
+        try:
+            if self._is_group(key):
+                return ""
+            record = self._cloud_state(key, 0)
+            if not self._cloud_active(key, 0, record):
+                return ""
+            now = self._now()
+            stamp, data = self._cloud_usage.get(key, (0, None))
+            if now - stamp > 300 and key not in self._cloud_usage_busy:
+                self._cloud_usage_busy.add(key)
+                self._cloud_usage[key] = (now, data)
+                client.run_in_bg(lambda: self._cloud_usage_load(key))
+            if not data:
+                return ""
+            return self.t("mem_cloud_line", data[0], data[1], data[2])
+        except Exception:
+            return ""
+
+    def _cloud_usage_load(self, key):
+        try:
+            c = self._chats.get(key) or {}
+            account, did = int(c.get("account", 0)), int(c.get("dialog_id", 0))
+            if did <= 0 or not self._cloud_available() or not self._cloud_network_lock.acquire(blocking=False):
+                return
+            try:
+                status = client.ai_memory_status(account, timeout=5)
+            finally:
+                self._cloud_network_lock.release()
+            owner = self._memory_owner_id(account)
+            usage = status.get("usage") if isinstance(status, dict) else None
+            data = None
+            if (isinstance(usage, dict) and owner is not None and status.get("ownerId") == str(owner)
+                    and type(usage.get("scopes")) is int and 0 <= usage["scopes"] <= 20 and isinstance(usage.get("chats"), list)):
+                for row in usage["chats"][:20]:
+                    if (isinstance(row, dict) and str(row.get("dialogId")) == str(did) and row.get("topicId") == 0
+                            and type(row.get("messages")) is int and 0 <= row["messages"] <= 200):
+                        until = str(row.get("messagesUntil") or row.get("summaryUntil") or "")
+                        m = re.match(r"\d{4}-(\d{2})-(\d{2})", until)
+                        data = (row["messages"], usage["scopes"], "%s.%s" % (m.group(2), m.group(1)) if m else "—")
+                        break
+            self._cloud_usage[key] = (self._now(), data)
+        except Exception:
+            self._cloud_usage[key] = (self._now(), None)
+        finally:
+            self._cloud_usage_busy.discard(key)
+
     def _mem_scale(self, key):
         """#3: '▓▓░ 62% · 4960 of 8000 characters · updated 2 h ago · notes 7 of 12' (+ a warning at 90%).
         From the cache the replies fill; never opens the database on the UI thread."""
@@ -10192,7 +10373,8 @@ class Plugin(BasePlugin):
         text = t("mem_scale", bar(f), int(f * 100), n, MEM_SUMMARY_MAX, when, min(notes_n, 12))
         if f >= MEM_WARN or notes_n >= 12:
             text += "\n" + t("mem_warn")
-        return text
+        line = self._cloud_usage_line(key)
+        return text + ("\n" + line if line else "")
 
     def _pg_memory(self, rows, key):
         """The Conversation page row of this chat's memory, with its scale."""

@@ -944,6 +944,38 @@
           "human_text": "Все переключатели «что ИИ может смотреть» собраны на одной странице чата."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.8",
+      "sha256": "0480af7e236b9541942b0201908a57ef777e937425913177b7e59a9837fa96a2",
+      "checks": "Python tests (incl. tests/test_host_field_collisions.py) and plugin validation passed; no live provider calls. Size 620131 B: minAppVersion 0.2.5, index-v2.json only (D-020). New tests in tests/test_ai_header_v098.py.",
+      "items": [
+        {
+          "id": "LOAD-DICT-NOT-CALLABLE",
+          "title": "Плагин не запускался в приложении 0.2.5 и новее",
+          "scope": "complete",
+          "details": "The app calls BasePlugin.__init__(plugin) after creating the plugin, which sets the instance attribute _menus to a dict. ai_autoreply defined a method _menus (0.9.0 to 0.9.7), called from on_plugin_load, so loading failed with TypeError: 'dict' object is not callable. The method is now _register_menus. tests/test_host_field_collisions.py scans every plugin for names the host overwrites (id, name, version, data_dir, _menus, _menu_sequence).",
+          "limitations": "Reproduced by loading the plugin through the app's real zephyr_host.load_plugin with a stubbed Java side; not yet checked on a phone.",
+          "human_text": "Автоответчик снова запускается: раньше на приложении 0.2.5 и новее он не загружался с ошибкой «dict object is not callable»."
+        },
+        {
+          "id": "HDR-BUTTON",
+          "title": "Кнопка «ИИ» в шапке чата",
+          "scope": "partial",
+          "details": "MenuType.CHAT_HEADER_BUTTON (icon ai_chat, permission ui.menu) is added only when the app has MenuType.CHAT_HEADER_BUTTON and client.HEADER_BUTTON; shown where the plugin can work. A tap opens an Android AlertDialog (setItems) with: turn on/off, mode auto/draft, start a conversation, study the chat, start memory over (private chats). The listener only stores the chosen index; a poll started inside a plugin callback runs the action, because client.* is refused in Java-thread callbacks.",
+          "limitations": "Dialog and header placement not checked on a phone. No settings page is opened (the API has no call for it). The old chat menu items stay.",
+          "human_text": "В шапке чата есть кнопка «ИИ» с быстрым меню: включить или выключить бота, режим, начать диалог, изучить чат."
+        },
+        {
+          "id": "MEM-CLOUD-LINE",
+          "title": "Облачная строка шкалы памяти",
+          "scope": "partial",
+          "details": "The status counters of the server (usage, AI PR #14) are read through client.ai_memory_status in a worker at most every 5 minutes while cloud memory of a private chat is on; owner and ranges are checked; the line shows messages of 200, chats of 20 and the keep-until date. No usage means no line.",
+          "limitations": "App 0.2.7's ZephyrMemoryClient copies only a fixed set of status fields and drops usage, so the line stays hidden until the app passes the sanitized usage object through.",
+          "human_text": "Под шкалой памяти будет видно, сколько хранится в облаке, когда приложение начнёт отдавать эти данные."
+        }
+      ]
     }
   ]
 }
