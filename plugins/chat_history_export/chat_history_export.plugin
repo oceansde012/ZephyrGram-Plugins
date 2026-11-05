@@ -2,8 +2,8 @@ __id__ = "chat_history_export"
 __name__ = "Экспорт истории чата"
 __description__ = "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки."
 __author__ = "ZephyrGram"
-__version__ = "1.0.2"
-__version_code__ = 3
+__version__ = "1.0.3"
+__version_code__ = 4
 __api_version__ = 1
 __min_app_version__ = "0.1.4"
 __permissions__ = ["ui.menu", "chat.read", "network.requests", "java.raw"]
@@ -438,8 +438,20 @@ class Plugin(BasePlugin):
         self._last_file = self.get_setting("last_file", "")
         self._status = "Экспорт ещё не запускался"
         self._cleanup_stale()
-        self.add_menu_item(MenuItem(MenuType.CHAT_ACTION, "Экспорт истории (все темы)", self.on_export,
-                                   key="chat_history_export", condition=lambda ctx: bool(ctx.get("dialog_id"))))
+        self.add_menu_item(MenuItem(MenuType.CHAT_ACTION, "Экспорт истории чата", self.on_export,
+                                   key="chat_history_export", condition=self._menu_shown))
+
+    @staticmethod
+    def _menu_shown(ctx):
+        # Called on every menu opening: dialog cache only, no network. Unknown chat = shown.
+        try:
+            did = int(ctx.get("dialog_id") or 0)
+        except (TypeError, ValueError):
+            return False
+        try:
+            return bool(did) and client.get_dialog_info(did, account=int(ctx.get("account") or 0)).get("type") != "secret"
+        except Exception:
+            return bool(did)
 
     def on_plugin_unload(self):
         self._active = False

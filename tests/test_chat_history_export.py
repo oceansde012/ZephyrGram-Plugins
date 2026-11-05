@@ -225,5 +225,20 @@ class ExportTests(unittest.TestCase):
         get_info.assert_not_called()
 
 
+    def test_menu_item_label_and_hidden_in_secret_chats(self):
+        items = []
+        plugin, _ = self.configured_plugin()
+        plugin.add_menu_item = items.append
+        plugin.on_plugin_load()
+        args, kw = items[0]
+        self.assertEqual(args[1], 'Экспорт истории чата')
+        shown = kw['condition']
+        self.assertFalse(shown({'account': 0, 'dialog_id': 0}))
+        for kind, expected in (('secret', False), ('user', True), ('group', True), ('channel', True)):
+            with patch.object(_client, 'get_dialog_info', return_value={'type': kind}, create=True):
+                self.assertIs(shown({'account': 1, 'dialog_id': 5}), expected, kind)
+        with patch.object(_client, 'get_dialog_info', side_effect=RuntimeError('no cache'), create=True):
+            self.assertTrue(shown({'account': 0, 'dialog_id': 5}))
+
 if __name__ == '__main__':
     unittest.main()

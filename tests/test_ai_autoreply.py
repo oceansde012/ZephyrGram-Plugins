@@ -51,6 +51,10 @@ def install_fake_zephyr():
         def add_menu_item(self, item):
             self.menu = getattr(self, "menu", []) + [item]
 
+        def remove_menu_item(self, item):
+            key = getattr(item, "key", item)
+            self.menu = [m for m in getattr(self, "menu", []) if m.key != key]
+
     class HookStrategy:
         DEFAULT, CANCEL, MODIFY, MODIFY_FINAL = 0, 1, 2, 3
 

@@ -472,6 +472,86 @@
           "human_text": "Бот может оживлять затихший разговор и в группах (включается отдельно), по умолчанию до 3 раз в сутки на чат."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.0",
+      "sha256": "751c614beaf268abe94de1a1e475ee84ab7f38d5206c0433419205204744c72f",
+      "checks": "904 Python tests (888 before) and plugin validation passed; no live provider calls; Mistral cross-review of the code diff, findings checked by hand. Phone behaviour unverified (menu language switch and dialog-cache contents depend on the app).",
+      "items": [
+        {
+          "id": "PRESET-SWITCHES",
+          "title": "Тумблеры пресета показывают реальное значение",
+          "scope": "complete",
+          "details": "_pswitch default = preset value (human_timing, skip_ack, group_need_question, scan) instead of always True.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Тумблеры темпа на экране совпадают с тем, что реально работает."
+        },
+        {
+          "id": "SERVICE-REPORT",
+          "title": "Кнопка отчёта на странице «Сервис»",
+          "scope": "complete",
+          "details": "log_report row built in _rows, so the service page token renders.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "На «Сервисе» снова есть «Скопировать отчёт»."
+        },
+        {
+          "id": "PAGES-14",
+          "title": "Страницы не длиннее 14 пунктов",
+          "scope": "partial",
+          "details": "Add-chat rows moved to their own page pg_add; pg_chats shows as many chats as fit in 14 rows (6 with one account); time_adv split, cold start on pg_time_cold.",
+          "limitations": "Expanded «Показать все» list is longer than 14 by design; with several accounts fewer chats fit (account headers); per-chat page (16) unchanged. Phone behaviour unverified.",
+          "human_text": "Длинные страницы укорочены: «Добавить чат» и холодный старт на отдельных страницах."
+        },
+        {
+          "id": "MENU-LANG",
+          "title": "Язык меню чата",
+          "scope": "complete",
+          "details": "Changing ui_lang removes and re-adds the CHAT_ACTION items with new text.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Меню чата меняет язык сразу."
+        },
+        {
+          "id": "MENU-HIDE",
+          "title": "Меню не показывается там, где бот не работает",
+          "scope": "complete",
+          "details": "cond_show_off hides the item for channel/secret/bot by dialog cache only; no cache = shown.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "«Бот: выкл.» не виден в каналах, секретных чатах и ботах."
+        },
+        {
+          "id": "DAILY-CAP-0",
+          "title": "0 = без дневного лимита",
+          "scope": "complete",
+          "details": "daily_cap range 0..100000, 0 disables it, hint added.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "«Ответов в день на чат» = 0 снимает лимит."
+        },
+        {
+          "id": "TEXTS",
+          "title": "Тексты и подсказки",
+          "scope": "complete",
+          "details": "Audit F08, F10-F25, F27, F28: correct page/switch names in hints, unified terms, typographic apostrophes, new hints for reset_pace and disclosure.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Подсказки и названия выровнены и исправлены."
+        }
+      ]
+    },
+    {
+      "product": "chat_history_export",
+      "version": "1.0.3",
+      "sha256": "6d37c1eb42372cb458bd8c259a5fd8dd356ee1a2c032b20201f8badfb995fee8",
+      "checks": "904 Python tests and plugin validation passed. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "MENU-LABEL",
+          "title": "Пункт меню экспорта",
+          "scope": "complete",
+          "details": "Label «Экспорт истории чата»; hidden in secret chats via dialog cache; unknown chat = shown.",
+          "limitations": "Russian only (no i18n). Phone behaviour unverified.",
+          "human_text": "Пункт меню называется «Экспорт истории чата» и не виден в секретных чатах."
+        }
+      ]
     }
   ]
 }
