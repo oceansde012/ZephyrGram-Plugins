@@ -228,6 +228,7 @@ client.run_on_ui(fn, delay_ms=0)
 client.run_in_bg(fn)
 client.keep_awake(seconds)       # newer apps only (0.2.0+): hold a partial wake lock for up to `seconds` (1..180); feature-detect with getattr
 client.bulletin(text)                  # short toast-like message (UI thread safe)
+client.notify(title, text, account=None) -> bool   # app 0.2.6+ (feature-detect client.NOTIFY): Android notification on the "ZephyrGram plugins" channel, tap opens Saved Messages; max 1 per plugin per 10 s, newer replaces older; texts never logged; False if rate-limited/not allowed
 client.copy_to_clipboard(text)         # clipboard helper
 client.http_get(url, headers=None, timeout=15) -> (status:int, body:bytes)   # internet
 client.app_version() -> str            # ZEPHYR_VERSION, e.g. "0.1.0"
