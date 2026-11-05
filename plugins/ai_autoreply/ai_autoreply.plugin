@@ -2,12 +2,13 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.6"
-__version_code__ = 47
+__version__ = "0.9.7"
+__version_code__ = 48
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "memory.style", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
 
+import base64
 import difflib
 import hashlib
 import json
@@ -2535,6 +2536,10 @@ pg_setup2|Next: about me|Далі: про мене|Далее: обо мне
 pg_setup3|Next: where to answer|Далі: де відповідати|Далее: где отвечать
 pg_lore|Lore and notes|Лор і нотатки|Лор и заметки
 pg_access|AI access|Доступ ШІ|Доступ ИИ
+pg_xmedia|Advanced chat settings|Розширені налаштування спілкування|Расширенные настройки общения
+xmedia_note|What the AI may look at in this chat. Photos, a video frame and the voice audio go to your AI server only for this chat and only while the switch is on. Sending GIFs, voice and photos from you needs a newer app and is not available yet.|Що ШІ може дивитися в цьому чаті. Фото, кадр відео й аудіо голосових йдуть на ваш ШІ-сервер лише для цього чату й лише поки перемикач увімкнено. Надсилання GIF, голосових і фото від вас потребує новішого застосунку й поки недоступне.|Что ИИ может смотреть в этом чате. Фото, кадр видео и аудио голосовых уходят на ваш ИИ-сервер только для этого чата и только пока переключатель включён. Отправка GIF, голосовых и фото от вас требует более нового приложения и пока недоступна.
+see_video|See a frame of videos and round videos|Бачити кадр відео й кружків|Видеть кадр видео и кружков
+see_video_s|Needs “See media”. Takes one frame from the video the person sent (from the preview if the file is not on the phone) and shows it to the AI. Works with app 0.2.7+.|Потрібне «Бачити медіа». Бере один кадр із відео, яке надіслала людина (з прев’ю, якщо файлу немає на телефоні), і показує його ШІ. Працює із застосунком 0.2.7+.|Нужно «Видеть медиа». Берёт один кадр из видео, которое прислал человек (из превью, если файла нет на телефоне), и показывает его ИИ. Работает с приложением 0.2.7+.
 h_whom|Whom to answer|Кому відповідати|Кому отвечать
 h_len|Length|Довжина|Длина
 h_split|Splitting|Розбиття|Разбиение
@@ -3513,7 +3518,8 @@ class Plugin(BasePlugin):
         sk = self._sk(key)
         return (bool(c.get("enabled")), c.get("account"), c.get("dialog_id"),
                 self.get_setting("mode_" + sk, MODE_AUTO), self.get_setting("memory_" + sk, False),
-                self.get_setting("see_media_" + sk, False), self.get_setting("transcribe_voice_" + sk, False))
+                self.get_setting("see_media_" + sk, False), self.get_setting("transcribe_voice_" + sk, False),
+                self.get_setting("see_video_" + sk, False))
 
     def _fingerprints(self):
         return {"master": self.get_setting("master", True),
@@ -3863,7 +3869,7 @@ class Plugin(BasePlugin):
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
-                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan",
+                          "see_media", "see_video", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan",
                           "vector", "vector_days", "daily", "style_src",
                           "learned_prev"):
                 self.set_setting(field + "_" + sk, None)
@@ -6623,6 +6629,14 @@ class Plugin(BasePlugin):
 
     def _peer_bio(self, account, did):
         """The other person's bio from the app's cache (never the network); '' when not loaded."""
+        fn = getattr(client, "get_user_profile", None)
+        if getattr(client, "USER_PROFILE", False) and callable(fn):         # 0.9.7: the public call of app 0.2.7+
+            try:
+                info = fn(int(did), account=int(account))
+                if isinstance(info, dict) and isinstance(info.get("bio"), str):
+                    return info["bio"]
+            except Exception:
+                pass
         try:
             full = _jclass("org.telegram.messenger.MessagesController").getInstance(int(account)).getUserFull(int(did))
             return str(getattr(full, "about", None) or "") if full is not None else ""
@@ -6948,6 +6962,49 @@ class Plugin(BasePlugin):
                 m["text"] = "[incoming attachment]"
         return m
 
+    VIDEO_WORDS_RE = re.compile(r"(?i)\b(видео|видос|відео|відос|video|кружок|кружочок|кружечок|кружка|гифк|гіфк|gif)")
+
+    def _video_frame_b64(self, did, mid, account):
+        """0.9.7: one JPEG frame of a video, GIF or round video through client.video_frame (app 0.2.7+); None without it."""
+        fn = getattr(client, "video_frame", None)
+        if not getattr(client, "VIDEO_FRAME", False) or not callable(fn):
+            return None
+        try:
+            path = fn(int(did), int(mid), account=int(account), timeout_s=15)
+            if not isinstance(path, str) or not path:
+                return None
+            with open(path, "rb") as f:
+                data = f.read(450001)
+            if not data or len(data) > 400000:
+                return None
+            return base64.b64encode(data).decode("ascii")
+        except Exception:
+            return None
+
+    def _mentioned_video_frame(self, key, account, did, batch):
+        """0.9.7 (#5): the person talks about a video / round video / GIF they sent earlier: show the newest one."""
+        text = " ".join(str(t or "") for _m, _f, t in batch[-3:])
+        if not self.VIDEO_WORDS_RE.search(text):
+            return None
+        try:
+            hist = self._load_history(key, account, did, 30, media=True)
+        except Exception:
+            return None
+        asked = {b[0] for b in batch}
+        for h in reversed([h for h in (hist or []) if not h.get("out") and h.get("has_media") and not h.get("is_secret")]):
+            mid = h.get("id")
+            if not isinstance(mid, int) or mid in asked or int(h.get("dialog_id", did)) != int(did):
+                continue
+            try:
+                info = client.get_message_media(did, mid, account=account) or {}
+            except Exception:
+                continue
+            if info.get("type") in ("video", "gif"):
+                frame = self._video_frame_b64(did, mid, account) or (info.get("image_b64") if isinstance(info.get("image_b64"), str)
+                                                                    and len(info["image_b64"]) <= 550000 else None)
+                return (mid, frame) if frame else None
+        return None
+
     def _attach_current_media(self, key, account, did, messages, batch):
         """Only this batch's incoming IDs are eligible, never another chat..."""
         notes, images = [], []
@@ -6966,6 +7023,11 @@ class Plugin(BasePlugin):
                     if info.get("type", info.get("kind")) not in ("voice", "audio"):
                         desc = ", ".join(str(info.get(k))[:120] for k in ("type", "kind", "emoji", "set_title") if info.get(k))
                         image = info.get("image_b64")
+                        if (info.get("type") in ("video", "gif") and info.get("image_kind") != "frame"
+                                and self._media_flag(key, "see_video")):
+                            frame = self._video_frame_b64(did, mid, account)     # 0.9.7: a better frame than the preview
+                            if frame:
+                                image, desc = frame, desc + "; video frame"
                         if isinstance(image, str) and 0 < len(image) <= 550000 and len(images) < 2:
                             images.append(image)
                             desc += "; image/frame attached"
@@ -6998,6 +7060,14 @@ class Plugin(BasePlugin):
                         self._decide(key, "info", "voice_unavailable")
                 except Exception:
                     self._decide(key, "info", "voice_transcription_unavailable")
+        if (len(images) < 2 and self._media_flag(key, "see_media") and self._media_flag(key, "see_video")
+                and getattr(client, "VIDEO_FRAME", False) and self._task_alive(key, account, did)):
+            found = self._mentioned_video_frame(key, account, did, batch)          # 0.9.7 (#5)
+            if found and self._task_alive(key, account, did) and self._media_flag(key, "see_video"):
+                images.append(found[1])
+                notes.append("[The person is talking about a video they sent earlier (message %s); a frame of it is "
+                             "attached. Do not invent details that are not visible.]" % found[0])
+                readable = True
         if not readable:
             return [], []
         result = [dict(m) for m in messages]
@@ -9579,6 +9649,8 @@ class Plugin(BasePlugin):
             items.extend(self._cloud_settings(key))
         items.append(Switch(key="see_media_" + sk, text=t("see_media"), default=False,
                             subtext=t("media_consent"), on_change=self._media_consent_changed))
+        items.append(Switch(key="see_video_" + sk, text=t("see_video"), default=False,
+                            subtext=t("see_video_s"), on_change=self._media_consent_changed))
         items.append(Switch(key="transcribe_voice_" + sk, text=t("transcribe_voice"), default=False,
                             subtext=t("voice_consent"), on_change=self._media_consent_changed))
         items.append(Input(key="lore_" + sk, text=t("chat_lore"), default="", multiline=True,
@@ -9893,7 +9965,8 @@ class Plugin(BasePlugin):
         "talk": "@refresh learn_now_{} test_{} react_{} #h_vector vector_{} vector_days_{} daily_{} @style_src @memory",
         "cmem": "@memory_page",
         "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{} plan_{}",
-        "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
+        "access": "memory_{} @gnote >xmedia @cloud",
+        "xmedia": "!xmedia_note see_media_{} see_video_{} transcribe_voice_{}",
     }
     ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
     ICONS = dict(x.split(":") for x in ("talk:chats chats:chats add:chats queue:timing persona:prompts style:style media:general "
