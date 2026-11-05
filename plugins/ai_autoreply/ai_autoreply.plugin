@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.3"
-__version_code__ = 44
+__version__ = "0.9.4"
+__version_code__ = 45
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -204,6 +204,14 @@ REVIVE_RULES = (
     "writing, never say you are an AI. A line in square brackets at the end is the owner's private instruction "
     "to you, not something the other person said; never quote it."
 )
+DAILY_INSTR = (
+    "We have not talked today yet. Write my first message of the day to them: a natural short greeting or a "
+    "question that fits how we talk and what we talked about recently. No invented facts. One or two short messages.")
+DAILY_FROM_H, DAILY_TO_H = 9, 21
+VECTOR_DAYS = (1, 2, 3, 5, 7)
+VECTOR_DEFAULT = 2
+VECTOR_RULE = ("For the next days the owner asked to change how you talk in this chat (keep everything else, never "
+               "mention this request): %s")
 REVIVE_INSTR = (
     "The other person has not answered for a while. Write the next message from me to restart the conversation. "
     "If something in the conversation above is left hanging (a question, a plan, a topic they cared about), pick it "
@@ -2551,6 +2559,26 @@ sort_2|Enabled first|Спершу увімкнені|Сначала включё
 interest|interest %s %d|інтерес %s %d|интерес %s %d
 mem_bar|memory %s %d%%|пам’ять %s %d%%|память %s %d%%
 mem_note|Chat summaries %s %d%%\\nDatabase %s %d%% (%s of 48 MB)\\nUpdates today: %d, up to %d per chat|Підсумки чатів %s %d%%\\nБаза %s %d%% (%s з 48 МБ)\\nОновлень сьогодні: %d, до %d на чат|Сводки чатов %s %d%%\\nБаза %s %d%% (%s из 48 МБ)\\nОбновлений сегодня: %d, до %d на чат
+pg_talk|Conversation|Спілкування|Общение
+h_vector|Change the direction|Змінити напрямок розмови|Изменить вектор общения
+vector|How to talk from now on|Як спілкуватися далі|Как общаться дальше
+vector_s|A temporary rule for this chat, e.g. "more flirting", "less questions". Removed by itself after the days below. %s|Тимчасове правило для цього чату, наприклад «більше фліртувати», «менше питань». Знімається саме через дні нижче. %s|Временное правило для этого чата, например «больше флирта», «меньше вопросов». Снимается само через дни ниже. %s
+vector_left|Left: %d d.|Залишилось: %d дн.|Осталось: %d дн.
+vector_days|Rule lasts (days)|Правило діє (днів)|Правило действует (дней)
+daily|Write every day|Писати щодня|Писать ежедневно
+daily_s|Once a day, at a random time between 9 and 21 (not in quiet hours), the bot writes first if you have not talked yet that day. Same limits as reviving.|Раз на день, у випадковий час з 9 до 21 (не в тихі години), бот пише першим, якщо ви ще не спілкувалися того дня. Ті самі ліміти, що й для оживлення.|Раз в день, в случайное время с 9 до 21 (не в тихие часы), бот пишет первым, если вы ещё не общались в этот день. Те же лимиты, что у оживления.
+learn_now|Study this chat|Вивчити чат|Изучить чат
+learn_now_s|Now: your style and facts from this chat's history.|Зараз: ваш стиль і факти з історії цього чату.|Сейчас: ваш стиль и факты из истории этого чата.
+bl_learn_1|Studying the chat: style…|Вивчаю чат: стиль…|Изучаю чат: стиль…
+bl_learn_2|Studying the chat: facts…|Вивчаю чат: факти…|Изучаю чат: факты…
+bl_learn_done|Done: %d style examples, %d facts|Готово: прикладів стилю %d, фактів %d|Готово: примеров стиля %d, фактов %d
+bl_learn_busy|Already studying this chat|Вже вивчаю цей чат|Уже изучаю этот чат
+style_src|Talk like in another chat…|Спілкуватися як в іншому чаті…|Общаться как в другом чате…
+style_src_s|Your messages from the chosen chat become the style examples here. Now: %s|Ваші повідомлення з вибраного чату стануть прикладами стилю тут. Зараз: %s|Ваши сообщения из выбранного чата станут примерами стиля здесь. Сейчас: %s
+style_src_off|this chat|цей чат|этот чат
+style_src_clear|Use this chat's own style|Стиль цього ж чату|Стиль этого же чата
+bl_style_src|Style from: %s|Стиль із: %s|Стиль из: %s
+bl_style_src_acc|Pick a chat of the same account|Виберіть чат того ж акаунта|Выберите чат того же аккаунта
 start_chat|Start a conversation|Почати діалог|Начать диалог
 start_chat_s|Writes a greeting now, like .ai start.|Напише привітання зараз, як .ai start.|Напишет приветствие сейчас, как .ai start.
 refresh|Refresh the topic now|Освіжити тему зараз|Освежить тему сейчас
@@ -2605,6 +2633,16 @@ R["group_cooldown"] = ("Group pause after our last reply: waits", "Пауза в
                        "Пауза в группе после нашего ответа: ждёт")
 R["waiting_owner_answer"] = ("Waits for your answer in Saved Messages", "Чекає вашої відповіді в Обраному",
                              "Ждёт вашего ответа в Избранном")
+R["daily_due"] = ("Daily first message: time to write", "Щоденне перше повідомлення: час писати",
+                  "Ежедневное первое сообщение: пора писать")
+R["daily_talked_today"] = ("Daily first message: you already talked today", "Щоденне перше повідомлення: сьогодні вже спілкувалися",
+                           "Ежедневное первое сообщение: сегодня уже общались")
+R["daily_limit"] = ("Daily first message: the reviving limit for today is reached", "Щоденне перше повідомлення: ліміт оживлень на сьогодні",
+                    "Ежедневное первое сообщение: лимит оживлений на сегодня")
+R["vector_expired"] = ("The temporary rule “How to talk from now on” ended and was removed",
+                       "Тимчасове правило «Як спілкуватися далі» закінчилося й зняте",
+                       "Временное правило «Как общаться дальше» закончилось и снято")
+R["chat_studied"] = ("Chat studied on your request", "Чат вивчено на ваш запит", "Чат изучен по вашему запросу")
 R["queue_now"] = ("Reply sent now from the queue", "Відповідь надіслано зараз із черги", "Ответ отправлен сейчас из очереди")
 R["queue_stop"] = ("Reply stopped in the queue", "Відповідь зупинено в черзі", "Ответ остановлен в очереди")
 PACE_KEYS = ("debounce cooldown cooldown_jitter owner_defers lat_warm_min lat_warm_max warm_window warm_cap cold_after "
@@ -3713,7 +3751,8 @@ class Plugin(BasePlugin):
                 self._commit(key, set={"enabled": False}, drop=("auto_off_ts",))
         if remove:
             for field in ("mode", "prompt", "rlang", "react", "lore", "learned", "gender", "memory",
-                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan"):
+                          "see_media", "transcribe_voice", "lore_mode", "tone", "lore_name", "lore_age", "lore_city", "plan",
+                          "vector", "vector_days", "daily", "style_src"):
                 self.set_setting(field + "_" + sk, None)
         return title
 
@@ -4035,6 +4074,156 @@ class Plugin(BasePlugin):
             out.append(LEARNED_RULE + "\n" + learned)
         return "\n\n".join(out)
 
+    # ---- 0.9.4: study now, temporary course, sample chat, daily first message
+    def _learn_now_cb(self, key):
+        def cb():
+            st = self._state(key)
+            if st.learn_busy:
+                client.bulletin(self.t("bl_learn_busy"))
+                return
+            st.learn_busy = True
+            client.run_in_bg(lambda: self._learn_now(key))
+        return cb
+
+    def _learn_now(self, key):
+        """#12: style profile and facts from this chat's history now, progress and result in bulletins."""
+        st = self._state(key)
+        previous = getattr(self._work_context, "task", None)
+        self._work_context.task = (key, self._epoch(key))
+        try:
+            c = self._chats.get(key)
+            if not c:
+                return
+            did, account = int(c["dialog_id"]), int(c.get("account", 0))
+            client.bulletin(self.t("bl_learn_1"))
+            with self._lock:
+                self._profiles.pop(key, None)
+            prof = self.get_profile(key, account, did) or {}
+            n_ex = len(prof.get("examples") or [])
+            n_notes = 0
+            if not self._is_group(key):
+                client.bulletin(self.t("bl_learn_2"))
+                self._learn_notes(key, st, force=True)
+                n_notes = len([x for x in str(self.get_setting("learned_" + self._sk(key), "") or "").splitlines()
+                               if x.strip()])
+            self._decide(key, "info", "chat_studied", x=n_ex)
+            client.bulletin(self.t("bl_learn_done", n_ex, n_notes))
+        except Exception as e:
+            self.error(e)
+            self._decide(key, "error", "lore_learn_failed")
+        finally:
+            self._work_context.task = previous
+            st.learn_busy = False
+            st.learn_ts = self._now()
+
+    def _vector_cb(self, key):
+        def cb(value):
+            if str(value or "").strip():
+                self._commit(key, set={"vector_ts": int(self._now())})
+            else:
+                self._commit(key, drop=("vector_ts",))
+        return cb
+
+    def _vector_left(self, key):
+        c = self._chats.get(key) or {}
+        days = VECTOR_DAYS[self._int("vector_days_" + self._sk(key), VECTOR_DEFAULT, 0, len(VECTOR_DAYS) - 1)]
+        ts = float(c.get("vector_ts") or self._now())
+        return max(0, int((ts + days * 86400 - self._now() + 86399) // 86400))
+
+    def _vector_rule(self, key):
+        """#11: the owner's temporary course for this chat; removed by itself after its days."""
+        sk = self._sk(key)
+        text = " ".join(str(self.get_setting("vector_" + sk, "") or "").split())
+        if not text:
+            return ""
+        c = self._chats.get(key) or {}
+        if not c.get("vector_ts"):
+            self._commit(key, set={"vector_ts": int(self._now())})    # set outside the settings screen
+            c = self._chats.get(key) or {}
+        days = VECTOR_DAYS[self._int("vector_days_" + sk, VECTOR_DEFAULT, 0, len(VECTOR_DAYS) - 1)]
+        if self._now() - float(c.get("vector_ts") or 0) >= days * 86400:
+            self.set_setting("vector_" + sk, "")
+            self._commit(key, drop=("vector_ts",))
+            self._decide(key, "info", "vector_expired")
+            return ""
+        return VECTOR_RULE % text[:400]
+
+    def _style_src(self, key):
+        """#13: chat key of the chosen sample chat ('' = none)."""
+        v = str(self.get_setting("style_src_" + self._sk(key), "") or "")
+        return v if v and v != key else ""
+
+    def _set_style_src(self, key, src, title):
+        sk = self._sk(key)
+        self.set_setting("style_src_" + sk, src or "")
+        self.set_setting("style_src_t_" + sk, str(title or "")[:60] if src else "")
+        with self._lock:
+            self._profiles.pop(key, None)
+
+    def _style_src_cb(self, key):
+        def cb(dialog_id, title=""):
+            acc = int(key.split(":", 1)[0])
+            try:
+                cur = int(client.current_account())
+            except Exception:
+                cur = acc
+            if cur != acc:
+                client.bulletin(self.t("bl_style_src_acc"))
+                return
+            src = self.chat_key(acc, int(dialog_id))
+            if src == key:
+                self._set_style_src(key, None, "")
+                return
+            self._set_style_src(key, src, title)
+            client.bulletin(self.t("bl_style_src", str(title or dialog_id)))
+        return cb
+
+    def _daily_any(self):
+        return any(c.get("enabled") and self.get_setting("daily_" + self._sk(k), False) is True
+                   for k, c in self._chats.items())
+
+    def _daily_pass(self):
+        """#15: one first message a day per chat with "Write every day", at a random time in 9..21, not in quiet
+        hours, only when nobody wrote that day; runs the reviving path with its limits."""
+        if not self.get_setting("master", True) or self._in_quiet_hours() or self._scan_stop:
+            return 0
+        now, day = self._now(), self._day()
+        lt = time.localtime(now)
+        midnight = now - (lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec)
+        n = 0
+        for key, c in list(self._chats.items()):
+            if (not c.get("enabled") or self._is_group(key) or self._chat_mode(key) != MODE_AUTO
+                    or self.get_setting("daily_" + self._sk(key), False) is not True):
+                continue
+            if c.get("daily_d") != day:
+                t = midnight + self._rng.uniform(DAILY_FROM_H * 3600, DAILY_TO_H * 3600)
+                c = self._commit(key, set={"daily_d": day, "daily_t": int(t), "daily_done": False}) or c
+            if c.get("daily_done") or now < float(c.get("daily_t") or 0) or now - midnight >= DAILY_TO_H * 3600 + 3600:
+                continue
+            st = self._state(key)
+            if st.inflight or st.pending or st.revive_busy or now - st.owner_ts < 120:
+                continue
+            marks = self._revive_marks.get(key, [])
+            if len([x for x in marks if now - x < 86400]) >= self._int("revive_daily", REVIVE_DAILY, 1, 10):
+                self._commit(key, set={"daily_done": True})
+                self._decide(key, "skip", "daily_limit")
+                continue
+            try:
+                hist = self._load_history(key, int(c.get("account", 0)), int(c["dialog_id"]), 12, media=True)
+            except Exception as e:
+                self.log("daily check of %s failed: %s" % (self._ltag(key), e))
+                continue
+            if any(float(h.get("date") or 0) >= midnight for h in hist):
+                self._commit(key, set={"daily_done": True})
+                self._decide(key, "skip", "daily_talked_today")
+                continue
+            self._commit(key, set={"daily_done": True})
+            self._decide(key, "info", "daily_due")
+            st.revive_busy = True
+            self._run_later(self._rng.uniform(2.0, 25.0), lambda k=key: self._revive_run(k, True, DAILY_INSTR))
+            n += 1
+        return n
+
     def _learn_tick(self, key, st, n):
         """After an answer: every LEARN_EVERY incoming messages (and at..."""
         try:
@@ -4063,12 +4252,12 @@ class Plugin(BasePlugin):
             st.learn_busy = False
             st.learn_ts = self._now()
 
-    def _learn_notes(self, key, st):
+    def _learn_notes(self, key, st, force=False):
         c = self._chats.get(key)
-        if self._is_group(key) or not c or not c.get("enabled") or not self.get_setting("lore_learn", False):
+        if self._is_group(key) or not c or not (force or (c.get("enabled") and self.get_setting("lore_learn", False))):
             return
         did, account = int(c["dialog_id"]), int(c.get("account", 0))
-        hist = self._load_history(key, account, did, 60)
+        hist = self._load_history(key, account, did, 100 if force else 60)
         lines = []
         for h in hist:
             text = str(h.get("text") or "").strip().replace("\n", " ")
@@ -4186,7 +4375,7 @@ class Plugin(BasePlugin):
             n += 1
         return n
 
-    def _revive_run(self, key, manual=False):
+    def _revive_run(self, key, manual=False, instr=None):
         st = self._state(key)
         with self._lock:
             if st.inflight or st.pending:
@@ -4197,7 +4386,7 @@ class Plugin(BasePlugin):
         self._work_context.task = (key, self._epoch(key))
         self._work_context.images = []
         try:
-            self._revive_send(key, st, manual)
+            self._revive_send(key, st, manual, instr)
         except Exception as e:
             self.error(e)
             self._decide(key, "error", "revive_exception_%s" % type(e).__name__)
@@ -4214,7 +4403,7 @@ class Plugin(BasePlugin):
             if again:
                 self._schedule(key, self._debounce(jitter=True))
 
-    def _revive_send(self, key, st, manual=False):
+    def _revive_send(self, key, st, manual=False, instr=None):
         self._awake(150)
         """Runs with st.inflight held by _revive_run."""
         c = self._chats.get(key)
@@ -4235,7 +4424,7 @@ class Plugin(BasePlugin):
         if not msgs:
             return
         incoming = [str(h["text"]) for h in hist if not h.get("out")]
-        msgs = msgs + [{"role": "user", "content": "[private instruction from me, not from them: %s]" % REVIVE_INSTR}]
+        msgs = msgs + [{"role": "user", "content": "[private instruction from me, not from them: %s]" % (instr or REVIVE_INSTR)}]
         self.count_use(key)
         try:
             parts, why = self.generate(key, account, did, msgs, c, st, split=True, extra_system=REVIVE_RULES,
@@ -4602,7 +4791,7 @@ class Plugin(BasePlugin):
             t.start()
 
     def _scan_enabled(self):
-        return bool(self._pbool("scan")) or self._revive_on()
+        return bool(self._pbool("scan")) or self._revive_on() or self._daily_any()
 
     def _scan_toggle(self, _value=None):
         try:
@@ -4672,6 +4861,7 @@ class Plugin(BasePlugin):
                 except Exception as e:
                     self.log("scan of %s failed: %s" % (self._ltag(key), e))
             self._revive_pass()
+            self._daily_pass()
         finally:
             self._scan_lock.release()
         return found
@@ -7201,7 +7391,8 @@ class Plugin(BasePlugin):
             return {}
         n = self._int("learn_n", 40, 5, 100)
         share = self.get_setting("style_share", False) is True and not self._is_group(key)
-        cache_key = (n, share)
+        src = "" if self._is_group(key) else self._style_src(key)
+        cache_key = (n, share, src)
         ttl = self._int("style_cache_min", 30, 0, 1440) * 60
         now = self._now()
         with self._lock:
@@ -7212,7 +7403,16 @@ class Plugin(BasePlugin):
         try:
             own = self._own_texts(account, did)
             texts = own[-n:]
-            if share and len(own) < MIN_OWN:          # explicit opt-in; never borrow from another account
+            if src:                                   # #13: the chosen chat leads, this chat's own fill the rest
+                try:
+                    sacc, sdid = (int(x) for x in src.split(":", 1))
+                    sample = self._own_texts(sacc, sdid, 100) if sacc == int(account) else []
+                except Exception as e:
+                    sample = []
+                    self.log("style sample failed for %s: %s" % (self._ltag(key), e))
+                if sample:
+                    texts = (own[-max(0, n - len(sample)):] if len(sample) < n else []) + sample[-n:]
+            elif share and len(own) < MIN_OWN:          # explicit opt-in; never borrow from another account
                 extra = []
                 for k, oc in sorted(self._chats.items()):
                     if k == key or not oc.get("enabled") or int(oc.get("account", 0)) != int(account):
@@ -7242,7 +7442,8 @@ class Plugin(BasePlugin):
             record = None  # the same local summary already arrived with cloud provenance
         lore = self._lore_block(key)
         prof = "" if self._is_group(key) else self._profile_block(account, did)
-        extra_system = "\n\n".join(x for x in (self._clock_block(key), extra_system, prof) if x)
+        vec = self._vector_rule(key) if kind in ("reply", "revive") else ""
+        extra_system = "\n\n".join(x for x in (self._clock_block(key), extra_system, prof, vec) if x)
         if self._is_group(key) and not self._humanize():
             extra_system += ("\n\nThis is a multi-person group, not a private dialogue. Speaker IDs distinguish "
                              "the owner and each participant. Keep facts tied to their speaker; equal display "
@@ -8973,6 +9174,17 @@ class Plugin(BasePlugin):
         items.append(Input(key="prompt_" + sk, text=t("chat_prompt"), default="", multiline=True,
                            subtext=t("chat_prompt_s")))
         items.append(Text(text=t("chat_test"), key="test_" + sk, on_click=self._test_cb(key)))
+        items.append(self._text_row(t("learn_now"), "learn_now_" + sk, self._learn_now_cb(key), t("learn_now_s")))
+        vec = str(self.get_setting("vector_" + sk, "") or "").strip()
+        left = self._vector_left(key) if vec else 0
+        items.append(Input(key="vector_" + sk, text=t("vector"), default="", multiline=True,
+                           subtext=t("vector_s", t("vector_left", left) if vec else ""),
+                           on_change=self._vector_cb(key)))
+        items.append(Selector(key="vector_days_" + sk, text=t("vector_days"), items=[str(x) for x in VECTOR_DAYS],
+                              default=VECTOR_DEFAULT))
+        if not self._is_group(key):
+            items.append(Switch(key="daily_" + sk, text=t("daily"), default=False, subtext=t("daily_s"),
+                                on_change=self._scan_toggle))
         items.append(self._danger("remove_" + sk, "chat_remove", self._remove_cb(key)))
         return items
 
@@ -9253,13 +9465,14 @@ class Plugin(BasePlugin):
         "setup1": "ui_mode preset conversation_style answer_detail reply_lang >setup2",
         "setup2": "lore_name lore_age lore_city lore >setup3",
         "setup3": "reply_all add_pick @setup3",
-        "chat": "@chat keep_{} mode_{} @refresh #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
-                "react_{} prompt_{} >lore >access test_{} remove_{}",
+        "chat": "@chat keep_{} mode_{} >talk #h_person gender_{} rlang_{} #h_manner conversation_style_{} tone_{} "
+                "prompt_{} >lore >access remove_{}",
+        "talk": "@refresh learn_now_{} test_{} react_{} #h_vector vector_{} vector_days_{} daily_{} @style_src",
         "lore": "lore_name_{} lore_age_{} lore_city_{} lore_{} lore_mode_{} learned_{} plan_{}",
         "access": "memory_{} @gnote see_media_{} transcribe_voice_{} @cloud",
     }
     ADV = ("style_adv", "time_adv", "time_cold", "type_adv", "limits_adv", "model", "model_custom", "cmd", "all_accounts")
-    ICONS = dict(x.split(":") for x in ("chats:chats add:chats queue:timing persona:prompts style:style media:general "
+    ICONS = dict(x.split(":") for x in ("talk:chats chats:chats add:chats queue:timing persona:prompts style:style media:general "
                  "timing:timing memory:memory model:prompts cmd:commands service:log log:log setup1:general").split())
 
     def _adv(self):
@@ -9458,6 +9671,21 @@ class Plugin(BasePlugin):
             client.bulletin(self.t("bl_refresh"))
             client.run_in_bg(lambda: self._revive_run(key, True))
         return out + [self._text_row(self.t("refresh"), "refresh_" + self._sk(key), cb, self.t("refresh_s"))]
+
+    def _pg_style_src(self, rows, key):
+        """#13: a chosen chat whose messages are the style examples here."""
+        if self._is_group(key) or DialogPicker is None:
+            return []
+        t, sk = self.t, self._sk(key)
+        src = self._style_src(key)
+        name = self._title_of(src, self._chats[src]) if src in self._chats else (
+            str(self.get_setting("style_src_t_" + sk, "") or "") or (t("style_src_off") if not src else src))
+        out = [DialogPicker(key="style_src_pick_" + sk, text=t("style_src"), on_pick=self._style_src_cb(key),
+                            subtext=t("style_src_s", name))]
+        if src:
+            out.append(Text(text=t("style_src_clear"), key="style_src_clear_" + sk,
+                            on_click=lambda: self._set_style_src(key, None, "")))
+        return out
 
     def _pg_gnote(self, rows, key):
         return [note(self.t("group_memory_safe"))] if self._is_group(key) else []

@@ -768,6 +768,54 @@
           "human_text": "Бот видит ник и описание профиля собеседника и учитывает их, когда это к месту."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.4",
+      "sha256": "6a866ea4902b2d0c5ad0586cd4bf380ad848dc2e0d595c289a12646d0a6aa77d",
+      "checks": "1023 Python tests and plugin validation passed; no live provider calls. Size 568384 B: minAppVersion 0.2.5, index-v2.json only (D-020). Mistral proofread the new strings (3 fixes taken). GLM (glm-proxy) review of the diff timed out: the MCP client stops at 60 s whatever the timeout argument.",
+      "items": [
+        {
+          "id": "TALK-PAGE",
+          "title": "Страница «Общение»",
+          "scope": "complete",
+          "details": "New chat subpage 'talk': start, refresh, learn_now, test, react, vector, vector_days, daily, style sample picker. The chat page is back to 14 rows (was 17).",
+          "limitations": "",
+          "human_text": "Действия и настройки общения с человеком собраны на отдельной странице чата."
+        },
+        {
+          "id": "VECTOR",
+          "title": "Как общаться дальше",
+          "scope": "complete",
+          "details": "vector_{sk} Input + vector_days_{sk} Selector (1/2/3/5/7 days, default 3). VECTOR_RULE goes into the reply and revive prompt; vector_ts in the chat record (set on edit, or on first use); after the days the text is cleared and decision info/vector_expired logged.",
+          "limitations": "",
+          "human_text": "Можно задать временное правило общения с человеком, оно само снимается через несколько дней."
+        },
+        {
+          "id": "LEARN-NOW",
+          "title": "Изучить чат",
+          "scope": "complete",
+          "details": "Button learn_now_{sk}: drops the cached style profile, rebuilds it, runs _learn_notes(force=True) over up to 100 messages; bulletins for each step and the result (examples, facts). Busy guard shared with automatic learning.",
+          "limitations": "Facts are for private chats only, as before.",
+          "human_text": "Кнопка «Изучить чат» сразу изучает стиль и факты из переписки."
+        },
+        {
+          "id": "DAILY",
+          "title": "Писать ежедневно",
+          "scope": "complete",
+          "details": "Switch daily_{sk} (private, auto). _daily_pass from the periodic scan (the scan runs when any chat has it on): per day a random time 09:00-21:00 in the chat record, skipped in quiet hours, after 22:00, when anyone wrote that day or the reviving daily limit is reached; then _revive_run(manual=True, DAILY_INSTR), so caps, chat hourly limit and revive marks apply.",
+          "limitations": "If a limit stops it at send time, that day is skipped. Phone behaviour unverified.",
+          "human_text": "Бот может раз в день писать человеку первым, если вы ещё не общались."
+        },
+        {
+          "id": "STYLE-SAMPLE",
+          "title": "Общаться как в другом чате",
+          "scope": "complete",
+          "details": "DialogPicker style_src_pick_{sk}: chat of the same account; get_profile takes the owner's messages from that chat first and fills up from this chat; cache key includes the sample. 'Стиль этого же чата' clears it.",
+          "limitations": "Other accounts are refused (the picker uses the current account).",
+          "human_text": "Можно выбрать чат, по образцу которого бот будет писать в этом чате."
+        }
+      ]
     }
   ]
 }
