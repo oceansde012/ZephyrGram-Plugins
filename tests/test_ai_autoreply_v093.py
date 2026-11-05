@@ -100,5 +100,69 @@ class TestNewCodesHaveReasons(unittest.TestCase):
             self.assertIn(c, mod.R)
 
 
+class Rng(object):
+    """random() from a list, then 0.99; choice/randint take the first option."""
+    def __init__(self, seq=()):
+        self.seq = list(seq)
+
+    def random(self):
+        return self.seq.pop(0) if self.seq else 0.99
+
+    def choice(self, xs):
+        return xs[0]
+
+    def randint(self, a, b):
+        return a + 2 if a + 2 <= b else a
+
+    def uniform(self, a, b):
+        return a
+
+
+class TestCommasAndTypos(unittest.TestCase):
+    def test_commas(self):
+        self.assertEqual(mod.drop_commas(u"ну да, слушай, давай", 30, Rng([0.1, 0.9])), u"ну да слушай, давай")
+        self.assertEqual(mod.drop_commas(u"ну да, слушай", 0, Rng([0.0])), u"ну да, слушай")
+        self.assertEqual(mod.drop_commas(u"было 1,5 литра", 100, Rng([0.0])), u"было 1,5 литра")
+        self.assertEqual(mod.drop_commas(u"глянь https://a.b/x, ок", 100, Rng([0.0])), u"глянь https://a.b/x, ок")
+
+    def test_typo_drops_a_middle_letter(self):
+        out = mod.add_typo(u"иду в магазин", 100, Rng([0.0, 0.1]))
+        self.assertEqual(out, u"иду в магзин")
+
+    def test_typo_keeps_first_and_last_letter_and_short_words(self):
+        for op in (0.1, 0.6, 0.9):
+            out = mod.add_typo(u"магазин", 100, Rng([0.0, op]))
+            self.assertNotEqual(out, u"магазин")
+            self.assertEqual(out[0], u"м")
+            self.assertEqual(out[-1], u"н")
+        self.assertEqual(mod.add_typo(u"да ок, иду", 100, Rng([0.0, 0.1])), u"да ок, иду")
+        self.assertEqual(mod.add_typo(u"@username", 100, Rng([0.0, 0.1])), u"@username")
+
+    def test_typo_chance(self):
+        self.assertEqual(mod.add_typo(u"магазин", 0, Rng([0.0])), u"магазин")
+        self.assertEqual(mod.add_typo(u"магазин", 5, Rng([0.06])), u"магазин")
+
+    def test_settings_on_the_style_page(self):
+        toks = mod.Plugin.PAGES["style"].split()
+        self.assertIn("comma_skip", toks)
+        self.assertIn("typo_pct", toks)
+        self.assertLessEqual(len(toks), 14)
+        self.assertEqual(mod.COMMA_STEPS[mod.COMMA_DEFAULT], 30)
+        self.assertEqual(mod.TYPO_STEPS[0], 0)
+
+
+class TestRoughenInChat(Log):
+    def test_default_drops_some_commas_after_the_ai(self):
+        self.p.settings.pop("comma_skip", None)
+        self.p._rng = Rng([0.1] * 50)
+        CLIENT.ai_result = lambda m, **kw: u"да, слушай, давай"
+        self.incoming(text=u"идём?")
+        self.fire_timers()
+        sent = [x[1] for x in CLIENT.sent if x[0] == DID]
+        self.assertTrue(sent)
+        self.assertNotIn(",", "".join(sent))
+        self.assertIn(u"typos", "\n".join(c["system"] for c in CLIENT.ai_calls))   # the prompt still says no typos
+
+
 if __name__ == "__main__":
     unittest.main()

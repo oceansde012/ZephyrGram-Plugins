@@ -170,6 +170,7 @@ class Base(unittest.TestCase):
         self.p = mod.Plugin()
         self.p._now = lambda: self.clock[0]
         self.p.settings["ui_lang"] = 3            # English: the older tests assert English texts
+        self.p.settings["comma_skip"] = 0         # 0.9.3: exact texts in older tests (default skips 30% of commas)
         self.p.settings["preset"] = 0             # Balanced + owner-context language: what the pre-0.3.6 tests exercise
         self.p.settings["reply_lang"] = 0
         self.p.settings["natural_split"] = False  # random merging of lines has its own tests

@@ -773,6 +773,40 @@ def mirror_trim(parts, total):
     return out or parts[:1]
 
 
+COMMA_STEPS = (0, 15, 30, 50, 70)    # % per comma; setting 'comma_skip' is the index
+COMMA_DEFAULT = 2
+TYPO_STEPS = (0, 3, 5, 10, 20)       # % per message; setting 'typo_pct' is the index
+COMMA_DROP_RE = re.compile(r"(?<=[^\W\d_]),(?=\s)")
+TYPO_WORD_RE = re.compile(r"(?<![\w@#/.:])[^\W\d_]{5,}(?![\w@/.:])")
+
+
+def drop_commas(text, pct, rng):
+    """A person often skips commas: each comma after a word goes with chance pct (never in '1,5' or links)."""
+    if pct <= 0 or "://" in text:
+        return text
+    return COMMA_DROP_RE.sub(lambda m: "" if rng.random() * 100.0 < pct else ",", text)
+
+
+def add_typo(text, pct, rng):
+    """With chance pct one word of 5+ letters gets one slip: a missing, swapped or doubled letter in the middle."""
+    if pct <= 0 or rng.random() * 100.0 >= pct:
+        return text
+    words = list(TYPO_WORD_RE.finditer(text))
+    if not words:
+        return text
+    m = rng.choice(words)
+    w = m.group(0)
+    i = rng.randint(1, len(w) - 3)
+    op = rng.random()
+    if op < 0.5:
+        nw = w[:i] + w[i + 1:]
+    elif op < 0.8 and w[i] != w[i + 1]:
+        nw = w[:i] + w[i + 1] + w[i] + w[i + 2:]
+    else:
+        nw = w[:i] + w[i] + w[i:]
+    return text[:m.start()] + nw + text[m.end():]
+
+
 def apply_style(text, st):
     """Match the owner's capitalisation / final period / emoji habits..."""
     t = str(text or "").strip()
@@ -1752,6 +1786,14 @@ S = {
         "Перенос строки между мыслями, % (0-100)"),
     "newline_pct_s": ("Default 10. Never in the middle of a sentence.", "Типово 10. Ніколи посеред речення.",
         "По умолчанию 10. Никогда посреди предложения."),
+    "comma_skip": ("Skip commas sometimes", "Іноді пропускати коми", "Иногда пропускать запятые"),
+    "comma_skip_s": ("Chance for each comma. Done after the AI, the AI itself writes correctly.",
+                     "Шанс для кожної коми. Робиться після ШІ, сам ШІ пише правильно.",
+                     "Шанс для каждой запятой. Делается после ИИ, сам ИИ пишет правильно."),
+    "typo_pct": ("Typos", "Описки", "Опечатки"),
+    "typo_pct_s": ("Chance of one typo in a message, e.g. “магзин”. Done after the AI. Default 0.",
+                   "Шанс однієї описки в повідомленні, наприклад «магзин». Робиться після ШІ. За замовчуванням 0.",
+                   "Шанс одной опечатки в сообщении, например «магзин». Делается после ИИ. По умолчанию 0."),
     "laugh_control": ("Natural laughter", "Природний сміх", "Естественный смех"),
     "laugh_control_s": ("Not every time, never at sad news.", "Не щоразу, ніколи на сумне.",
         "Не каждый раз, никогда на грустное."),
@@ -2968,6 +3010,16 @@ class Plugin(BasePlugin):
         except (TypeError, ValueError):
             v = default
         return max(lo, min(hi, v))
+
+    def _roughen(self, parts):
+        """#16/#17: skipped commas and rare typos, after the AI and after every check (the prompt still says no typos)."""
+        try:
+            cp = COMMA_STEPS[self._int("comma_skip", COMMA_DEFAULT, 0, len(COMMA_STEPS) - 1)]
+            tp = TYPO_STEPS[self._int("typo_pct", 0, 0, len(TYPO_STEPS) - 1)]
+            return [add_typo(drop_commas(p, cp, self._rng), tp, self._rng) for p in parts]
+        except Exception as e:
+            self.error(e)
+            return parts
 
     def _humanize(self):
         return bool(self.get_setting("humanize", True))
@@ -5139,6 +5191,8 @@ class Plugin(BasePlugin):
                 if (auto and self.get_setting("ask_owner", False)
                         and (st.ask_flag or self._ask_net(key, parts))):
                     return self._ask_owner(key, c, st, did, account, parts, batch)
+                if self._humanize():
+                    parts = self._roughen(parts)
                 if live:
                     parts = self._maybe_split2(parts)
                 if self._is_group(key) and len(parts) > 1:
@@ -8880,6 +8934,10 @@ class Plugin(BasePlugin):
             Switch(key="natural_split", text=t("natural_split"), default=True, subtext=t("natural_split_s")),
             Switch(key="split_msgs", text=t("split"), default=True, subtext=t("split_s")),
             Input(key="quote_pct", text=t("quote_pct"), default="10", subtext=t("quote_pct_s")),
+            Selector(key="comma_skip", text=t("comma_skip"), items=["%d%%" % x for x in COMMA_STEPS],
+                     default=COMMA_DEFAULT, subtext=t("comma_skip_s")),
+            Selector(key="typo_pct", text=t("typo_pct"), items=["%d%%" % x for x in TYPO_STEPS], default=0,
+                     subtext=t("typo_pct_s")),
             Switch(key="typing_delay", text=t("typing"), default=True, subtext=t("typing_s")),
             self._pinput("typing_cap"),
             Input(key="banned_words", text=t("banned"), default="", multiline=True, subtext=t("banned_s")),
@@ -9098,7 +9156,7 @@ class Plugin(BasePlugin):
         "add": "#h_add add_pick add_username !add_cmds",
         "persona": "lore_name lore_age lore_city lore owner_gender lore_learn ask_owner ask_timeout !persona_note",
         "style": "natural_chat conversation_style tone answer_detail reply_lang short_msgs max_parts humanize "
-                 "laugh_control banned_words >style_adv",
+                 "laugh_control banned_words comma_skip typo_pct >style_adv",
         "style_adv": "#h_len max_reply max_reply_min newline_pct #h_split natural_split split_msgs quote_pct #h_learn learn_style "
                      "learn_n style_share style_cache_min",
         "media": "reactions stickers sticker_pct sticker_recent voice_realtime !media_per_chat",
