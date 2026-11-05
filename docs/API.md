@@ -375,6 +375,14 @@ Proposals only, not implemented. `ai_autoreply` 0.3.2 works around the first two
    the app language (Python `locale`/`LANG` is not the app locale and `java.raw` is a heavy permission), so
    `ai_autoreply` has an `Interface language` setting (Auto = phone language if visible, else Ukrainian).
 3. `Header(text, multiline=False)`: long section titles are cut to one line.
+4. Inline-bot messages without the `via @bot` tag (needed by a future `anti_inline` plugin). APIv1 has no
+   way to do it: `messages.sendInlineBotResult` carries only `query_id` and the result `id`, so a request
+   hook cannot see or re-send the result content; there is no `client.send_media`/`send_document`/
+   `delete_messages`, and no hook on message rendering (the tag comes from the server-side `via_bot_id`).
+   Needed from the app, any one of: (a) a send hook for inline results (`on_inline_result_hook(account,
+   params)` with the cached `BotInlineResult` media and the target dialog, able to cancel and re-send as a
+   plain message); (b) `client.send_media(dialog_id, media_ref, caption=None, reply_to=None)` plus
+   `client.delete_messages(dialog_id, ids)`; or (c) a display-only option to hide `via_bot` in the message cell.
 
 ## 10. ai_autoreply storage format
 
