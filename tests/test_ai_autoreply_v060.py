@@ -114,7 +114,7 @@ class TestRepliesAndContext(Base):
     def test_model_dropdown_preserves_custom_and_has_working_callback(self):
         self.p.settings['model']='custom-model'
         picker=self.p._model_picker();self.assertEqual(picker.default,len(self.p.MODEL_PRESETS))
-        picker.on_change(1);self.assertEqual(self.p._model_for('reply'),'glm-5.3')
+        picker.on_change(self.p.MODEL_PRESETS.index('glm-5.3'));self.assertEqual(self.p._model_for('reply'),'glm-5.3')
         picker.on_change(999);self.assertEqual(self.p._model_for('reply'),'glm-5.3')
         self.assertTrue(any(getattr(i,'key',None)=='model_pick' for i in screen(self.p,'prompts')))
 

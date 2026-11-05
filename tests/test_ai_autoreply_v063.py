@@ -64,7 +64,8 @@ class TestGroupBurst(Base):
         st = self.p._state(self.k)
         self.p.deliver(self.k, self.p._chats[self.k], st, GROUP,
                        ['first', 'second', 'third'], [(1, 7, 'question?')], False)
-        self.assertEqual(CLIENT.sent, [(GROUP, 'first\nsecond\nthird', 1)])
+        # 0.7.7: parts are joined like one message, without a line break inside a sentence
+        self.assertEqual(CLIENT.sent, [(GROUP, 'first, second, third', 1)])
 
     def test_private_parts_are_still_separate(self):
         CLIENT.info = {'id': 42, 'title': 'Alice', 'type': 'user', 'is_bot': False}

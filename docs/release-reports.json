@@ -288,6 +288,78 @@
           "human_text": "Если в ответе бота оказалось сломанное слово вроде «дависьй», он перепишет ответ."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.7.7",
+      "sha256": "5dfd10aaa86fbeeeb58be197f5a2aa9cd6183a7d14dcfcfc5418cfb75cc09754",
+      "checks": "849 Python tests (55 new) and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "LENGTH-LIMIT",
+          "title": "Лимит длины без «…»",
+          "scope": "complete",
+          "details": "A reply over the limit is cut at a sentence end, else a clause, else a word boundary; the rest becomes the next message (up to 'max messages', short neighbours merged, extra whole parts dropped). Optional random limit range via max_reply_min (empty = old fixed limit). Legacy plain mode still uses the old cut.",
+          "limitations": "In one-message mode the rest of a too long reply is dropped. Phone behaviour unverified.",
+          "human_text": "Длинный ответ больше не обрывается на «…»: что не влезло, уходит следующим сообщением, слова не рвутся."
+        },
+        {
+          "id": "LINE-BREAKS",
+          "title": "Enter только между законченными мыслями",
+          "scope": "complete",
+          "details": "A line break inside a sentence (from the model, from merging lines or from a group post) becomes a space or comma; between finished thoughts it stays with the newline_pct chance (default 10 %).",
+          "limitations": "Heuristic by punctuation and a short word list; a line without punctuation is treated as an unfinished thought.",
+          "human_text": "Бот не ставит Enter посреди фразы: «норм вроде, только в новых пока тупит» приходит одной строкой."
+        },
+        {
+          "id": "FOREIGN-FACTS",
+          "title": "Не путает себя и собеседника",
+          "scope": "partial",
+          "details": "Lore is labelled YOU / THE OTHER PERSON, an identity rule is added when lore, notes or memory are present. A reply mentioning relatives, illness or death absent from the conversation, lore, notes and memory is flagged 'unsupported_fact', regenerated once, then the risky message is left out.",
+          "limitations": "Word-list heuristic only (relatives, illness, death); other invented facts are covered only by the prompt rule.",
+          "human_text": "Бот не выдумывает бабушек, болезни и чужие истории, которых не было в переписке."
+        },
+        {
+          "id": "LAUGHTER",
+          "title": "Смех не в каждом сообщении",
+          "scope": "complete",
+          "details": "Extra laughter is cut out without regeneration: never two laughing replies in a row, at most 2 of the last 4, none at sad news unless they laugh themselves; caps only for a really funny message; the same laugh word is varied. Switch laugh_control (default on).",
+          "limitations": "A reply that is only a laugh is kept as is when it would otherwise become empty.",
+          "human_text": "Бот смеётся реже и к месту: не в каждом ответе и никогда в ответ на грустное."
+        },
+        {
+          "id": "QUIZ",
+          "title": "На вопросы-проверки — как человек",
+          "scope": "complete",
+          "details": "For quiz-like messages (capital of..., 17*23, what is..., write code) a rule asks for a short human answer; a reference-style answer over 200 characters is cut to its first sentence.",
+          "limitations": "Detected by a phrase list; unusual wording is answered as before.",
+          "human_text": "На вопросы-«проверки на бота» бот отвечает коротко, как человек, а не справкой из энциклопедии."
+        },
+        {
+          "id": "PROMPT-PRIORITY",
+          "title": "Ваш промпт не теряется при обрезке",
+          "scope": "partial",
+          "details": "When the request is over its limit, extra blocks and lore are cut first, then the stock rules; the owner's prompt stays whole (up to 60 % of the system part). Chat memory gets only the remaining room. A short pointer after the style examples keeps the owner's instructions in force. The prompt_trimmed log entry shows the stage and the system size before>after, never text.",
+          "limitations": "Whether a model follows the prompt better is not measured on live models.",
+          "human_text": "Бот лучше слушается вашего промпта: при нехватке места сокращается всё остальное, а не ваши инструкции."
+        },
+        {
+          "id": "ZG-039",
+          "title": "Новые модели в списке",
+          "scope": "complete",
+          "details": "Model presets: best-of, glm-5.3, kimi-k3, DeepSeek-V4-Pro, DeepSeek-V4.1-Flash, DeepSeek-V4-Flash, glm-5.3-flash. best-of is set only on a first start without any saved settings; the stored picker index is re-synced to the new list.",
+          "limitations": "Model availability depends on the AI server.",
+          "human_text": "В настройках можно выбрать best-of, kimi-k3, DeepSeek и другие модели; новая установка сразу берёт best-of."
+        },
+        {
+          "id": "TEMP-STRICT",
+          "title": "Температура при жёстких правилах",
+          "scope": "complete",
+          "details": "Default stays 0.85; when the owner's prompt contains strict rules (never/must/нельзя/никогда/обязательно...), the reply temperature and the retry temperature are capped at 0.8.",
+          "limitations": "Strict rules are detected by a word list.",
+          "human_text": "Если вы задали в промпте строгие правила, бот пишет аккуратнее и меньше от них отступает."
+        }
+      ]
     }
   ]
 }
