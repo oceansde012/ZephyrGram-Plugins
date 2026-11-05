@@ -242,3 +242,102 @@ class ExportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CrashAndStallFixes104(unittest.TestCase):
+    """1.0.4: the dialog button and the request timer run outside plugin callbacks; deliver never blocks."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.plugin = types.SimpleNamespace(data_dir=self.temp.name, _active=True, _status='', _last_file='',
+            _notice=lambda text: None, set_setting=lambda *args: None)
+
+    def test_version(self):
+        self.assertEqual((mod.__version__, mod.__version_code__), ('1.0.4', 5))
+
+    def test_bound_runs_in_the_creating_context_on_another_thread_and_swallows_errors(self):
+        var = mod.contextvars.ContextVar('owner_test', default=None)
+        token = var.set('plugin')
+        try:
+            seen = []
+            fn = mod._bound(lambda: seen.append(var.get()))
+            boom = mod._bound(lambda: 1 / 0)
+        finally:
+            var.reset(token)
+        import threading as _threading
+        threads = [_threading.Thread(target=fn), _threading.Thread(target=boom)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(seen, ['plugin'])
+        fn(); fn()  # the same bound function may run more than once
+        self.assertEqual(seen, ['plugin', 'plugin', 'plugin'])
+
+    def test_deliver_does_not_wait_for_the_session_lock(self):
+        s = mod.Session(self.plugin, {'account': 0, 'dialog_id': 5}, {'title': 'x'}, types.SimpleNamespace(), False, 42)
+        handed = []
+        import threading as _threading
+        holder_ready, release = _threading.Event(), _threading.Event()
+
+        def hold():
+            with s.lock:
+                holder_ready.set()
+                release.wait(5)
+        t = _threading.Thread(target=hold)
+        t.start()
+        holder_ready.wait(5)
+        try:
+            with patch.object(_client, 'run_in_bg', lambda fn: handed.append(fn)):
+                done = _threading.Event()
+                caller = _threading.Thread(target=lambda: (s.deliver(1, None, 'X'), done.set()))
+                caller.start()
+                self.assertTrue(done.wait(2), 'deliver blocked on the lock held by process()')
+        finally:
+            release.set()
+            t.join()
+        self.assertEqual(len(handed), 1)
+        s.archive.discard()
+
+    def test_confirm_button_never_raises_into_java(self):
+        clicks = []
+
+        class FakeProxyBase(object):
+            def __init__(self):
+                pass
+
+        java = types.ModuleType('java')
+        java.dynamic_proxy = lambda iface: FakeProxyBase
+        buttons = {}
+
+        class Builder(object):
+            def __init__(self, activity):
+                pass
+
+            def setTitle(self, t): pass
+
+            def setMessage(self, m): pass
+
+            def setPositiveButton(self, text, listener): buttons['ok'] = listener
+
+            def setNegativeButton(self, text, listener): pass
+
+            def show(self): clicks.append('shown')
+
+        def fake_jclass(name):
+            return Builder if name.endswith('AlertDialog$Builder') else object
+        mod._CLICK_CLASS.clear()
+        plugin = mod.Plugin()
+        plugin._notice = lambda text: clicks.append(text)
+        fragment = types.SimpleNamespace(getParentActivity=lambda: object())
+        with patch.dict(sys.modules, {'java': java}), patch.object(mod, 'jclass', fake_jclass):
+            plugin._confirm({'fragment': fragment, 'account': 0, 'dialog_id': 5}, {'title': 'Chat'})
+        self.assertEqual(clicks, ['shown'])
+        with patch.object(_client, 'run_in_bg', side_effect=RuntimeError('This API must run inside an active plugin callback')):
+            buttons['ok'].onClick(None, -1)  # must not raise
+        started = []
+        plugin._start = lambda ctx, info: started.append(info['title'])
+        buttons['ok'].onClick(None, -1)
+        self.assertEqual(started, ['Chat'])
+        mod._CLICK_CLASS.clear()
