@@ -201,7 +201,7 @@ class TestCloudMemoryProjection(CloudBase):
             self.assertEqual(self.p._cloud_context(self.key(),0,DID,[]),'')
         self.assertEqual(self.uploads,[])
 
-    def test_group_writes_remain_inside_consented_topic_with_sender_provenance(self):
+    def test_groups_are_never_stored_in_neon_since_096(self):
         group=-100500;key=self.p.chat_key(0,group)
         self.p._chats[key]={'enabled':True,'type':'group','account':0,'dialog_id':group}
         self.active(key,topic=11)
@@ -209,8 +209,7 @@ class TestCloudMemoryProjection(CloudBase):
         self.receive(row,key=key)
         other=self.row(mid=101,did=group,topic_id=12);other['from_id']=33
         self.receive(other,key=key)
-        self.assertEqual([(r[1],r[2]) for r in self.uploads],[(group,11)])
-        self.assertEqual(self.uploads[0][3][0]['senderId'],'22')
+        self.assertEqual(self.uploads,[])
 
 
 class TestCloudMemoryContext(CloudBase):

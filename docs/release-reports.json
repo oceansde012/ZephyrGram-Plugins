@@ -880,6 +880,38 @@
           "human_text": "Если Telegram не ответил, экспорт через 50 секунд завершается, а не висит."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.6",
+      "sha256": "f1dd9043bf03248894b4b6143441706ebb660b721ddeab1fd0ef02acd8f8dac9",
+      "checks": "1070 Python tests and plugin validation passed; no live provider calls. Size 604134 B: minAppVersion 0.2.5, index-v2.json only (D-020). New fake-bridge tests in tests/test_ai_style_memory_v096.py (consent, owner/binding change, pairs, feedback, facts, quoted reads, raw switch, no groups).",
+      "items": [
+        {
+          "id": "MEM-STYLE",
+          "title": "Память стиля в Neon",
+          "scope": "partial",
+          "details": "Per private chat opt-in (style_state_{sk}: owner id, binding, revision). Pairs 'incoming -> real owner reply' (not bot text/command/forward, within 1 h, cloud_redact applied) via client.memory_style_add; fate of suggested replies from 'ask about important' via memory_feedback (+ accepted, - text replaced, - rejected; accepted also stored as a pair); learned notes sync as peer facts (90 days) via memory_facts_add. Feature-detect client.MEMORY_STYLE, permission memory.style (app 0.2.5+). Delete = memory_delete_area behind the two-tap button, stays pending on failure.",
+          "limitations": "Not checked on a phone; the server needs MEMORY_ENABLED=true and the style layer ready. Self facts and digests are not used yet.",
+          "human_text": "Новая память стиля: бот запоминает, как ты на самом деле отвечал, и подсказывает себе похожие ответы. Включается отдельно для каждого личного чата."
+        },
+        {
+          "id": "MEM-STYLE-READ",
+          "title": "Похожие ответы и факты в промпте",
+          "scope": "complete",
+          "details": "Before a reply: memory_style_search k=3 by the incoming text and memory_facts_search peer k=5, quoted as untrusted JSON (tags escaped), at most 1500 characters out of the shared 3000 memory budget; failures give an empty block, no extra model call.",
+          "limitations": "Two server calls with a 4 s timeout each before the model call when the chat has style memory on.",
+          "human_text": "Перед ответом бот смотрит свои прошлые ответы на похожие сообщения и факты о человеке; в общую память на ответ это укладывается."
+        },
+        {
+          "id": "MEM-RAW-SWITCH",
+          "title": "Сообщения в Neon отдельным тумблером, без групп",
+          "scope": "complete",
+          "details": "Cloud memory enable now transfers only the saved summary (raw=false). A separate per-chat switch turns on storing the messages themselves (30 days default retention choice, up to 200 per chat). Groups and topics are never stored: collection and enable are refused for did<=0; the topic selector is gone.",
+          "limitations": "Records created before 0.9.6 without the raw field keep collecting messages.",
+          "human_text": "Сами сообщения в облаке теперь хранятся только если включить отдельный тумблер; группы в облако не попадают вообще."
+        }
+      ]
     }
   ]
 }
