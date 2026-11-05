@@ -395,7 +395,9 @@ class TestLoops(Base):
         st = self.p._state(self.key())
         for _ in range(4):
             st.replies.append(self.clock[0] - 10)
-        self.assertEqual(self.incoming(text="x"), "reply burst (possible loop)")
+        self.assertIsNone(self.incoming(text="x"))        # #18: held until the burst window frees, never dropped
+        self.assertTrue(st.pending)
+        self.assertGreater(st.cooldown_until, self.clock[0] + 100)
         self.clock[0] += 200
         self.assertIsNone(self.incoming(text="y"))
 

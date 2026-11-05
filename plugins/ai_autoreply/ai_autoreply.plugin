@@ -40,6 +40,7 @@ MAX_REPLY_CHARS = 4000
 LOOP_SAME_TEXT = 3           # same sender, same text N times in a row ...
 LOOP_SAME_REPLIES = 3        # ... AND we already answered this many times within LOOP_BURST_SEC -> loop
 LOOP_BURST_SEC = 120
+BURST_REASON = "reply burst (possible loop)"
 ROBOT = "\U0001F916"
 AUTO_MARKERS = (ROBOT, "auto-reply", "autoreply", "auto reply", "[auto]",
                 "автовідповідь",
@@ -2541,6 +2542,13 @@ R["ask_own"] = ("Your answer sent instead", "Надіслано вашу від�
 R["ask_skip"] = ("Sent; noted it was not important", "Надіслано; записано, що це неважливо", "Отправлено; записано, что это неважно")
 R["ask_timeout"] = ("No answer from you in time: nothing sent", "Ви не відповіли вчасно: нічого не надіслано",
                     "Вы не ответили вовремя: ничего не отправлено")
+R["reply_burst_hold"] = ("Many replies in 2 minutes: this message waits a little, it is not dropped",
+                         "Багато відповідей за 2 хвилини: це повідомлення трохи зачекає, не губиться",
+                         "Много ответов за 2 минуты: это сообщение немного подождёт, не теряется")
+R["group_cooldown"] = ("Group pause after our last reply: waits", "Пауза в групі після нашої відповіді: чекає",
+                       "Пауза в группе после нашего ответа: ждёт")
+R["waiting_owner_answer"] = ("Waits for your answer in Saved Messages", "Чекає вашої відповіді в Обраному",
+                             "Ждёт вашего ответа в Избранном")
 R["queue_now"] = ("Reply sent now from the queue", "Відповідь надіслано зараз із черги", "Ответ отправлен сейчас из очереди")
 R["queue_stop"] = ("Reply stopped in the queue", "Відповідь зупинено в черзі", "Ответ остановлен в очереди")
 PACE_KEYS = ("debounce cooldown cooldown_jitter owner_defers lat_warm_min lat_warm_max warm_window warm_cap cold_after "
@@ -3055,11 +3063,17 @@ class Plugin(BasePlugin):
         except Exception:
             return False
 
+    @staticmethod
+    def _ltag(key):
+        """Chat tag for the plugin log: stable per chat, no account or dialog id (#18)."""
+        return "chat#" + hashlib.sha1(str(key).encode("utf-8")).hexdigest()[:6]
+
     def _decide(self, key, outcome, reason, ring=True, x=None, x_max=12):
         """Record why a message was answered or skipped."""
         try:
             reason = re.sub(r"\W+", "_", str(reason).lower()).strip("_") or "unknown"
-            self.log("decision %s %s %s" % (outcome, key, reason))
+            self.log("decision %s %s %s%s" % (outcome, self._ltag(key), reason,
+                                              (" " + str(x)[:x_max]) if isinstance(x, (int, float)) else ""))
             if ring:
                 with self._lock:
                     if (outcome == "seen" and self._decisions and self._decisions[-1].get("o") == "seen"
@@ -3726,7 +3740,7 @@ class Plugin(BasePlugin):
         try:
             info = self._dialog_info(account, did)
         except Exception as e:
-            self.log("reply-all: no info for %s: %s" % (key, e))
+            self.log("reply-all: no info for %s: %s" % (self._ltag(key), e))
         if not isinstance(info, dict):
             return False                             # not cached yet / transient: ask again on the next message
         if info.get("type") != "user" or self.check_info(info) is not None:
@@ -3782,7 +3796,7 @@ class Plugin(BasePlugin):
                     else:
                         incoming.append(text)
             except Exception as e:
-                self.log("gender history unavailable for %s: %s" % (key, e))
+                self.log("gender history unavailable for %s: %s" % (self._ltag(key), e))
             incoming = list(dict.fromkeys(incoming))          # the same message arrives from the prompt and the history
             own = list(dict.fromkeys(own))
             found, firm = gender_level(incoming, own)
@@ -4095,7 +4109,7 @@ class Plugin(BasePlugin):
                 hist = self._load_history(key, int(c.get("account", 0)), int(c["dialog_id"]), 12, media=True)
                 why = self._revive_check(key, hist)
             except Exception as e:
-                self.log("revive check of %s failed: %s" % (key, e))
+                self.log("revive check of %s failed: %s" % (self._ltag(key), e))
                 continue
             if why:
                 continue
@@ -4279,6 +4293,13 @@ class Plugin(BasePlugin):
         m = self._prepare_sticker_message(key, m, allow_lookup=via_scan)
         m = self._prepare_media_message(key, m)
         reason = self.accept_message(key, m, max_age=self._max_age())
+        if reason == BURST_REASON:          # #18: a fast real talk is not a loop, the message waits instead of being lost
+            wait = self._burst_wait(key)
+            with self._lock:
+                st0 = self._state(key)
+                st0.cooldown_until = max(st0.cooldown_until, self._now() + wait)
+            self._decide(key, "defer", "reply_burst_hold", x=int(wait))
+            reason = None
         if reason:
             self._decide(key, "skip", reason, ring=reason not in ("duplicate", "sender is bot"))
             return reason
@@ -4368,6 +4389,16 @@ class Plugin(BasePlugin):
                 return text[len(t):].strip()
         return text
 
+    def _burst_wait(self, key):
+        """Seconds until fewer than loop_burst replies remain in the last LOOP_BURST_SEC."""
+        st, now = self._state(key), self._now()
+        lim = int(self._pnum("loop_burst", 1, 1000))
+        with self._lock:
+            recent = sorted(t for t in st.replies if now - t < LOOP_BURST_SEC)
+        if len(recent) < lim:
+            return 0.0
+        return max(1.0, recent[len(recent) - lim] + LOOP_BURST_SEC - now + 1.0)
+
     def accept_message(self, key, m, max_age=None):
         """Safety filters for one incoming message."""
         if max_age is None:
@@ -4411,7 +4442,7 @@ class Plugin(BasePlugin):
                     and len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= LOOP_SAME_REPLIES):
                 return "repeated identical text"
             if len([t for t in st.replies if now - t < LOOP_BURST_SEC]) >= int(self._pnum("loop_burst", 1, 1000)):
-                return "reply burst (possible loop)"
+                return BURST_REASON
         if self._chat_mode(key) == MODE_COMMAND and not low.startswith(self._trigger().lower()):
             return "no command prefix"
         return None
@@ -4447,23 +4478,28 @@ class Plugin(BasePlugin):
             deb = self._debounce()
             if self._is_group(key):
                 deb = max(6.0, deb)
-            batch = None
+            batch, held = None, None
             with self._lock:
                 if not st.pending or st.ask:
                     st.timer = False        # waiting for the owner: newer messages stay pending
-                    return
-                due = min(st.last_ts + deb, st.first_ts + MAX_DEBOUNCE_TOTAL)
-                wait = max(due - now, st.cooldown_until - now)
-                if wait > 0:
-                    pass                    # timer stays set, re-armed below
-                elif st.inflight:
-                    st.timer = False        # the running request reschedules when done
-                    return
+                    held = bool(st.pending)
                 else:
-                    st.timer = False
-                    st.inflight = True
-                    batch, st.pending = st.pending, []
-                    st.cur = (st.arr_ts or now,) + tuple(st.b_prev)
+                    due = min(st.last_ts + deb, st.first_ts + MAX_DEBOUNCE_TOTAL)
+                    wait = max(due - now, st.cooldown_until - now)
+                    if wait > 0:
+                        pass                    # timer stays set, re-armed below
+                    elif st.inflight:
+                        st.timer = False        # the running request reschedules when done
+                        return
+                    else:
+                        st.timer = False
+                        st.inflight = True
+                        batch, st.pending = st.pending, []
+                        st.cur = (st.arr_ts or now,) + tuple(st.b_prev)
+            if held is not None:
+                if held:
+                    self._decide(key, "defer", "waiting_owner_answer", ring=False)
+                return
             if batch is None:
                 self._schedule(key, wait + 0.05)
                 return
@@ -4566,7 +4602,7 @@ class Plugin(BasePlugin):
                 try:
                     found += self._scan_chat(key, c)
                 except Exception as e:
-                    self.log("scan of %s failed: %s" % (key, e))
+                    self.log("scan of %s failed: %s" % (self._ltag(key), e))
             self._revive_pass()
         finally:
             self._scan_lock.release()
@@ -4803,13 +4839,13 @@ class Plugin(BasePlugin):
                 if i + 1 >= len(models):
                     raise
                 self._cheap_fail_ts = self._now()
-                self.log("cheap model failed for %s (%s): %s" % (kind, key, e))
+                self.log("cheap model failed for %s (%s): %s" % (kind, self._ltag(key), e))
                 if key:
                     self._note_daily(key, "cheap_model_failed")
         return ""
 
     def _fail(self, key, err):
-        self.log("failure in %s: %s" % (key, err))
+        self.log("failure in %s: %s" % (self._ltag(key), err))
         with self._lock:
             c = self._read_chats().get(key)
             if not isinstance(c, dict):
@@ -4824,7 +4860,7 @@ class Plugin(BasePlugin):
             upd = {"fails": fails}
             if fails >= MAX_FAILURES and c.get("enabled"):
                 upd.update({"enabled": False, "auto_off_ts": self._now()})
-                self.log("auto-disabled %s after %d failures" % (key, fails))
+                self.log("auto-disabled %s after %d failures" % (self._ltag(key), fails))
                 self._decide(key, "disabled", "auto_disabled_after_errors")
                 client.bulletin(self.t("bl_errors_off", c.get("title", key)))
             self._commit(key, set=upd)
@@ -4854,7 +4890,9 @@ class Plugin(BasePlugin):
                     if remaining > 0:
                         st.pending = list(batch) + st.pending
                         st.cooldown_until = max(st.cooldown_until, self._now() + remaining)
-                        return "group cooldown"
+                if remaining > 0:
+                    self._decide(key, "defer", "group_cooldown", ring=False, x=int(remaining))
+                    return "group cooldown"
                 partitions = self._group_batches(key, batch)
                 unknown = [i for i, (topic, _part) in enumerate(partitions) if topic is None]
                 if len(unknown) > 1:
@@ -7067,7 +7105,7 @@ class Plugin(BasePlugin):
                 texts = extra[-(n - len(own)):] + own if n > len(own) else own[-n:]
             prof = {"examples": texts[-n:], "style": compute_style(texts[-n:])}
         except Exception as e:
-            self.log("style learning failed for %s: %s" % (key, e))
+            self.log("style learning failed for %s: %s" % (self._ltag(key), e))
         with self._lock:
             self._profiles[key] = (now, cache_key, prof)
         return prof
@@ -7344,7 +7382,7 @@ class Plugin(BasePlugin):
         try:
             hist = client.get_recent_messages(did, limit=n, account=account) or []
         except Exception as e:
-            self.log("history unavailable for %s: %s" % (key, e))
+            self.log("history unavailable for %s: %s" % (self._ltag(key), e))
 
         def keep(h):
             if self._history_row_allowed(h, account, did):
@@ -8455,7 +8493,7 @@ class Plugin(BasePlugin):
                        if h.get("out") and not h.get("is_service") and not self._is_bot_text(h.get("text"))]
                 found = context_language(own, [])
             except Exception as e:
-                self.log("language detection failed for %s: %s" % (key, e))
+                self.log("language detection failed for %s: %s" % (self._ltag(key), e))
             return found or detect_lang(last_in)
         now = self._now()
         ent = self._lang_cache.get(key)
@@ -8470,7 +8508,7 @@ class Plugin(BasePlugin):
                 inc = [str(h.get("text") or "") for h in hist if not h.get("out")]
                 found = context_language(own, inc)
             except Exception as e:
-                self.log("language detection failed for %s: %s" % (key, e))
+                self.log("language detection failed for %s: %s" % (self._ltag(key), e))
             self._lang_cache[key] = (now, found)
         return found or detect_lang(last_in)
 
@@ -8537,7 +8575,7 @@ class Plugin(BasePlugin):
                 parts, why = self.generate(key, account, did, msgs, c, st, split=not to_draft,
                                            extra_system=CMD_RULES, lang_text=lang_text, kind="command")
             except Exception as e:
-                self.log("command generation failed in %s: %s" % (key, e))
+                self.log("command generation failed in %s: %s" % (self._ltag(key), e))
                 parts, why = [], "ai failed"
             if not parts and opener:
                 parts = [opener]
@@ -8568,7 +8606,7 @@ class Plugin(BasePlugin):
                         return
                 self.send(did, part, None, account=account)
         except Exception as e:
-            self.log("command send failed in %s: %s" % (key, e))
+            self.log("command send failed in %s: %s" % (self._ltag(key), e))
             self._decide(key, "error", "owner_command_send_failed")
             client.bulletin(self.t("bl_cmd_failed", e))
             return
@@ -8982,7 +9020,7 @@ class Plugin(BasePlugin):
             try:
                 info = self._dialog_info(account, did)       # cache only, cheap
             except Exception as e:
-                self.log("info unavailable for %s: %s" % (key, e))
+                self.log("info unavailable for %s: %s" % (self._ltag(key), e))
             if info is not None:
                 reason = self.check_info(info)
                 if reason:
