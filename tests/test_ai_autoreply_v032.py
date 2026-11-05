@@ -141,11 +141,11 @@ class TestLocalization(Base):
         self.p.settings["ui_lang"] = 1
         texts = " ".join(str(getattr(i, "text", "")) + str(getattr(i, "subtext", "") or "")
                          for i in all_settings(self.p))
-        self.assertIn("Головний перемикач", texts)
+        self.assertIn("Автовідповідач", texts)
         self.assertIn("Тригер режиму друга", texts)
         self.assertIn("Розділ", texts)
         self.assertIn("Час і паузи", texts)
-        self.assertNotIn("Master switch", texts)
+        self.assertNotIn("Auto-reply", texts)
         self.assertNotIn("Timing and pauses", texts)
         self.p.settings["ui_lang"] = 2
         CLIENT.bulletins[:] = []

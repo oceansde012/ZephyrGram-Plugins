@@ -77,7 +77,7 @@ class TestLivePreset(unittest.TestCase):
         p.on_plugin_load()
         self.assertEqual(p._preset_index(), mod.LIVE_PRESET)
         self.assertEqual(p._pnum("owner_active", 0, 3600), 15)
-        self.assertEqual(p._pnum("hourly_cap", 0, 100000), 0)
+        self.assertEqual(p._pnum("hourly_cap", 0, 100000), 150)   # 0.8.0: a safety cap
         self.assertEqual(p._pnum("chat_hourly", 1, 1000), 60)
         self.assertTrue(p._live())
         self.assertTrue(p._pbool("scan"))
@@ -251,8 +251,10 @@ class TestLiveFlow(LiveBase):
             self.fire_timers()
             self.clock[0] += 16
         self.assertEqual(len(CLIENT.sent), 14)
-        self.p._hourly.extend([self.clock[0]] * 500)
-        self.assertIsNone(self.p.caps_ok(self.key()))             # no global hourly cap in Live
+        self.p._hourly.extend([self.clock[0]] * 100)
+        self.assertIsNone(self.p.caps_ok(self.key()))             # Live: 150 per hour in all chats (0.8.0)
+        self.p._hourly.extend([self.clock[0]] * 400)
+        self.assertEqual(self.p.caps_ok(self.key()), "hourly cap reached")
         self.p.settings["preset"] = 0
         self.assertEqual(self.p.caps_ok(self.key()), "hourly cap reached")
 

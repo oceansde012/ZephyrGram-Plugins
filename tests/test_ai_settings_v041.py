@@ -11,7 +11,7 @@ GLOBAL = {
     "master": ("Switch", True), "ui_lang": ("Selector", 0), "preset": ("Selector", 3),
     "reply_lang": ("Selector", 3), "reply_all": ("Switch", False), "all_accounts": ("Input", ""),
     "skip_links": ("Switch", True), "lore": ("Input", ""), "lore_learn": ("Switch", False), "revive": ("Switch", False), "revive_after": ("Input", "20"),
-    "revive_window": ("Input", "3"), "revive_daily": ("Input", "2"),
+    "revive_window": ("Input", "3"), "revive_daily": ("Input", "1"),
     "cmd_enable": ("Switch", True), "cmd_triggers": ("Input", mod.DEFAULT_TRIGGERS), "cmd_mode": ("Selector", 0),
     "cmd_any_private": ("Switch", False), "cmd_openers": ("Input", ""),
     "humanize": ("Switch", True), "learn_style": ("Switch", True), "learn_n": ("Input", "40"),
@@ -206,17 +206,17 @@ class TestSections(Screen):
     def test_empty_fields_show_the_current_preset_value(self):
         self.p.settings["preset"] = 3                            # Live
         rows = by_key(all_settings(self.p))
-        self.assertEqual(rows["debounce"].subtext, "Empty = 2-5")
-        self.assertEqual(rows["owner_active"].subtext, "Empty = 15. 0 = off")
-        self.assertEqual(rows["hourly_cap"].subtext, "Empty = 0. 0 = no limit")
-        self.assertEqual(rows["chat_hourly"].subtext, "Empty = 60")
-        self.assertIn("preset: on", rows["human_timing"].subtext)
+        self.assertEqual(rows["debounce"].subtext, "Now 2-5 (by pace)")
+        self.assertEqual(rows["owner_active"].subtext, "Now 15 (by pace). 0 = off")
+        self.assertEqual(rows["hourly_cap"].subtext, "Now 150 (by pace). 0 = no limit")
+        self.assertEqual(rows["chat_hourly"].subtext, "Now 60 (by pace)")
+        self.assertIn("By pace: on", rows["human_timing"].subtext)
         self.p.settings["preset"] = 0                            # Balanced
         rows = by_key(all_settings(self.p))
-        self.assertEqual(rows["owner_active"].subtext, "Empty = 45. 0 = off")
-        self.assertEqual(rows["chat_hourly"].subtext, "Empty = 20")
-        self.assertEqual(rows["typing_cap"].subtext, "Empty = 2.5")
-        self.assertIn("preset: off", rows["human_timing"].subtext)
+        self.assertEqual(rows["owner_active"].subtext, "Now 45 (by pace). 0 = off")
+        self.assertEqual(rows["chat_hourly"].subtext, "Now 20 (by pace)")
+        self.assertEqual(rows["typing_cap"].subtext, "Now 2.5 (by pace)")
+        self.assertIn("By pace: off", rows["human_timing"].subtext)
         self.assertEqual(rows["max_reply"].subtext, "Empty = 600 (by answer detail)")
         self.p.settings["answer_detail"] = 0
         self.assertEqual(by_key(all_settings(self.p))["max_reply"].subtext, "Empty = 240 (by answer detail)")
