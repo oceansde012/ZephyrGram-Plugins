@@ -175,7 +175,12 @@ Input(key, text, default="", subtext=None, on_change=None, hint=None, multiline=
 Selector(key, text, items, default=0, subtext=None, on_change=None)   # items: list[str]; value = index
 DialogPicker(key, text, on_pick, subtext=None)
 UsernameInput(key, text, on_resolved, subtext=None, hint=None)
+Page(key, text, subtext=None, icon=None)   # app 0.2.2+, only when client.SETTINGS_PAGES is true
 ```
+
+**`Page`** is a navigation row: a tap opens a sub-screen built from `create_settings(page=key)` (define
+`create_settings(self, page=None)`). `icon` is one of `general`, `style`, `chats`, `timing`, `limits`, `commands`,
+`memory`, `prompts`, `test`, `log`. Keys must be unique within one screen; callbacks of every open screen are kept.
 
 Values are stored per plugin; read them with `self.get_setting(key, default)`.
 `on_change(value)` is called on the UI thread. After a `Text.on_click`, `DialogPicker` or
@@ -494,6 +499,17 @@ writes nothing.
 see section 18). They are intercepted by the send hook;
 the command words (default `.ai`, `.аі`) are the `cmd_triggers` setting and the whole feature is `cmd_enable`.
 
+**0.8.0 additions** (all optional, missing = default). Per chat: `tone_<sk>` (int, `0` as global, `1` neutral,
+`2` friendly, `3` toxic), `lore_name_<sk>`, `lore_age_<sk>`, `lore_city_<sk>` (strings, empty = not given; removed
+with the chat). Global: `ui_mode` (int, `0` simple, `1` advanced; missing = simple without chats, else advanced),
+`setup_done` (bool), `news_seen` (string, version), `chat_sort` (int: interest, name, enabled first),
+`model_cheap_pick` / `temp_pick` (list indexes that write `model_cheap` / `temperature`), `interest` (JSON
+{chat key: [score 0-100, unix time]}, written by the plugin at most every 10 min per chat), `q_rev` (redraw marker
+of the queue page), `bulk_*` (draft values of the bulk change page). With `client.SETTINGS_PAGES` the screen is a
+tree of `ui.Page` screens (`pg_<name>`, chat pages `pg_chat:<account>:<dialog_id>`, `#<key>` shows that row first);
+`ui_section` is used only by the flat fallback screen. Live preset defaults: `hourly_cap` 150, `daily_cap` 300,
+`revive_daily` 1.
+
 ## 11. ai_autoreply 0.3.6: Live preset, scan, human timing, read marks, stickers
 
 Preset `3` **Live** is the default when `preset` is missing (new installs and settings without an explicit choice);
@@ -505,7 +521,7 @@ preset (on in Live, off in the others).
 |---|---|---|
 | `debounce`, `cooldown` | 2-5 s, 0-3 s (`cooldown_jitter`) | burst collection and pause between conversational turns |
 | `owner_active` / `owner_defers` | 15 s / 8 | silence after the owner's own message; the reply is **deferred** (retried up to `owner_defers` times), not dropped. If the owner wrote after the incoming message arrived, the bot stays silent (`owner_replied`) |
-| `chat_hourly`, `hourly_cap`, `daily_cap` | 60, 0 (= none), 400 | per-chat hourly, global hourly and per-chat daily limits |
+| `chat_hourly`, `hourly_cap`, `daily_cap` | 60, 150 (0.8.0; was 0 = none), 300 (0.8.0; was 400) | per-chat hourly, global hourly and per-chat daily limits |
 | `loop_burst` | 10 | own replies within 2 min that count as a ping-pong loop (others: 4) |
 | `ack_reply_pct` | 25 | chance to answer a plain acknowledgement ("ок", "дякую"); questions are always answered; emoji-only messages are still skipped |
 | `lat_warm_min/max` | 2 / 9 s | reply latency (from the arrival of the first message) when the interlocutor's previous message is younger than `warm_window` (120 s) and somebody replied within 5 min |

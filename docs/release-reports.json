@@ -360,6 +360,102 @@
           "human_text": "Если вы задали в промпте строгие правила, бот пишет аккуратнее и меньше от них отступает."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.8.0",
+      "sha256": "561b1d4f676884c46e00f3cce74a544837459c6653c0438a492a2d04102babf3",
+      "checks": "869 Python tests (20 new) and plugin validation passed; no live provider calls. Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "SETTINGS-PAGES",
+          "title": "Настройки по страницам",
+          "scope": "complete",
+          "details": "With client.SETTINGS_PAGES the screen is a main page (status line, master switch, 10 categories with a summary line) and sub-pages; detail pages hold pace numbers, splitting, learning, limits and filters. Every key of the old screen is reachable (tested); without ui.Page the old one-section screen stays as fallback.",
+          "limitations": "Icons for the new categories, two-line Page rows and a search need the app. Phone behaviour unverified.",
+          "human_text": "Вместо длинного списка с «Разделом» — главная страница с категориями и коротким состоянием каждой."
+        },
+        {
+          "id": "PERSON-PAGE",
+          "title": "Отдельная страница человека",
+          "scope": "complete",
+          "details": "Page per chat: on/off, mode, refresh topic, gender, language, style, new tone_<sk>, reactions, prompt; sub-pages Lore and notes (new lore_name/age/city_<sk>, sent to the prompt as one line) and AI access (memory, photos, voice, cloud).",
+          "limitations": "The app's native chat screen does not show the new fields yet. Phone behaviour unverified.",
+          "human_text": "У каждого собеседника своя страница: тон, имя, возраст, город, что вы о нём знаете, доступ ИИ."
+        },
+        {
+          "id": "SIMPLE-MODE",
+          "title": "Простой вид и быстрая настройка",
+          "scope": "complete",
+          "details": "ui_mode: simple hides model, .ai command and detail pages (values stay in force); missing = simple without chats, advanced otherwise. Three-step quick setup (pace and style, about me, where to answer) until a chat exists or Done is tapped.",
+          "limitations": "Phone behaviour unverified.",
+          "human_text": "Новичку — три шага настройки и простой вид, опытным — всё, как раньше."
+        },
+        {
+          "id": "MODEL-LISTS",
+          "title": "Списки для модели фона и температуры",
+          "scope": "complete",
+          "details": "model_cheap_pick and temp_pick (0.6 / 0.85 / 1.0 / custom) write model_cheap and temperature; raw fields moved to Own values. The list of models is static.",
+          "limitations": "A live model list from the server needs an app hook.",
+          "human_text": "Модель для фоновых задач и температуру теперь выбирают из списка."
+        },
+        {
+          "id": "QUEUE",
+          "title": "Очередь ответов",
+          "scope": "partial",
+          "details": "Queue page lists chats with pending or running replies; Send now skips the collection pause, cooldown and human delays of that reply; Stop cancels it the same way as the owner's own message; Stop all. The open page is redrawn through the q_rev key on queue changes.",
+          "limitations": "No ticking countdown: the page shows the time at the moment it was drawn. Phone behaviour unverified.",
+          "human_text": "Видно, кому бот готовит ответ, и можно отправить его сразу или отменить."
+        },
+        {
+          "id": "BARS",
+          "title": "Шкалы памяти и интерес",
+          "scope": "complete",
+          "details": "Text bars for summaries, database size and memory updates today; interest 0-100 from the last 30 messages (speed, length, questions, who starts, emoji, recency) computed while the bot reads a chat, at most every 10 min, stored in 'interest'; chat list sort by interest, name or enabled.",
+          "limitations": "Interest is shown only for chats the bot has read since the update; real progress bars need ui.Progress in the app.",
+          "human_text": "Видно, насколько заполнена память и насколько собеседнику интересно общение; чаты можно сортировать по интересу."
+        },
+        {
+          "id": "NEWS-REPORT-BULK",
+          "title": "Что нового, отчёт в чат, массовое изменение",
+          "scope": "complete",
+          "details": "What's new (0.8.0, 0.7.7, 0.7.6) with Page links 'page#key' that show the setting first under 'New'; Send report to a chat (the last-hour report, parts up to 4000 characters); bulk change of mode, style, tone, reactions, language and memory for all, enabled or one account's chats.",
+          "limitations": "No scroll/highlight to the setting and no file sharing without app hooks. Phone behaviour unverified.",
+          "human_text": "Из «Что нового» можно сразу перейти к настройке, отчёт можно отправить в чат, а режим или тон поменять сразу многим чатам."
+        },
+        {
+          "id": "REFRESH",
+          "title": "Освежить тему",
+          "scope": "complete",
+          "details": "Button on the person's page (Auto mode, private chats): the revival path without the silence checks; master, limits and chat state are still checked.",
+          "limitations": "Not available in the app's native chat screen. Phone behaviour unverified.",
+          "human_text": "Можно попросить бота прямо сейчас написать собеседнику на новую тему."
+        },
+        {
+          "id": "FIXES",
+          "title": "Исправления экрана",
+          "scope": "complete",
+          "details": "tr() falls back to the reason table (cloud_* rows showed raw keys); temperature field shows 0.85; trigger hint lists .аи; Remove chat and Clear log need a second tap within 5 s; shorter, consistent labels.",
+          "limitations": "",
+          "human_text": "На экране больше нет служебных слов вместо текста, а удаление требует второго нажатия."
+        },
+        {
+          "id": "DEFAULTS",
+          "title": "Безопасные значения Live",
+          "scope": "complete",
+          "details": "Live preset with empty fields: hourly_cap 150 (was none), daily_cap 300 (was 400), revive_daily 1 (was 2). Stored values unchanged.",
+          "limitations": "Users relying on the old unlimited hourly rate with an empty field get the new cap.",
+          "human_text": "Бот не отправит больше 150 ответов в час и не будет «оживлять» разговор чаще раза в день."
+        },
+        {
+          "id": "SIZE",
+          "title": "Размер файла",
+          "scope": "complete",
+          "details": "Version-history comments removed and docstrings cut to one sentence before the new code (AST unchanged); 515 456 -> 487 162 bytes before the pages, 520 978 bytes after (limit 524 288).",
+          "limitations": "About 3 KB left before the size limit.",
+          "human_text": "Плагин остался в пределах 512 КБ, несмотря на новые страницы."
+        }
+      ]
     }
   ]
 }

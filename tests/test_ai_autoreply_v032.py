@@ -78,6 +78,8 @@ class TestDecisionLog(Base):
         self.assertEqual(len(CLIENT.clipboard[0].splitlines()), 26)
         self.assertIn("Alice", CLIENT.clipboard[0])
         by_key["log_clear"].on_click()
+        self.assertNotEqual(len(self.p._decisions), 0)          # 0.8.0: armed by the first tap
+        by_key["log_clear"].on_click()
         self.assertEqual(len(self.p._decisions), 0)
         self.assertEqual(self.p.settings["decisions"], "[]")
         _i, rest = self.rows()
@@ -139,11 +141,11 @@ class TestLocalization(Base):
         self.p.settings["ui_lang"] = 1
         texts = " ".join(str(getattr(i, "text", "")) + str(getattr(i, "subtext", "") or "")
                          for i in all_settings(self.p))
-        self.assertIn("Головний перемикач", texts)
+        self.assertIn("Автовідповідач", texts)
         self.assertIn("Тригер режиму друга", texts)
         self.assertIn("Розділ", texts)
         self.assertIn("Час і паузи", texts)
-        self.assertNotIn("Master switch", texts)
+        self.assertNotIn("Auto-reply", texts)
         self.assertNotIn("Timing and pauses", texts)
         self.p.settings["ui_lang"] = 2
         CLIENT.bulletins[:] = []
