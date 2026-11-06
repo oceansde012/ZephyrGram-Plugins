@@ -1,4 +1,5 @@
 """ai_autoreply 0.9.6: style layer of the server memory (client.memory_*), messages switch, no groups. Fake bridge only."""
+import unittest
 import copy
 from test_ai_autoreply import CLIENT, DID, mod
 from test_ai_cloud_memory import CloudBase
@@ -43,6 +44,7 @@ class StyleBase(CloudBase):
 
     def f_search(self,account,area,subject,query='',k=10,timeout=10,expected_binding=None):
         self.rec('fsearch',account,area,subject,expected_binding,None)
+        self.f_queries=getattr(self,'f_queries',[])+[query]
         return {'kind':'untrusted_facts','instructions':False,'facts':copy.deepcopy(self.s_facts)}
 
     def style_on(self):
@@ -161,7 +163,9 @@ class TestStyleRead(StyleBase):
         block=self.p._style_context(key,0,DID,[{'role':'user','content':'Идём вечером в кино'}],budget=1500)
         self.assertIn('UNTRUSTED QUOTED DATA',block);self.assertIn('давай)',block);self.assertIn('банке',block)
         self.assertLessEqual(len(block),1500+500)
-        self.assertEqual([c[0] for c in self.s_calls],['search','fsearch'])
+        self.assertEqual([c[0] for c in self.s_calls],['search','fsearch','fsearch'])  # 0.9.9: by text, then the newest top up
+        self.assertEqual(self.f_queries,['Идём вечером в кино',''])
+        self.assertEqual(block.count('Работает в банке'),1)  # the same fact from both calls is quoted once
 
     def test_malformed_server_data_is_ignored(self):
         key=self.style_on()
@@ -198,3 +202,45 @@ class TestRawSwitch(StyleBase):
 
     def test_settings_page_is_within_row_limit(self):
         self.assertLessEqual(len(self.p._cloud_settings(self.key())),14)
+
+
+class TestV099Fixes(StyleBase):
+    def test_facts_block_names_the_person_and_says_whose_facts_these_are(self):
+        key=self.style_on();self.s_facts=[{'fact':'Макс купил Skoda'}]
+        block=self.p._style_context(key,0,DID,[{'role':'user','content':'я тебе говорил, какую тачку я купил?'}],budget=1500)
+        self.assertIn('about the person who writes to you',block);self.assertIn('not about the owner',block)
+
+    def test_no_facts_no_person_note(self):
+        key=self.style_on();self.s_facts=[]
+        self.s_examples=[{'contextText':'Пойдём в кино?','replyText':'давай)','source':'owner_real'}]
+        block=self.p._style_context(key,0,DID,[{'role':'user','content':'Идём вечером в кино'}],budget=1500)
+        self.assertIn('давай)',block)
+
+    def test_empty_query_keeps_single_facts_call(self):
+        key=self.style_on();self.s_facts=[{'fact':'Работает в банке'}]
+        self.p._style_context(key,0,DID,[{'role':'user','content':'ок'}],budget=1500)
+        self.assertEqual(self.f_queries,[''])
+
+
+class TestDeferredPromise(unittest.TestCase):
+    f=staticmethod(mod.strip_deferred_promise)
+
+    def test_tail_is_cut_after_unknown(self):
+        self.assertEqual(self.f(['хз, потом скажу']),['хз'])
+        self.assertEqual(self.f(['хз, не помню','скажу потом']),['хз, не помню'])
+        self.assertEqual(self.f(['не знаю, скину позже фотку']),['не знаю'])
+        self.assertEqual(self.f(['не знаю','вроде в среду, скажу точно потом']),['не знаю','вроде в среду'])
+        self.assertEqual(self.f(['хз, потім скажу']),['хз'])
+
+    def test_real_promises_and_other_replies_untouched(self):
+        for parts in (['окей, скину вечером'],['так, не знаю, давай завтра'],['давай)']):
+            self.assertEqual(self.f(parts),parts)
+
+    def test_reply_is_never_emptied(self):
+        self.assertEqual(self.f(['скажу потом']),['скажу потом'])
+        self.assertEqual(self.f([]),[])
+
+
+class TestPromptHasNoCannedPhrase(unittest.TestCase):
+    def test_no_ready_made_dunno_phrase(self):
+        self.assertNotIn('потім скажу',mod.HUMAN_PROMPT)
