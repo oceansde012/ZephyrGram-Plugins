@@ -1,0 +1,323 @@
+{
+ "schema": 1,
+ "sequence": 61,
+ "generated": "2026-11-06T09:20:40Z",
+ "expires": "2027-01-05T09:20:40Z",
+ "repo": "oceansde012/ZephyrGram-Plugins",
+ "plugins": [
+  {
+   "id": "ai_autoreply",
+   "name": "AI auto-reply",
+   "author": "ZephyrGram",
+   "description": "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "ai.complete",
+    "ai.memory",
+    "memory.style",
+    "chat.read",
+    "messages.send",
+    "network.requests",
+    "ui.menu",
+    "updates.read"
+   ],
+   "latest": "0.9.10",
+   "versions": [
+    {
+     "version": "0.9.10",
+     "versionCode": 51,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/8f3e2cf14142faf1234177a255ce7b93d9c7ffff/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "f82ceb12ba98fc7bc35d56f8e83a88f4df272dd09f710aa400d9536a1e563f95",
+     "size": 632708,
+     "changelog": "- Если облачная память не включается, плагин теперь пишет причину простыми словами и что делать: ключ ИИ-сервера не привязан к вашему аккаунту Telegram, ключ от другого аккаунта, память выключена на сервере, сервер просыпается, нет связи. Раньше любой отказ выглядел как «проверьте аккаунт, сервер и обновление».\n- Экран памяти стал короче и без слова Neon: «Как вы отвечаете» (память стиля) и «Сводка чата» на сервере. У каждой одно-два предложения вместо длинного текста.\n- Вместо трёх кнопок «Вклю",
+     "published": "2026-11-06T09:20:40Z"
+    },
+    {
+     "version": "0.9.9",
+     "versionCode": 50,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/c51a1d42cc4683a6a51fc7a3d0d2097efabf8e0e/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "17616e5826f0b1ad8791308cfd8273d4ccf513526dcc64345179252e14cbd6d0",
+     "size": 627015,
+     "changelog": "- Новый переключатель «Сохранённые GIF» на странице «Медиа» (по умолчанию выключен): иногда после текста отправляет одну из ваших сохранённых гифок, только в личных чатах и в режиме «автоматически». Пункт виден лишь на приложении 0.2.8 и новее, на старых его нет и ничего не меняется.\n- «Что нового» теперь в самом низу главной страницы, под рабочими разделами.\n- «Начать память заново» просит второе нажатие (и на странице памяти, и в быстром меню шапки), чтобы не стереть память случайно.\n- Подпись",
+     "published": "2026-11-06T06:08:14Z"
+    },
+    {
+     "version": "0.9.8",
+     "versionCode": 49,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/8ca26e934df550961aedafafc732c7097001aaee/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "0480af7e236b9541942b0201908a57ef777e937425913177b7e59a9837fa96a2",
+     "size": 620158,
+     "changelog": "- Исправлено: на приложении 0.2.5 и новее плагин не запускался и показывал «Cannot load ai_autoreply: TypeError: 'dict' object is not callable». Причина была в названии внутренней функции меню, которое приложение занимает само. Теперь плагин запускается.\n- В шапке чата появилась кнопка «ИИ» (приложение 0.2.7+): быстрое меню этого чата. Включить или выключить автоответчик, режим «автоматически / черновиками», «Начать диалог», «Изучить чат», «Начать память заново». Старая кнопка и меню остаются ка",
+     "published": "2026-11-05T21:27:07Z"
+    },
+    {
+     "version": "0.9.7",
+     "versionCode": 48,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/b806132ff36cbc45fdec3588de9d159b6f946c80/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "850997a5f11ea48ee32698164753e5e3f0b69171c5401e1473a70ad7fc7f1851",
+     "size": 610383,
+     "changelog": "- Новый переключатель чата «Видеть кадр видео и кружков» (нужно «Видеть медиа», приложение 0.2.7+): вместо маленького превью модель получает настоящий кадр присланного видео, кружка или GIF.\n- Если собеседник говорит о видео, кружке или гифке, которые присылал раньше («посмотрел видео?»), бот видит кадр последнего такого сообщения.\n- Раздел «Доступ ИИ» чата получил страницу «Расширенные настройки общения»: «Видеть медиа», «Видеть кадр видео и кружков», «Распознавать голосовые» в одном месте.\n- Б",
+     "published": "2026-11-05T21:21:04Z"
+    },
+    {
+     "version": "0.9.6",
+     "versionCode": 47,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/0a52e9c3919ba6b45f293addf110cec7308070a1/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "f1dd9043bf03248894b4b6143441706ebb660b721ddeab1fd0ef02acd8f8dac9",
+     "size": 604134,
+     "changelog": "- «Память стиля в Neon» (на странице «Память в Neon» личного чата, по умолчанию выключено, согласие на каждый чат): пары «их сообщение → ваш настоящий ответ», чем закончились предложенные ответы («+», «- свой текст», «неважно» в «Спрашивать меня о важном») и короткие факты о собеседнике хранятся 90 дней на вашем AI-сервере. Перед ответом из Neon подставляются до 3 похожих прошлых ответов и факты, всё внутри общего бюджета памяти 3000 знаков и как цитаты, а не инструкции.\n- «Хранить и сами сообще",
+     "published": "2026-11-05T20:10:42Z"
+    },
+    {
+     "version": "0.9.5",
+     "versionCode": 46,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/311fdb5a50247b7a7fab53f73c2152333bc82d98/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "c202584c054e3b68ba148b11b27e926d7b25592c5bd60973e3c361983a39f608",
+     "size": 582015,
+     "changelog": "- На странице «Общение» у личного чата появился пункт «Память этого чата»: шкала заполнения сводки (проценты, знаки из 8000, когда обновлена, заметок из 12) и предупреждение от 90%.\n- «Начать память заново»: сводка становится пустой, заметки о собеседнике очищаются, уже сказанное заново не пересказывается. «Вернуть прошлую память» откатывает сводку и заметки. Старые версии сводки остаются на телефоне. Если для чата включена память в Neon, она не трогается; удалить её можно отдельной кнопкой с дв",
+     "published": "2026-11-05T20:00:38Z"
+    },
+    {
+     "version": "0.9.4",
+     "versionCode": 45,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/e4a94b03ed1d85e8c402f6d52881c8e79ea6394a/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "6a866ea4902b2d0c5ad0586cd4bf380ad848dc2e0d595c289a12646d0a6aa77d",
+     "size": 568384,
+     "changelog": "- У чата новая страница «Общение»: на неё перенесены «Начать диалог», «Освежить тему сейчас», «Тест стиля в этом чате» и реакции, а также новые пункты ниже. Основная страница чата снова не длиннее 14 пунктов.\n- «Как общаться дальше»: временное правило для этого чата, например «больше флирта» или «меньше вопросов». Действует «Правило действует (дней)», по умолчанию 3 дня, потом снимается само. Изменение текста начинает отсчёт заново, в подсказке видно, сколько дней осталось.\n- «Изучить чат»: сраз",
+     "published": "2026-11-05T19:46:10Z"
+    },
+    {
+     "version": "0.9.3",
+     "versionCode": 44,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/141fc94b04550e35a79766d2a679d6767d89e30d/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "7cc7a0e14fb52f617169dbe9dc33a83a56aaf3fca08cf90e623ba6e433cc1537",
+     "size": 553356,
+     "changelog": "- Исправлена «петля», когда бот переставал отвечать: если он уже ответил много раз за 2 минуты («Ответов за 2 минуты, считающихся петлёй»), следующее сообщение собеседника раньше молча выбрасывалось насовсем, и страховочное сканирование его тоже не подбирало. Теперь сообщение ждёт, пока окно освободится, и бот отвечает на него.\n- Все случаи, когда бот решил не отвечать или подождать (лимиты, паузы, пауза в группе, ожидание вашего ответа в «Избранном»), пишутся в лог плагина с причиной. В логе не",
+     "published": "2026-11-05T19:37:41Z"
+    },
+    {
+     "version": "0.9.2",
+     "versionCode": 43,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/381ce5b8c0ac1b51f97e49c2c6065acf964b5d7e/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "1a2b75460086590e710a4e46d43d42631dc87d8696c5f134e5b51dea95aac13e",
+     "size": 541582,
+     "changelog": "- План общения для личного чата (необязательно): «Чат → Лор и заметки → План общения», одна строка на день общения, например «День 1: знакомство», «День 2: общие интересы». Бот мягко ведёт разговор к теме текущего этапа, но не навязывает её и идёт за собеседником. Следующий этап начинается на следующий день общения или раньше, если собеседник сам заговорил о теме более позднего этапа. Назад этап не возвращается, при изменении плана отсчёт начинается заново. Текущий этап виден в подсказке. Лишних",
+     "published": "2026-11-05T19:30:10Z"
+    },
+    {
+     "version": "0.9.1",
+     "versionCode": 42,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/c811019499303312a990cdb5017f2c547b646f83/plugins/ai_autoreply/ai_autoreply.plugin",
+     "sha256": "41eb4b7dede70d075f4d9677e5094816df7f713f4305dad6491799b2259b5e5b",
+     "size": 526663,
+     "changelog": "- Ответы короче и живее: длина ответа примерно как у входящего сообщения (на «как ты?» несколько слов, не больше 60 знаков; на длинное сообщение до двух его длин), одно сообщение не длиннее 160 знаков. Если ИИ написал слишком длинно, он один раз переписывает короче, потом лишнее обрезается по концу предложения. При «Подробных» ответах длина не ограничивается.\n- В темпе «Живой человек», в «Естественном общении» и при выключенных «Коротких сообщениях» не больше 2 сообщений подряд.\n- Без длинных ти",
+     "published": "2026-11-05T19:02:55Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "chat_history_export",
+   "name": "Экспорт истории чата",
+   "author": "ZephyrGram",
+   "description": "Сохраняет доступную текстовую историю чата и всех тем в ZIP с JSON и TXT. Без AI и автоотправки.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "ui.menu",
+    "chat.read",
+    "network.requests",
+    "java.raw"
+   ],
+   "latest": "1.0.5",
+   "versions": [
+    {
+     "version": "1.0.5",
+     "versionCode": 6,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/3ea9234349e45bd790a167cde61a07b4b61f5f0b/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "3a5522804d590b3cea27107920e37c1c6c3f432fca9d07d8e6d7f7ad6b929917",
+     "size": 40353,
+     "changelog": "- Исправлено: кнопка «Экспортировать» в окне подтверждения (экспорт из меню чата) ничего не запускала. Теперь экспорт начинается сразу после нажатия.\n- Исправлено: если Telegram не отвечал на запрос, экспорт мог зависнуть. Теперь через 50 секунд он корректно завершается с пометкой о неполном архиве.\n- Обновлять приложение не нужно.",
+     "published": "2026-11-05T19:54:28Z"
+    },
+    {
+     "version": "1.0.4",
+     "versionCode": 5,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/59ecaf2328ffaa9ff84524a3018f60bbfe03369f/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "cc64a574f104c66c504fe23031e891de456e8961df262d1c23d24337f50a6902",
+     "size": 38899,
+     "changelog": "- Исправлено: приложение падало после нажатия «Экспортировать» в окне подтверждения (экспорт из меню чата).\n- Исправлено: пока плагин записывал страницу истории, ответы Telegram во всём приложении могли подвисать.\n- Если Telegram не ответил на запрос за 50 секунд, экспорт теперь корректно завершается, а не ждёт бесконечно.",
+     "published": "2026-11-05T19:18:37Z"
+    },
+    {
+     "version": "1.0.3",
+     "versionCode": 4,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/2452dfe16b0c3e5d1cd6e32be97b54d00749eee7/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "6d37c1eb42372cb458bd8c259a5fd8dd356ee1a2c032b20201f8badfb995fee8",
+     "size": 37177,
+     "changelog": "- Пункт меню чата называется «Экспорт истории чата» (без «все темы», которые есть только у форумов).\n- В секретных чатах пункт не показывается: их экспорт не поддерживается.",
+     "published": "2026-11-05T18:39:52Z"
+    },
+    {
+     "version": "1.0.2",
+     "versionCode": 3,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/c373970c1280dffe51f2a542173b676e3eca9ee4/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "be184a460980107ba5e58d967fa5e715299f76ca01d1af0ba31a66581adefd17",
+     "size": 36752,
+     "changelog": "- Временная база с полным текстом чата удаляется сразу после создания ZIP, а также при ошибке.\n- Хранится только последний архив: старые выгрузки удаляются перед новым экспортом и при выключении плагина.\n- Копия для «Поделиться архивом» удаляется через 10 минут; при выключении и запуске плагина удаляются только копии старше 10 минут, чтобы не прервать отправку. Незавершённый экспорт при выключении дописывается в фоне.\n- Личные чаты с запретом сохранения содержимого тоже не экспортируются, если п",
+     "published": "2026-11-04T21:05:29Z"
+    },
+    {
+     "version": "1.0.1",
+     "versionCode": 2,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/179b349b09de3de33aa9695a96439fa89f9f644d/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "4892bec7ba9e4d22508c47bfb2cb33034d31ec102e08e1d866a4f97dfcf20f1e",
+     "size": 31965,
+     "changelog": "- В настройках плагина добавлены «Выбрать чат» и «Начать экспорт»: запуск больше не зависит от пункта меню чата.\n- Выбранный чат сохраняется с привязкой к аккаунту; после смены владельца аккаунта требуется повторный выбор.\n- Повторное нажатие запуска не создаёт параллельные выгрузки.",
+     "published": "2026-11-02T13:51:06Z"
+    },
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.4",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/adbbd1cda4b565e2db55a3c0389d98fd7b9f9d81/plugins/chat_history_export/chat_history_export.plugin",
+     "sha256": "360de1854480df1e8e559505c0e270c597a734bd6a6eea4b21bcd1ea9b886dc9",
+     "size": 29038,
+     "changelog": "- Экспорт доступной истории выбранного чата прямо на телефоне через меню чата.\n- Для форумов: общий поток, полный список тем и отдельная пагинация каждой темы; сообщения объединяются без дублей.\n- ZIP содержит result.json, history.txt и manifest.json с признаком полноты экспорта.\n- Сохраняются тексты, подписи, ID тем, ответы, события и метаданные вложений. Медиафайлы не скачиваются.\n- Кнопки отмены, отправки через системное меню и сохранения в Загрузки на Android 10+.\n- Нет AI-запросов, автомати",
+     "published": "2026-11-02T13:42:57Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "copy_message_id",
+   "name": "Copy message ID",
+   "author": "ZephyrGram",
+   "description": "Adds a 'Copy message ID' item to the message context menu.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "ui.menu"
+   ],
+   "latest": "1.0.0",
+   "versions": [
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/64793f11a7b48573ad09e6fd20f7c2dd735076df/plugins/copy_message_id/copy_message_id.plugin",
+     "sha256": "f468c549afef7235dd3f4771e3e889266cf654924709e1bb4d741815c7e96963",
+     "size": 849,
+     "changelog": "- Initial release: \"Copy message ID\" in the message context menu.",
+     "published": "2026-10-30T13:23:40Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "inline_as_own",
+   "name": "Инлайн как своё",
+   "author": "ZephyrGram",
+   "description": "Отправляет выбранный результат инлайн-бота как ваше обычное сообщение: без «via @bot» и без кнопок бота.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "inline.hook"
+   ],
+   "latest": "1.0.0",
+   "versions": [
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.2.5",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/3b8c1fbd433704fea54c7abb120f0acb86b43e2b/plugins/inline_as_own/inline_as_own.plugin",
+     "sha256": "8abd7d2a48f89edbc3c599afb037c57950fa9f9701a867529b7caad67a474f64",
+     "size": 5060,
+     "changelog": "Первая версия. Результат инлайн-бота (гифка, стикер, видео, файл, текст) уходит как ваше обычное сообщение: без «via @bot» и без кнопок бота. Подпись бота у медиа можно убирать. Игры, секретные чаты, внешние фото, незагруженные внешние файлы, геоточки, места, контакты и счета уходят как обычно, причина пишется в лог плагина. Нужно приложение 0.2.5 или новее.",
+     "published": "2026-11-05T19:15:49Z"
+    }
+   ],
+   "revoked": []
+  },
+  {
+   "id": "outgoing_signature",
+   "name": "Outgoing signature",
+   "author": "ZephyrGram",
+   "description": "Appends a configurable signature to every text message you send.",
+   "tags": [],
+   "icon": "",
+   "permissions": [
+    "messages.send"
+   ],
+   "latest": "1.0.0",
+   "versions": [
+    {
+     "version": "1.0.0",
+     "versionCode": 1,
+     "apiVersion": 1,
+     "minAppVersion": "0.1.0",
+     "maxAppVersion": "",
+     "url": "https://raw.githubusercontent.com/oceansde012/ZephyrGram-Plugins/64793f11a7b48573ad09e6fd20f7c2dd735076df/plugins/outgoing_signature/outgoing_signature.plugin",
+     "sha256": "2157eac37561a9f38202efe37f22edd6c6277e8f96291383ec6015b3f7e2d397",
+     "size": 1401,
+     "changelog": "- Initial release: appends a configurable signature to outgoing messages.",
+     "published": "2026-10-30T13:23:40Z"
+    }
+   ],
+   "revoked": []
+  }
+ ],
+ "removed": []
+}
