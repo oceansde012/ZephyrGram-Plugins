@@ -908,7 +908,7 @@ Only in app 0.2.8+. Feature-detect with `getattr(client, "NESTED_SETTINGS", Fals
 ### Nested rows: `item.parent`
 
 Set `item.parent = "<key of a Switch>"` **after** creating the item. The row is then hidden under that switch and shown
-only while the switch row is expanded (a tap on the row, not on the switch itself, expands it). The parent switch row
+only while the switch row is expanded. The parent switch row
 shows a counter `on/total` of its child switches (or the number of children if none of them is a switch) and a chevron.
 
 ```python
@@ -923,7 +923,7 @@ def create_settings(self, page=None):
 
 Rules (checked by the host, otherwise the row simply stays at top level):
 * the parent key must exist on the same screen and belong to a `Switch`;
-* a row cannot be its own parent; there is one level only (a child cannot have children);
+* a row cannot be its own parent; there is one level only: a row whose parent is itself a child is **never shown**, so do not nest deeper;
 * only `Switch` rows can be parents, children can be any row type;
 * keys stay unique per screen and the child's value is read as usual with `get_setting(key, default)`;
 * the parent switch keeps its own on/off meaning: collapsing or switching it off does **not** change the children's stored values.
