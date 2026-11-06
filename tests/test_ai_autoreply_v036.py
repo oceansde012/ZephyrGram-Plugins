@@ -822,8 +822,8 @@ class TestLanguage(LiveBase):
 
 class TestMeta(unittest.TestCase):
     def test_header(self):
-        self.assertEqual(mod.__version__, "0.9.8")
-        self.assertEqual(mod.__version_code__, 49)
+        self.assertEqual(mod.__version__, "0.9.9")
+        self.assertEqual(mod.__version_code__, 50)
         self.assertIn("network.requests", mod.__permissions__)
         self.assertEqual(len(mod.PRESET_NAMES), len(mod.PRESETS))
 
