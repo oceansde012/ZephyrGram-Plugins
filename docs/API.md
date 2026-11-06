@@ -896,3 +896,45 @@ def create_settings(self, page=None):
 def on_pics(self, paths):
     self.set_setting("pics", json.dumps(paths))  # settings hold str/int/float/bool; copies expire after 24 h
 ```
+
+## App 0.2.8 additions
+
+Only in app 0.2.8+. Feature-detect with `getattr(client, "NESTED_SETTINGS", False)`.
+
+| Flag | Covers |
+|---|---|
+| `client.NESTED_SETTINGS` | `item.parent` (rows nested under a `Switch`) |
+
+### Nested rows: `item.parent`
+
+Set `item.parent = "<key of a Switch>"` **after** creating the item. The row is then hidden under that switch and shown
+only while the switch row is expanded. Tapping the row (not the switch itself) expands or collapses it; tapping the
+switch toggles the value. The parent row shows `on/total` next to its title (`total` = child switches that are on out of
+all child switches; if no child is a switch, `0/<number of children>`) and a ▴/▾ mark.
+
+```python
+def create_settings(self, page=None):
+    gif = ui.Switch("gif", "Send saved GIFs", default=False)
+    freq = ui.Selector("gif_freq", "How often", ["Rarely", "Sometimes", "Often"], default=1)
+    freq.parent = "gif"            # hidden until "Send saved GIFs" is expanded
+    only = ui.Switch("gif_private", "Only in private chats", default=True)
+    only.parent = "gif"
+    return [ui.Header("Media"), gif, freq, only]
+```
+
+Rules (checked by the host, otherwise the row simply stays at top level):
+* the parent key must exist on the same screen and belong to a `Switch`;
+* a row cannot be its own parent; there is one level only: a row whose parent is itself a child is **never shown**, so do not nest deeper;
+* only `Switch` rows can be parents; children can be any row type except `Header` and `Divider` (they are not drawn as a header or note when nested, so keep them at top level);
+* keys stay unique per screen and the child's value is read as usual with `get_setting(key, default)`;
+* the parent switch keeps its own on/off meaning: collapsing or switching it off does **not** change the children's stored values.
+
+On apps older than 0.2.8 the `parent` attribute is ignored and every row is shown at top level, so a plugin can set
+it unconditionally. If the layout must differ on old apps, check `client.NESTED_SETTINGS` instead.
+
+### Card layout of plugin settings (0.2.8)
+
+The settings screen of a plugin is drawn as cards: a `Header` starts a new card (small grey text above it), the rows
+that follow sit in one rounded group, and a `Divider` ends the card; its `text` becomes a note under the card. A row's
+`subtext` is its second line, values of `Selector` rows are shown on the right. There is nothing to opt in to and
+existing plugins keep working, but long explanations belong in `Divider.text` (a note under the card), not in `Text`.
