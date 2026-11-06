@@ -976,6 +976,38 @@
           "human_text": "Под шкалой памяти будет видно, сколько хранится в облаке, когда приложение начнёт отдавать эти данные."
         }
       ]
+    },
+    {
+      "product": "ai_autoreply",
+      "version": "0.9.10",
+      "sha256": "f82ceb12ba98fc7bc35d56f8e83a88f4df272dd09f710aa400d9536a1e563f95",
+      "checks": "Python tests (1125, 12 new in tests/test_ai_memory_reasons_v0910.py) and plugin validation passed; real zephyr_host loader OK; no live provider calls. Size 632708 B: minAppVersion 0.2.5, index-v2.json only (D-020). Phone behaviour unverified.",
+      "items": [
+        {
+          "id": "MEM-REASONS",
+          "title": "Понятная причина, почему не включается память",
+          "scope": "complete",
+          "details": "A refused memory call now shows its reason in plain words in the status line: key not linked to the Telegram account (memory_token_not_owned), key of another account, memory off or not ready on the server, server waking up (503), no connection, limit, app or server too old, missing permission. The host maps the server code only for the style layer; the chat-summary calls report just memory_not_authorized, so the plugin refines that one with a single memory_style_status call when the style layer is available. Unknown errors keep a short generic text.",
+          "limitations": "On apps before 0.2.9 the chat-summary calls still lose the exact 403 code (ZephyrMemoryClient.request, /status without styleErrors); the plugin works around it only when memory.style is available. Not checked on a phone.",
+          "human_text": "Если память не включается, автоответчик теперь пишет причину простыми словами и что делать: ключ не привязан к вашему Telegram, ключ от другого аккаунта, память выключена на сервере, сервер просыпается или нет связи."
+        },
+        {
+          "id": "MEM-SCREEN",
+          "title": "Короткий экран памяти без слова Neon",
+          "scope": "complete",
+          "details": "The per-chat memory section is shortened to one or two plain sentences per block and renamed: «Как вы отвечаете» (style memory) and «Сводка чата». The word Neon is removed from the interface (also from the memory gauge line and the quick menu). The error text is shown once, in the status line; the toast is short (Не вышло, причина ниже). Settings keys and the protocol are unchanged.",
+          "limitations": "Texts exist in uk, ru and en; layout not checked on a phone.",
+          "human_text": "Экран памяти стал короче и понятнее: два блока, «Как вы отвечаете» и «Сводка чата», по паре строк вместо длинного текста, без слова Neon. Ошибка теперь показывается один раз, в строке статуса."
+        },
+        {
+          "id": "MEM-SWITCH",
+          "title": "Один переключатель памяти и безопасное удаление",
+          "scope": "complete",
+          "details": "The three buttons Enable / Stop / Delete are replaced by one switch that shows its state (Turn on / Turn off) and a separate Delete from server button that needs a second tap. The chat-summary delete had no confirmation before. Setting keys style_enable_*, cloud_enable_*, style_delete_*, cloud_delete_* are kept; the old *_off_* items are gone.",
+          "limitations": "None known beyond no phone check.",
+          "human_text": "Вместо трёх кнопок памяти теперь один переключатель, который показывает, включено или нет, и отдельная кнопка «Удалить с сервера» с подтверждением вторым нажатием."
+        }
+      ]
     }
   ]
 }

@@ -157,7 +157,7 @@ class TestChatPage(Pages):
         texts = " ".join(str(getattr(i, "text", "")) for i in self.p.create_settings("pg_access:" + self.key()))
         self.assertNotIn("cloud_", texts)
         self.assertIn(self.p.t("cloud_title"), texts)
-        self.assertEqual(mod.tr("ru", "cloud_title"), u"Память в Neon")
+        self.assertEqual(mod.tr("ru", "cloud_title"), u"Сводка чата на сервере")
 
     def test_person_tone_and_lore_fields_reach_the_prompt(self):
         self.enable()
