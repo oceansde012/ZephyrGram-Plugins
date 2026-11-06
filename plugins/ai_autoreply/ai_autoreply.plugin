@@ -2,8 +2,8 @@ __id__ = "ai_autoreply"
 __name__ = "AI auto-reply"
 __description__ = "Answers incoming messages with the app's AI in chats you add (or every private chat), in your own writing style, with human-like timing. Auto, draft or .ai command mode; presets, stickers, reactions, chat memory, decision log."
 __author__ = "ZephyrGram"
-__version__ = "0.9.9"
-__version_code__ = 50
+__version__ = "0.9.10"
+__version_code__ = 51
 __api_version__ = 1
 __min_app_version__ = "0.2.5"
 __permissions__ = ["ai.complete", "ai.memory", "memory.style", "chat.read", "messages.send", "network.requests", "ui.menu", "updates.read"]
@@ -2484,43 +2484,56 @@ DEFAULT_TRIGGERS = u".ai, .аі, .аи"
 R["pending_timer_recovered"] = ("Recovered a pending reply timer", "Відновлено таймер відповіді", "Восстановлен таймер ожидающего ответа")
 R["group_burst_coalesced"] = ("Skipped older unscoped group fragments to avoid a reply burst", "Пропущено старі короткі репліки без теми, щоб не засипати групу відповідями", "Пропущены старые реплики без темы, чтобы не засыпать группу ответами")
 R.update({
-    "cloud_title": ("Memory in Neon", "Пам’ять у Neon", "Память в Neon"),
-    "cloud_consent": ("Opt-in for this private chat: sends the saved summary of the chat to your AI server's Neon database; messages themselves go only if you switch that on below. No media or full archive. Off stops it; Delete removes saved cloud data.", "Окремий дозвіл для цього особистого чату: збережений підсумок чату передається в Neon вашого AI-сервера; самі повідомлення — лише якщо ви ввімкнете це нижче. Без медіа й повного архіву. Вимкнення зупиняє; видалення очищає хмару.", "Отдельное разрешение для этого личного чата: сохранённая сводка чата передаётся в Neon вашего AI-сервера; сами сообщения — только если вы включите это ниже. Без медиа и полного архива. Выключение останавливает; удаление очищает облако."),
+    "cloud_title": ("Chat summary on the server", "Підсумок чату на сервері", "Сводка чата на сервере"),
+    "cloud_consent": ("Keeps a short summary of this chat on your AI server so the bot remembers what you talked about. The messages themselves only if you switch that on below. Shown for 7, 30 or 90 days, then deleted. You can delete it any time.", "Зберігає на вашому ШІ-сервері короткий підсумок цього чату, щоб бот пам’ятав, про що ви говорили. Самі повідомлення лише якщо ввімкнете нижче. 7, 30 або 90 днів, потім видаляється. Видалити можна будь-коли.", "Хранит на вашем ИИ-сервере краткую сводку этого чата, чтобы бот помнил, о чём вы говорили. Сами сообщения только если включите ниже. 7, 30 или 90 дней, потом удаляется. Удалить можно в любой момент."),
     "cloud_need_app": ("Requires the app update with memory support and the ai.memory permission.", "Потрібне оновлення застосунку з підтримкою пам’яті та дозвіл ai.memory.", "Нужно обновление приложения с поддержкой памяти и разрешение ai.memory."),
     "cloud_unknown_topic": ("Topic unknown: cloud memory is unavailable here until the app identifies it.", "Тема невідома: хмарна пам’ять недоступна, доки застосунок її не визначить.", "Тема неизвестна: облачная память недоступна, пока приложение её не определит."),
     "cloud_topic": ("Topic for these actions", "Тема для цих дій", "Тема для этих действий"),
     "cloud_plain": ("Ordinary chat", "Звичайний чат", "Обычный чат"),
     "cloud_topic_n": ("Topic #%s", "Тема №%s", "Тема №%s"),
     "cloud_days": ("Retention when enabling (days)", "Строк після натискання «Увімкнути» (днів)", "Срок после нажатия «Включить» (дней)"),
-    "cloud_enable": ("Enable and transfer saved private-chat memory", "Увімкнути й перенести збережену пам’ять особистого чату", "Включить и перенести сохранённую память личного чата"),
-    "cloud_off": ("Stop collection and reading", "Зупинити збір і читання", "Остановить сбор и чтение"),
-    "cloud_delete": ("Delete saved memory in Neon / retry", "Видалити пам’ять у Neon / повторити", "Удалить память в Neon / повторить"),
-    "cloud_on_status": ("On for this account and chat/topic", "Увімкнено для цього акаунта й чату/теми", "Включено для этого аккаунта и чата/темы"),
-    "cloud_off_status": ("Off; existing cloud data is retained until deletion or expiry", "Вимкнено; дані в хмарі залишаються до видалення або завершення строку", "Выключено; данные в облаке остаются до удаления или истечения срока"),
-    "cloud_working": ("Connecting; collection has not started", "Підключення; збір ще не почався", "Подключение; сбор ещё не начался"),
+    "cloud_enable": ("Turn on", "Увімкнути", "Включить"),
+    "cloud_off": ("Turn off", "Вимкнути", "Выключить"),
+    "cloud_delete": ("Delete from server", "Видалити з сервера", "Удалить с сервера"),
+    "cloud_on_status": ("On. New texts are saved", "Увімкнено. Нові тексти зберігаються", "Включено. Новые тексты сохраняются"),
+    "cloud_off_status": ("Off. What was saved stays until you delete it or it expires", "Вимкнено. Збережене лишається, доки не видалите або не мине строк", "Выключено. Сохранённое остаётся, пока не удалите или не истечёт срок"),
+    "cloud_working": ("Connecting...", "Підключення...", "Подключение..."),
     "cloud_saved": ("New text saved", "Нові тексти збережено", "Новые тексты сохранены"),
     "cloud_dropped": ("Some new text was not saved; it is not retained for hidden archive upload", "Частину нових текстів не збережено; прихованого завантаження архіву не буде", "Часть новых текстов не сохранена; скрытой загрузки архива не будет"),
-    "cloud_unavailable": ("Memory unavailable. Collection has not been enabled or this request was skipped. Check the account, server and app update.", "Пам’ять недоступна. Збір не ввімкнено або цей запит пропущено. Перевірте акаунт, сервер і оновлення застосунку.", "Память недоступна. Сбор не включён или этот запрос пропущен. Проверьте аккаунт, сервер и обновление приложения."),
-    "cloud_delete_pending": ("Collection stopped; deletion awaits confirmation. Reconnect and retry.", "Збір зупинено; видалення очікує підтвердження. Відновіть з’єднання й повторіть.", "Сбор остановлен; удаление ждёт подтверждения. Восстановите соединение и повторите."),
-    "cloud_deleted": ("Deletion confirmed by the server; collection is off", "Сервер підтвердив видалення; збір вимкнено", "Сервер подтвердил удаление; сбор выключен"),
+    "cloud_unavailable": ("Memory did not start. Check the AI server key under AI access.", "Пам’ять не запустилась. Перевірте ключ ШІ-сервера в «Доступ ШІ».", "Память не запустилась. Проверьте ключ ИИ-сервера в «Доступ ИИ»."),
+    "cloud_delete_pending": ("Stopped. Deletion is not confirmed yet: tap Delete again.", "Зупинено. Видалення ще не підтверджене: натисніть «Видалити» ще раз.", "Остановлено. Удаление ещё не подтверждено: нажмите «Удалить» ещё раз."),
+    "cloud_deleted": ("Deleted from the server. Memory is off", "Видалено з сервера. Пам’ять вимкнено", "Удалено с сервера. Память выключена"),
     "cloud_imported": ("Saved local summary transferred; new text collection is on", "Збережений локальний підсумок перенесено; збір нових текстів увімкнено", "Сохранённая локальная сводка перенесена; сбор новых текстов включён"),
-    "style_title": ("Style memory in Neon", "Пам’ять стилю в Neon", "Память стиля в Neon"),
-    "style_consent": ("Opt-in for this private chat: pairs “their message → your real reply”, how suggested replies ended and short facts about the person go to your AI server's Neon for 90 days, and similar pairs are quoted back when answering. Groups are never stored.", "Окремий дозвіл для цього особистого чату: пари «їхнє повідомлення → ваша справжня відповідь», чим закінчилися запропоновані відповіді та короткі факти про людину йдуть у Neon вашого AI-сервера на 90 днів, а схожі пари підставляються у відповідь. Групи не зберігаються ніколи.", "Отдельное разрешение для этого личного чата: пары «их сообщение → ваш настоящий ответ», чем закончились предложенные ответы и короткие факты о человеке уходят в Neon вашего AI-сервера на 90 дней, а похожие пары подставляются в ответ. Группы не сохраняются никогда."),
-    "style_enable": ("Enable style memory", "Увімкнути пам’ять стилю", "Включить память стиля"),
-    "style_off": ("Stop style memory", "Зупинити пам’ять стилю", "Остановить память стиля"),
-    "style_delete": ("Delete style memory in Neon", "Видалити пам’ять стилю в Neon", "Удалить память стиля в Neon"),
-    "style_on_status": ("Style memory: on", "Пам’ять стилю: увімкнено", "Память стиля: включена"),
-    "style_off_status": ("Style memory: off; saved data stays until deleted or expired", "Пам’ять стилю: вимкнено; збережене лишається до видалення або завершення строку", "Память стиля: выключена; сохранённое остаётся до удаления или истечения срока"),
-    "style_working": ("Style memory: connecting", "Пам’ять стилю: підключення", "Память стиля: подключение"),
-    "style_unavailable": ("Style memory unavailable: check the account, the server and the app update", "Пам’ять стилю недоступна: перевірте акаунт, сервер і оновлення застосунку", "Память стиля недоступна: проверьте аккаунт, сервер и обновление приложения"),
-    "style_delete_pending": ("Style memory stopped; deletion awaits confirmation, tap delete to retry", "Пам’ять стилю зупинено; видалення очікує підтвердження, натисніть «Видалити» ще раз", "Память стиля остановлена; удаление ждёт подтверждения, нажмите «Удалить» ещё раз"),
-    "style_deleted": ("Style memory deleted on the server", "Пам’ять стилю видалено на сервері", "Память стиля удалена на сервере"),
+    "style_title": ("How you reply (style memory)", "Як ви відповідаєте (пам’ять стилю)", "Как вы отвечаете (память стиля)"),
+    "style_consent": ("Remembers on your AI server what you answered to similar messages, plus a few facts about the person, for 90 days. Used to reply in your style. Groups are never stored.", "Запам’ятовує на вашому ШІ-сервері, що ви відповідали на схожі повідомлення, і кілька фактів про людину, 90 днів. Потрібно, щоб відповіді були у вашому стилі. Групи не зберігаються.", "Запоминает на вашем ИИ-сервере, что вы отвечали на похожие сообщения, и несколько фактов о человеке, 90 дней. Нужно, чтобы ответы были в вашем стиле. Группы не сохраняются."),
+    "style_enable": ("Turn on", "Увімкнути", "Включить"),
+    "style_off": ("Turn off", "Вимкнути", "Выключить"),
+    "style_delete": ("Delete from server", "Видалити з сервера", "Удалить с сервера"),
+    "style_on_status": ("On. Your replies are remembered", "Увімкнено. Ваші відповіді запам’ятовуються", "Включено. Ваши ответы запоминаются"),
+    "style_off_status": ("Off. What was saved stays until you delete it or it expires", "Вимкнено. Збережене лишається, доки не видалите або не мине строк", "Выключено. Сохранённое остаётся, пока не удалите или не истечёт срок"),
+    "style_working": ("Connecting...", "Підключення...", "Подключение..."),
+    "style_unavailable": ("Memory did not start. Check the AI server key under AI access.", "Пам’ять не запустилась. Перевірте ключ ШІ-сервера в «Доступ ШІ».", "Память не запустилась. Проверьте ключ ИИ-сервера в «Доступ ИИ»."),
+    "style_delete_pending": ("Stopped. Deletion is not confirmed yet: tap Delete again.", "Зупинено. Видалення ще не підтверджене: натисніть «Видалити» ще раз.", "Остановлено. Удаление ещё не подтверждено: нажмите «Удалить» ещё раз."),
+    "style_deleted": ("Deleted from the server. Memory is off", "Видалено з сервера. Пам’ять вимкнено", "Удалено с сервера. Память выключена"),
     "style_need_app": ("Style memory needs the app update with the memory.style permission.", "Пам’ять стилю потребує оновлення застосунку з дозволом memory.style.", "Память стиля требует обновления приложения с разрешением memory.style."),
-    "cloud_private_only": ("Cloud memory is for private chats only: groups are never stored in Neon.", "Хмарна пам’ять лише для особистих чатів: групи в Neon не зберігаються.", "Облачная память только для личных чатов: группы в Neon не сохраняются."),
+    "cloud_private_only": ("Server memory works only in private chats; groups are never stored.", "Пам’ять на сервері лише для особистих чатів; групи не зберігаються.", "Память на сервере только для личных чатов; группы не сохраняются."),
     "cloud_raw_off": ("Also keep the messages themselves (off)", "Зберігати й самі повідомлення (вимкнено)", "Хранить и сами сообщения (выключено)"),
     "cloud_raw_on": ("Also keep the messages themselves (on, 30 days, up to 200)", "Зберігати й самі повідомлення (увімкнено, 30 днів, до 200)", "Хранить и сами сообщения (включено, 30 дней, до 200)"),
     "cloud_raw_need": ("Enable cloud memory of this chat first.", "Спершу увімкніть хмарну пам’ять цього чату.", "Сначала включите облачную память этого чата."),
     "cloud_import_failed": ("New text collection is on, but the saved local summary was not transferred. Enable again to retry.", "Збір нових текстів увімкнено, але локальний підсумок не перенесено. Увімкніть знову, щоб повторити.", "Сбор новых текстов включён, но локальная сводка не перенесена. Включите снова, чтобы повторить."),
+    "mem_server_title": ("Memory on the server", "Пам’ять на сервері", "Память на сервере"),
+    "mem_server_note": ("Two separate memories on your AI server. Each one is switched on and deleted on its own.", "Дві окремі пам’яті на вашому ШІ-сервері. Кожна вмикається й видаляється окремо.", "Две отдельные памяти на вашем ИИ-сервере. Каждая включается и удаляется отдельно."),
+    "mem_toast_fail": ("Did not work, the reason is below", "Не вийшло, причина нижче", "Не получилось, причина ниже"),
+    "mem_r_not_owned": ("The AI server key is not linked to your Telegram account. Ask the server owner to link it.", "Ключ ШІ-сервера не прив’язаний до вашого акаунта Telegram. Попросіть власника сервера прив’язати його.", "Ключ ИИ-сервера не привязан к вашему аккаунту Telegram. Попросите владельца сервера привязать его."),
+    "mem_r_other_account": ("The key belongs to another Telegram account than this one. Use this account's own key under AI access.", "Ключ належить іншому акаунту Telegram, не цьому. Вкажіть ключ цього акаунта в «Доступ ШІ».", "Ключ принадлежит другому аккаунту Telegram, не этому. Укажите ключ этого аккаунта в «Доступ ИИ»."),
+    "mem_r_unauthorized": ("The server did not accept the key (invalid, or not linked to your Telegram). Check it under AI access.", "Сервер не прийняв ключ (недійсний або не прив’язаний до вашого Telegram). Перевірте його в «Доступ ШІ».", "Сервер не принял ключ (недействителен или не привязан к вашему Telegram). Проверьте его в «Доступ ИИ»."),
+    "mem_r_disabled": ("Memory is switched off or not ready on the server. Ask the server owner.", "Пам’ять вимкнена або ще не готова на сервері. Запитайте власника сервера.", "Память выключена или ещё не готова на сервере. Спросите владельца сервера."),
+    "mem_r_nokey": ("The AI server key is not set. Add it under AI access.", "Ключ ШІ-сервера не задано. Додайте його в «Доступ ШІ».", "Ключ ИИ-сервера не задан. Добавьте его в «Доступ ИИ»."),
+    "mem_r_starting": ("The server is waking up. Try again in a minute.", "Сервер прокидається. Спробуйте за хвилину.", "Сервер просыпается. Попробуйте через минуту."),
+    "mem_r_network": ("No connection to the server. Check the internet and try again.", "Немає зв’язку із сервером. Перевірте інтернет і спробуйте ще раз.", "Нет связи с сервером. Проверьте интернет и попробуйте ещё раз."),
+    "mem_r_limit": ("The server limit is reached. Try again later.", "Ліміт сервера вичерпано. Спробуйте пізніше.", "Лимит сервера исчерпан. Попробуйте позже."),
+    "mem_r_old": ("The server or the app does not support this memory. Update the app.", "Сервер або застосунок не підтримує цю пам’ять. Оновіть застосунок.", "Сервер или приложение не поддерживает эту память. Обновите приложение."),
+    "mem_r_perm": ("The plugin lacks a permission. Update it by hand in the store and accept the permissions.", "Плагіну бракує дозволу. Оновіть його вручну в магазині й прийміть дозволи.", "Плагину не хватает разрешения. Обновите его вручную в магазине и примите разрешения."),
 })
 R["group_topic_unavailable"] = ("Topic metadata is unavailable; keeping only the current message",
                                 "Тема недоступна; враховано лише поточне повідомлення",
@@ -2586,7 +2599,7 @@ hdr_learn|Study this chat|Вивчити цей чат|Изучить этот �
 hdr_mem_reset|Start this chat's memory over|Почати пам’ять цього чату заново|Начать память этого чата заново
 hdr_cancel|Cancel|Скасувати|Отмена
 hdr_mode_set|Mode changed|Режим змінено|Режим изменён
-mem_cloud_line|In Neon: %d of 200 messages · chats %d of 20 · kept until %s|У Neon: %d із 200 повідомлень · чатів %d із 20 · зберігається до %s|В Neon: %d из 200 сообщений · чатов %d из 20 · хранится до %s
+mem_cloud_line|On the server: %d of 200 messages · chats %d of 20 · kept until %s|На сервері: %d із 200 повідомлень · чатів %d із 20 · зберігається до %s|На сервере: %d из 200 сообщений · чатов %d из 20 · хранится до %s
 pg_xmedia|Advanced chat settings|Розширені налаштування спілкування|Расширенные настройки общения
 xmedia_note|What the AI may look at in this chat. Photos, a video frame and the voice audio go to your AI server only for this chat and only while the switch is on. Sending GIFs, voice and photos from you needs a newer app and is not available yet.|Що ШІ може дивитися в цьому чаті. Фото, кадр відео й аудіо голосових йдуть на ваш ШІ-сервер лише для цього чату й лише поки перемикач увімкнено. Надсилання GIF, голосових і фото від вас потребує новішого застосунку й поки недоступне.|Что ИИ может смотреть в этом чате. Фото, кадр видео и аудио голосовых уходят на ваш ИИ-сервер только для этого чата и только пока переключатель включён. Отправка GIF, голосовых и фото от вас требует более нового приложения и пока недоступна.
 see_video|See a frame of videos and round videos|Бачити кадр відео й кружків|Видеть кадр видео и кружков
@@ -2647,11 +2660,11 @@ mem_reset|Start the memory over|Почати пам’ять заново|Нач
 mem_reset_s|Empty summary and notes; what was said before is not summarized again. Can be undone below.|Порожній підсумок і нотатки; сказане раніше не підсумовується знову. Можна скасувати нижче.|Пустая сводка и заметки; сказанное раньше не пересказывается заново. Можно отменить ниже.
 mem_restore|Bring back the previous memory|Повернути попередню пам’ять|Вернуть прошлую память
 bl_mem_reset|Memory of this chat starts over|Пам’ять цього чату почато заново|Память этого чата начата заново
-bl_mem_reset_cloud|Memory starts over here. Memory in Neon is kept: delete it with the button below (two taps).|Пам’ять тут почато заново. Пам’ять у Neon збережено: видаліть її кнопкою нижче (два натискання).|Память здесь начата заново. Память в Neon сохранена: удалите её кнопкой ниже (два нажатия).
+bl_mem_reset_cloud|Memory starts over here. Memory on the server is kept: delete it with the button below (two taps).|Пам’ять тут почато заново. Пам’ять на сервері збережено: видаліть її кнопкою нижче (два натискання).|Память здесь начата заново. Память на сервере сохранена: удалите её кнопкой ниже (два нажатия).
 bl_mem_restored|Previous memory is back|Попередню пам’ять повернуто|Прошлая память возвращена
 bl_mem_nothing|There is no earlier memory to bring back|Немає попередньої пам’яті|Нет прошлой памяти
 bl_mem_fail|Memory storage is unavailable or full|Сховище пам’яті недоступне або заповнене|Хранилище памяти недоступно или заполнено
-mem_cloud_del|Also delete memory in Neon|Також видалити пам’ять у Neon|Также удалить память в Neon
+mem_cloud_del|Also delete memory on the server|Також видалити пам’ять на сервері|Также удалить память на сервере
 pg_talk|Conversation|Спілкування|Общение
 h_vector|Change the direction|Змінити напрямок розмови|Изменить вектор общения
 vector|How to talk from now on|Як спілкуватися далі|Как общаться дальше
@@ -6362,6 +6375,40 @@ class Plugin(BasePlugin):
         finally:
             self._cloud_network_lock.release()
 
+    # ---- 0.9.10: the server's reason for a refused memory call, in plain words. The host maps the server's fixed error
+    # code to a memory_* key: the style layer tells "key not linked to Telegram" (memory_token_not_owned) from other 403s,
+    # the v1 chat-summary calls only say memory_not_authorized (host 0.2.9 should map them the same way).
+    MEM_REASON_KEYS = {
+        "memory_token_not_owned": "mem_r_not_owned",
+        "memory_account_mismatch": "mem_r_other_account", "memory_account_required": "mem_r_other_account",
+        "memory_owner_changed": "mem_r_other_account", "memory_account_inactive": "mem_r_other_account",
+        "memory_not_authorized": "mem_r_unauthorized",
+        "memory_disabled": "mem_r_disabled", "memory_not_ready": "mem_r_disabled",
+        "memory_not_configured": "mem_r_nokey",
+        "memory_unavailable": "mem_r_starting", "memory_starting": "mem_r_starting",
+        "memory_network_error": "mem_r_network", "memory_timeout": "mem_r_network",
+        "memory_rate_limited": "mem_r_limit", "memory_daily_limit": "mem_r_limit",
+        "memory_not_supported": "mem_r_old", "memory_style_not_supported": "mem_r_old",
+    }
+
+    def _mem_reason_key(self, exc):
+        """The text key that explains an exception from a memory call; '' when nothing specific is known."""
+        if isinstance(exc, PermissionError):
+            return "mem_r_perm"
+        text = str(exc)
+        return self.MEM_REASON_KEYS.get(text, "") if re.fullmatch(r"memory_[a-z_]{1,50}", text) else ""
+
+    def _mem_reason(self, exc, account, fallback):
+        """Plain-language reason for the status line. A vague 'not authorized' from the chat-summary calls is
+        refined by asking the style status once (it reports the exact server code)."""
+        key = self._mem_reason_key(exc)
+        if key == "mem_r_unauthorized" and self._style_available():
+            try:
+                client.memory_style_status(account, timeout=5)
+            except Exception as probe:
+                key = self._mem_reason_key(probe) or key
+        return self.t(key) if key else self.t(fallback)
+
     def _cloud_action(self, key, topic, action, notify=True):
         if topic is None or not self._cloud_available():
             return
@@ -6404,6 +6451,7 @@ class Plugin(BasePlugin):
             return
         self._cloud_notes[(key, topic)] = self.t("cloud_delete_pending" if action == "delete" else "cloud_working")
         def work():
+            failed = False
             with self._cloud_network_lock:
                 try:
                     if (self._scan_stop or self._memory_owner_id(account) != owner
@@ -6446,13 +6494,15 @@ class Plugin(BasePlugin):
                         if self._cloud_state(key, topic) == record and self._memory_owner_id(account) == owner:
                             self._cloud_save(key, topic, dict(record, enabled=False, deletePending=False, deleted=True))
                             self._cloud_notes[(key, topic)] = self.t("cloud_deleted")
-                except Exception:
+                except Exception as exc:
+                    failed = True
                     if self._memory_owner_id(account) == owner and self._cloud_state(key, topic) == record:
-                        self._cloud_notes[(key, topic)] = self.t("cloud_delete_pending" if action == "delete" else "cloud_unavailable")
+                        self._cloud_notes[(key, topic)] = (self.t("cloud_delete_pending") if action == "delete"
+                                                           else self._mem_reason(exc, account, "cloud_unavailable"))
                 finally:
                     self._cloud_arm_delete_retry()
                     if notify and self._memory_owner_id(account) == owner:
-                        message = self._cloud_notes.get((key, topic), self.t("cloud_unavailable"))
+                        message = self.t("mem_toast_fail") if failed else self._cloud_notes.get((key, topic), self.t("cloud_unavailable"))
                         try:
                             client.run_on_ui(lambda text=message: client.bulletin(text))
                         except Exception:
@@ -6492,17 +6542,17 @@ class Plugin(BasePlugin):
         t, sk = self.t, self._sk(key)
         self._cloud_arm_delete_retry()
         if self._is_group(key):
-            return [Header(text=t("cloud_title")), note(t("cloud_private_only"))]
-        items = []
+            return [Header(text=t("mem_server_title")), note(t("cloud_private_only"))]
+        items = [Header(text=t("mem_server_title")), note(t("mem_server_note"))]
         if self._style_available():
             state = self._style_state(key)
+            on = self._style_active(key)
             status = self._style_notes.get(key) or t("style_delete_pending" if state.get("deletePending")
-                        else "style_on_status" if self._style_active(key) else "style_off_status")
+                        else "style_on_status" if on else "style_off_status")
             items += [Header(text=t("style_title")), note(t("style_consent")), note(status)]
-            items.append(Text(text=t("style_enable"), key="style_enable_" + sk,
-                              on_click=lambda *_a, k=key: self._style_action(k, "enable")))
-            items.append(Text(text=t("style_off"), key="style_off_" + sk,
-                              on_click=lambda *_a, k=key: self._style_action(k, "off")))
+            # one on/off switch that shows the state, and a separate two-tap delete (0.9.10)
+            items.append(Text(text=t("style_off" if on else "style_enable"), key="style_enable_" + sk,
+                              on_click=lambda *_a, k=key, o=on: self._style_action(k, "off" if o else "enable")))
             items.append(self._danger("style_delete_" + sk, "style_delete", lambda k=key: self._style_action(k, "delete")))
         else:
             items.append(note(t("style_need_app")))
@@ -6516,9 +6566,11 @@ class Plugin(BasePlugin):
         status = self._cloud_notes.get((key, topic)) or t("cloud_delete_pending" if state.get("deletePending")
                     else "cloud_on_status" if self._cloud_active(key, topic, state) else "cloud_off_status")
         items.append(note(status))
-        for action in ("enable", "off", "delete"):
-            items.append(Text(text=t("cloud_" + action), key="cloud_" + action + "_" + sk,
-                              on_click=lambda *_args, k=key, n=topic, a=action: self._cloud_action(k, n, a)))
+        cloud_on = self._cloud_active(key, topic, state)
+        items.append(Text(text=t("cloud_off" if cloud_on else "cloud_enable"), key="cloud_enable_" + sk,
+                          on_click=lambda *_args, k=key, n=topic, o=cloud_on: self._cloud_action(k, n, "off" if o else "enable")))
+        items.append(self._danger("cloud_delete_" + sk, "cloud_delete",
+                                  lambda k=key, n=topic: self._cloud_action(k, n, "delete")))
         raw_on = self._cloud_active(key, topic, state) and state.get("raw") is True
         items.append(Text(text=t("cloud_raw_on" if raw_on else "cloud_raw_off"), key="cloud_raw_" + sk,
                           on_click=lambda *_a, k=key: self._cloud_raw_toggle(k)))
@@ -6617,6 +6669,7 @@ class Plugin(BasePlugin):
         self._style_notes[key] = self.t("style_delete_pending" if action == "delete" else "style_working")
 
         def work():
+            failed = False
             with self._cloud_network_lock:
                 try:
                     if self._scan_stop or self._memory_owner_id(account) != owner or self._style_state(key) != dict(record, ownerId=str(owner)):
@@ -6644,11 +6697,13 @@ class Plugin(BasePlugin):
                         if self._style_state(key) == dict(record, ownerId=str(owner)):
                             self._style_save(key, dict(record, deletePending=False, deleted=True, binding=binding))
                             self._style_notes[key] = self.t("style_deleted")
-                except Exception:
+                except Exception as exc:
+                    failed = True
                     if self._memory_owner_id(account) == owner:
-                        self._style_notes[key] = self.t("style_delete_pending" if action == "delete" else "style_unavailable")
+                        self._style_notes[key] = (self.t("style_delete_pending") if action == "delete"
+                                                  else self._mem_reason(exc, account, "style_unavailable"))
                 finally:
-                    message = self._style_notes.get(key, self.t("style_unavailable"))
+                    message = self.t("mem_toast_fail") if failed else self._style_notes.get(key, self.t("style_unavailable"))
                     try:
                         client.run_on_ui(lambda text=message: client.bulletin(text))
                     except Exception:
